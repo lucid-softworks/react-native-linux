@@ -70,21 +70,30 @@ provision:
       #!/bin/bash
       set -euxo pipefail
       export DEBIAN_FRONTEND=noninteractive
+
+      # Add the NodeSource Node 20.x repo BEFORE the big apt install,
+      # so the `nodejs` package is the v20 LTS our pnpm 9.x needs
+      # (Ubuntu 24.04's default `nodejs` is v18, which Corepack now
+      # refuses).
       apt-get update
+      apt-get install -y --no-install-recommends curl ca-certificates gnupg
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+
       apt-get install -y --no-install-recommends \
         build-essential cmake ninja-build pkg-config \
         clang clang-format clang-tidy \
-        git curl ca-certificates \
+        git \
         libgtk-4-dev libglib2.0-dev \
         python3 python3-pip \
         xvfb tigervnc-standalone-server tigervnc-common \
         xfce4 xfce4-terminal dbus-x11 \
         fonts-noto-core fonts-noto-color-emoji \
         gnome-themes-extra \
-        nodejs npm \
+        nodejs \
         less file unzip
-      # corepack + pnpm
-      npm install -g corepack@latest
+      # corepack ships with node 20; force-activate pnpm@9.12.0 so
+      # `pnpm <cmd>` inside the repo uses the same version CI does.
+      npm install -g corepack@latest || true
       corepack enable
       corepack prepare pnpm@9.12.0 --activate
 
