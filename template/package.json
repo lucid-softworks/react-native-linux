@@ -11,13 +11,13 @@
   "dependencies": {
     "react": "18.3.1",
     "react-native": "^0.76.0",
-    "@lucid-softworks/react-native-linux": "*"
+    "@lucid-softworks/react-native-linux": "workspace:*"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@babel/preset-env": "^7.24.0",
     "@babel/runtime": "^7.24.0",
-    "@lucid-softworks/react-native-linux-cli": "*",
+    "@lucid-softworks/react-native-linux-cli": "workspace:*",
     "@react-native/babel-preset": "^0.76.0",
     "@react-native/metro-config": "^0.76.0",
     "@types/react": "^18.2.0",
