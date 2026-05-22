@@ -14,7 +14,15 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(REACT_NATIVE_LINUX_BUILD_TESTS "Build vnext unit tests" OFF)
 option(REACT_NATIVE_LINUX_USE_SYSTEM_HERMES "Use system-installed Hermes instead of FetchContent" OFF)
-option(REACT_NATIVE_LINUX_ENABLE_INSPECTOR "Enable Hermes Chrome inspector" ON)
+# Hermes' CDP (Chrome DevTools Protocol) sources at the RN 0.76.2 commit
+# fail to build against GCC 13 / libstdc++ 13 (the Ubuntu 24.04 stack)
+# with "incomplete type std::__cxx11::basic_string<char>" errors in
+# cdp/DomainState.cpp — Hermes was developed against an older libstdc++
+# that transitively included <string>. Default the inspector OFF on
+# Linux until we land a patch (or bump Hermes past that fix). Opt back
+# in with -DREACT_NATIVE_LINUX_ENABLE_INSPECTOR=ON once the patch is
+# upstream.
+option(REACT_NATIVE_LINUX_ENABLE_INSPECTOR "Enable Hermes Chrome inspector" OFF)
 
 # ------------------------------------------------------------------
 # Dependencies
