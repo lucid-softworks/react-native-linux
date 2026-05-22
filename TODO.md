@@ -229,9 +229,9 @@ Decisions locked in (2026-05-21):
 
 ### 7.3 — Integration / e2e
 
-- [ ] `xvfb-run` harness for headless GTK4.
-- [ ] Take screenshot via `gdk_window_get_pixbuf` or `grim` (Wayland) and diff against golden.
-- [ ] Smoke test: boot playground, assert window opens + text visible.
+- [x] `xvfb-run` harness for headless GTK4 (`scripts/test/e2e.sh`).
+- [x] Screenshot via ImageMagick `import -window root` + optional `compare`-based diff against a golden (fuzz tolerance + pixel threshold configurable).
+- [ ] Smoke test gate in CI — flips on once the playground actually builds. Today the harness is callable from inside the Lima VM but not wired into the workflow.
 
 ### 7.4 — CI
 
