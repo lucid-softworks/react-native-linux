@@ -67,24 +67,24 @@ Decisions locked in (2026-05-21):
 
 ## Phase 3 — CLI package (`packages/@lucid-softworks/cli`)
 
-- [ ] `package.json` depending on `@react-native-community/cli-types`.
-- [ ] `src/index.ts` exporting `commands`, `platforms` for RN CLI config.
-- [ ] Commands:
-  - [ ] `run-linux` — cmake configure + build + launch executable.
-    - [ ] `--release` flag
-    - [ ] `--no-packager` flag
-    - [ ] `--build-dir` flag
-  - [ ] `bundle-linux` — wraps Metro with `platform=linux`.
-  - [ ] `init-linux` — bootstraps a Linux project inside an existing RN app (idempotent).
-  - [ ] `log-linux` — tail journalctl / app's stderr log file.
-  - [ ] `autolink-linux` — generate CMake includes for linked native deps.
-- [ ] Platform registration object (`platforms.linux`).
-- [ ] Dependency-config schema for third-party native modules:
-  - [ ] CMake target name
-  - [ ] Sourceset path
-  - [ ] Include dirs
-- [ ] Tests (jest + ts-jest).
-- [ ] Help text / `--help` output for each command.
+- [x] `package.json` depending on `@react-native-community/cli-types`.
+- [x] `src/index.ts` exporting `commands`, `platforms` for RN CLI config.
+- [x] Commands:
+  - [x] `run-linux` — cmake configure + build + launch executable.
+    - [x] `--release` flag
+    - [x] `--no-packager` flag
+    - [x] `--build-dir` flag
+  - [x] `bundle-linux` — wraps Metro with `platform=linux`.
+  - [x] `init-linux` — bootstraps a Linux project inside an existing RN app (idempotent).
+  - [x] `log-linux` — tail journalctl / app's stderr log file.
+  - [x] `autolink-linux` — generate CMake includes for linked native deps.
+- [x] Platform registration object (`platforms.linux`).
+- [x] Dependency-config schema for third-party native modules:
+  - [x] CMake target name
+  - [x] Sourceset path
+  - [ ] Include dirs (deferred; not currently propagated through the generated `autolinked.cmake`).
+- [x] Tests (jest + ts-jest).
+- [ ] Help text / `--help` output for each command (covered by RN CLI; each command's `description` + `options[].description` populate `--help` automatically — verify once first end-to-end run lands).
 
 ## Phase 4 — Template (`template/`)
 

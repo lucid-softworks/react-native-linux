@@ -19,8 +19,15 @@ endif()
 
 add_subdirectory(${REACT_NATIVE_LINUX_DIR} react_native_linux_build)
 
+# Pulled in by `react-native autolink-linux` — lists third-party native
+# modules and their CMake targets. Safe to ignore when no modules are
+# linked.
+include(${CMAKE_CURRENT_SOURCE_DIR}/build/autolinked.cmake OPTIONAL)
+
 add_executable(rn-linux-app main.cpp)
-target_link_libraries(rn-linux-app PRIVATE react_native_linux)
+target_link_libraries(rn-linux-app PRIVATE
+  react_native_linux
+  ${RN_LINUX_AUTOLINKED_TARGETS})
 target_compile_features(rn-linux-app PRIVATE cxx_std_20)
 
 # Copy the JS bundle next to the executable for offline runs.
