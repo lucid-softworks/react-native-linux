@@ -196,8 +196,8 @@ Decisions locked in (2026-05-21):
 ### 5.7 — Logging + diagnostics
 
 - [ ] `LinuxLogger` wired into `LogBox` JS-side via `RCTLog` equivalent.
-- [ ] stderr backend by default; opt-in journald via `libsystemd` (link conditionally).
-- [ ] Crash handler (`std::set_terminate` + backtrace via `libunwind` or `<execinfo.h>`).
+- [x] stderr backend by default (`src/Logging.cpp`). Opt-in journald via `libsystemd` still pending.
+- [x] Crash handler (`std::set_terminate` + `sigaction` for SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS, backtrace via `<execinfo.h>`). Installed automatically by `RNLinuxApplication`.
 
 ### 5.8 — DevTools / DX
 

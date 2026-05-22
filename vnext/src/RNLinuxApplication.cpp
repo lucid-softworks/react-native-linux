@@ -1,4 +1,5 @@
 #include "react-native-linux/RNLinuxApplication.h"
+#include "react-native-linux/CrashHandler.h"
 #include "react-native-linux/Logging.h"
 
 #include "fabric/LinuxMountingManager.h"
@@ -60,6 +61,9 @@ void onShutdown(GtkApplication*, gpointer userData) {
 
 RNLinuxApplication::RNLinuxApplication(RNLinuxHost::Config config)
     : impl_(std::make_unique<Impl>()) {
+  // Install before any work — we want a usable backtrace if the runtime
+  // itself crashes during ctor / GTK init.
+  installCrashHandler();
   impl_->config = std::move(config);
 }
 

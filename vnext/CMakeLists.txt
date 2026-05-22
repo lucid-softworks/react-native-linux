@@ -41,12 +41,14 @@ set(RNL_PUBLIC_HEADERS
   include/react-native-linux/RNLinuxApplication.h
   include/react-native-linux/RNLinuxHost.h
   include/react-native-linux/Logging.h
+  include/react-native-linux/CrashHandler.h
 )
 
 set(RNL_SOURCES
   src/RNLinuxApplication.cpp
   src/RNLinuxHost.cpp
   src/Logging.cpp
+  src/CrashHandler.cpp
   src/fabric/LinuxComponentDescriptorRegistry.cpp
   src/fabric/LinuxSchedulerDelegate.cpp
   src/fabric/LinuxMountingManager.cpp
