@@ -1,0 +1,5 @@
+packages:
+  - 'packages/*'
+  - 'packages/@react-native-linux/*'
+  - 'template'
+  - 'apps/*'

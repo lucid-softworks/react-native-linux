@@ -78,7 +78,7 @@ export const runLinux: Command = {
     if (!opts.noPackager) {
       console.log(chalk.cyan(`▸ Metro should be running on :${opts.packagerPort}`));
       console.log(
-        chalk.gray('  (start it separately with `yarn start --port ' + opts.packagerPort + '` if not already running)'),
+        chalk.gray('  (start it separately with `pnpm start --port ' + opts.packagerPort + '` if not already running)'),
       );
     }
 

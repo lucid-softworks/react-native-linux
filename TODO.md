@@ -16,7 +16,7 @@ Decisions locked in (2026-05-21):
 ## Phase 0 — Decisions to lock before writing code
 
 - [ ] Pin react-native peer dep version (suggest `^0.76`). Verify Hermes builds cleanly on Ubuntu 24.04 from that tag.
-- [ ] Pick package manager: **yarn 3 (berry)** to match RNW, or **pnpm** for speed. RNW uses yarn — recommend matching.
+- [x] Pick package manager: **pnpm 9** (chosen 2026-05-22 over yarn 3; faster + simpler workspace model).
 - [ ] npm scope: `@react-native-linux/*`? Or unscoped `react-native-linux`? RNW uses both (`react-native-windows` core + `@react-native-windows/cli`). Mirror that.
 - [ ] License: MIT (matches RN + RNW). Add `LICENSE` and copyright header policy.
 - [ ] Author/org metadata for `package.json` files.
@@ -314,4 +314,4 @@ In rough priority order:
 8. Wire Metro reload (4 hours).
 9. CI green on ubuntu-24.04 (4 hours).
 
-End of week-1 success criterion: `cd template && yarn install && yarn react-native run-linux` opens a window saying "Hello from React Native on Linux".
+End of week-1 success criterion: `cd template && pnpm install && pnpm react-native run-linux` opens a window saying "Hello from React Native on Linux".

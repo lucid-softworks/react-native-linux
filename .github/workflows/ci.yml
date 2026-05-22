@@ -14,14 +14,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: yarn
-      - run: corepack enable
-      - run: yarn install --immutable
-      - run: yarn typecheck
-      - run: yarn lint
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
 
   configure-vnext:
     runs-on: ubuntu-24.04
@@ -37,17 +39,19 @@ jobs:
             libglib2.0-dev \
             python3 python3-pip
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: yarn
-      - run: corepack enable
-      - run: yarn install --immutable
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
       - name: Install template deps (provides node_modules/react-native)
         working-directory: template
         run: |
-          yarn install --no-immutable
+          pnpm install --no-frozen-lockfile
 
       - name: Cache CMake FetchContent _deps
         uses: actions/cache@v4
