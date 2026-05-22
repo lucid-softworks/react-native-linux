@@ -223,8 +223,8 @@ Decisions locked in (2026-05-21):
 
 ### 7.2 — Native-side
 
-- [ ] GoogleTest under `vnext/tests/`.
-- [ ] CMake `add_test` integration with `ctest`.
+- [x] GoogleTest under `vnext/tests/` — fetched via FetchContent v1.15.2; first test in `ComponentViewRegistryTest.cpp`.
+- [x] CMake `add_test` integration with `ctest` — via `gtest_discover_tests`, gated by `-DREACT_NATIVE_LINUX_BUILD_TESTS=ON`.
 - [ ] Coverage: lcov + report on CI.
 
 ### 7.3 — Integration / e2e
