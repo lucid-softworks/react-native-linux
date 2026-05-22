@@ -36,7 +36,7 @@ Decisions locked in (2026-05-21):
 - [x] `CODEOWNERS`.
 - [x] Pre-commit: husky + lint-staged running eslint + prettier + clang-format on staged files.
 - [x] Commit-message convention (Conventional Commits, documented in `CONTRIBUTING.md`). Replacing `changesets` with `release-please` (already configured in `release-please-config.json`).
-- [ ] Dependabot config (`.github/dependabot.yml`).
+- [x] Dependabot config (`.github/dependabot.yml`) — weekly npm + GitHub Actions, grouped (eslint, typescript, jest, react-native).
 - [x] Top-level `README.md` with quick-start + repo layout (architecture diagram lives in `docs/architecture.md`).
 - [x] `docs/` directory:
   - [x] `docs/architecture.md`

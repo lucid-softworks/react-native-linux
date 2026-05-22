@@ -1,0 +1,47 @@
+version: 2
+
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: 'chore'
+      include: 'scope'
+    labels:
+      - 'dependencies'
+      - 'javascript'
+    groups:
+      eslint:
+        patterns:
+          - 'eslint*'
+          - '@typescript-eslint/*'
+          - '@react-native/eslint-config'
+      typescript:
+        patterns:
+          - 'typescript'
+          - 'ts-jest'
+          - '@types/*'
+      jest:
+        patterns:
+          - 'jest*'
+          - 'babel-jest'
+      react-native:
+        patterns:
+          - 'react-native*'
+          - '@react-native/*'
+          - '@react-native-community/*'
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    commit-message:
+      prefix: 'ci'
+      include: 'scope'
+    labels:
+      - 'dependencies'
+      - 'github-actions'
