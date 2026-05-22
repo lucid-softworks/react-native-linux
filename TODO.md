@@ -48,22 +48,22 @@ Decisions locked in (2026-05-21):
   - [ ] `docs/component-support.md` (matrix)
   - [ ] `docs/troubleshooting.md`
 
-## Phase 2 — JS package (`packages/react-native-linux`)
+## Phase 2 — JS package (`packages/@lucid-softworks/react-native-linux`)
 
-- [ ] `package.json`:
-  - [ ] `peerDependencies`: `react`, `react-native`
-  - [ ] `main: index.js`
-  - [ ] `react-native.config.js` for autolinking + platform registration
-- [ ] `index.js` re-exports RN core + Linux-specific extensions.
-- [ ] `Libraries/Utilities/Platform.linux.js` setting `Platform.OS = 'linux'`.
-- [ ] `Libraries/Components/View/View.linux.js` (native host component, codegen).
-- [ ] `Libraries/Components/Text/Text.linux.js`.
-- [ ] `Libraries/Components/UnimplementedViews/UnimplementedNativeView.linux.js`.
-- [ ] `Libraries/AppRegistry/AppRegistry.linux.js` shim (or rely on stock).
-- [ ] Codegen specs (`*NativeComponent.js`) for View, Text.
-- [ ] TypeScript types (`index.d.ts`) re-exporting RN types with linux-only additions.
-- [ ] Jest setup (`jest.config.js`) + `jest-preset` so consumers can run tests.
-- [ ] Snapshot of supported APIs vs RN core (table in docs/).
+- [x] `package.json`:
+  - [x] `peerDependencies`: `react`, `react-native`
+  - [x] `main: index.js`
+  - [x] `react-native.config.js` for autolinking + platform registration
+- [x] `index.js` re-exports RN core + Linux-specific extensions.
+- [x] `Libraries/Utilities/Platform.linux.js` setting `Platform.OS = 'linux'`.
+- [x] `Libraries/Components/View/View.linux.js` (native host component, codegen).
+- [x] `Libraries/Components/Text/Text.linux.js`.
+- [x] `Libraries/Components/UnimplementedViews/UnimplementedNativeView.linux.js`.
+- [ ] `Libraries/AppRegistry/AppRegistry.linux.js` shim — decided: rely on stock for now.
+- [x] Codegen specs (`*NativeComponent.{ts,js}`) for View, Text.
+- [x] TypeScript types (`index.d.ts`) re-exporting RN types with linux-only additions.
+- [x] Jest setup (`jest.config.js`) + `jest-preset` so consumers can run tests.
+- [x] Snapshot of supported APIs vs RN core (table in [docs/component-support.md](./docs/component-support.md)).
 
 ## Phase 3 — CLI package (`packages/@lucid-softworks/cli`)
 
