@@ -31,7 +31,11 @@ set(HERMES_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
 set(HERMES_BUILD_APPLE_DSYM OFF CACHE BOOL "" FORCE)
 set(HERMES_ENABLE_DEBUGGER ${REACT_NATIVE_LINUX_ENABLE_INSPECTOR} CACHE BOOL "" FORCE)
 set(HERMES_ENABLE_TEST_SUITE OFF CACHE BOOL "" FORCE)
-set(HERMES_ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
+# HERMES_ENABLE_TOOLS=ON is required at build time even though we don't
+# ship hermesc/hbcdump: Hermes pre-compiles `InternalBytecode` at build
+# time using its own hermesc, and the rule fails with a missing-rule
+# ninja error when tools are disabled.
+set(HERMES_ENABLE_TOOLS ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(hermes)
 
