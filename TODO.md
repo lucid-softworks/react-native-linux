@@ -317,7 +317,9 @@ What's in the tree, ready to build on:
 Gating items for "MVP working":
 
 1. ~~Boot the Lima dev VM~~ ✅ (2026-05-22 — `scripts/vm/start.sh`).
-2. ~~First `cmake --build vnext/build` finishes~~ ✅ (2026-05-22 — libreact_native_linux.so links). Our Fabric stubs link because they reference RN types only through forward declarations; the next wave (real ReactInstance, Scheduler, ComponentDescriptors) is where the stubs get filled in.
-3. First `apps/playground/linux/build/rn-linux-playground` window appears.
-4. `scripts/test/e2e.sh` captures a non-empty screenshot.
-5. Wire that screenshot diff as a hard gate in CI.
+2. ~~First `cmake --build vnext/build` finishes~~ ✅ (2026-05-22 — libreact_native_linux.so links).
+3. ~~Playground binary runs end-to-end against a JS bundle~~ ✅ (2026-05-22 — Hermes evaluates `print("hello…")` under xvfb; GTK window constructs, RNLinuxHost spins up, BundleLoader file:// works, jsi::Runtime::evaluateJavaScript returns clean).
+4. Real RN bundle (via Metro or `react-native bundle`) — blocked on the pnpm hoist / RN CLI plugin discovery issue (`react-native bundle` not registered when invoked from a hoisted workspace).
+5. First **visible** `<View><Text>` driven by Fabric — Phase 5.3 work (Scheduler + descriptors + mounting).
+6. `scripts/test/e2e.sh` captures a non-empty screenshot of that.
+7. Wire that screenshot diff as a hard gate in CI.

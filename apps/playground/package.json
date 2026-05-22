@@ -23,6 +23,7 @@
     "@babel/preset-env": "^7.24.0",
     "@babel/runtime": "^7.24.0",
     "@lucid-softworks/react-native-linux-cli": "workspace:*",
+    "@react-native-community/cli": "^15.0.0",
     "@react-native/babel-preset": "^0.76.0",
     "@react-native/metro-config": "^0.76.0",
     "@types/react": "^18.2.0",
