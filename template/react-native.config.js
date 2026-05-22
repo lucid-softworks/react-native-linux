@@ -1,7 +1,7 @@
 module.exports = {
   platforms: {
     linux: {
-      // Provided by @react-native-linux/cli.
+      // Provided by @lucid-softworks/react-native-linux-cli.
     },
   },
   project: {

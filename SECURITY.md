@@ -28,7 +28,7 @@ In scope:
   JS-to-native interface).
 - The JS packages in `packages/*` (prototype pollution, supply-chain risks in
   declared dependencies).
-- The CLI in `packages/@react-native-linux/cli` (command-injection in shelled
+- The CLI in `packages/@lucid-softworks/cli` (command-injection in shelled
   subprocesses, template-copy traversal bugs).
 
 Out of scope:

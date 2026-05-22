@@ -23,7 +23,7 @@ sudo apt install -y \
 ```sh
 npx @react-native-community/cli init MyApp
 cd MyApp
-pnpm add -D react-native-linux @react-native-linux/cli
+pnpm add -D @lucid-softworks/react-native-linux @lucid-softworks/react-native-linux-cli
 pnpm react-native init-linux
 pnpm react-native run-linux
 ```

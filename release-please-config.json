@@ -9,14 +9,14 @@
   "separate-pull-requests": false,
   "plugins": ["node-workspace"],
   "packages": {
-    "packages/react-native-linux": {
-      "package-name": "react-native-linux",
+    "packages/@lucid-softworks/react-native-linux": {
+      "package-name": "@lucid-softworks/react-native-linux",
       "release-type": "node",
-      "extra-files": ["../../vnext/CMakeLists.txt"],
+      "extra-files": ["../../../vnext/CMakeLists.txt"],
       "changelog-path": "CHANGELOG.md"
     },
-    "packages/@react-native-linux/cli": {
-      "package-name": "@react-native-linux/cli",
+    "packages/@lucid-softworks/cli": {
+      "package-name": "@lucid-softworks/react-native-linux-cli",
       "release-type": "node",
       "changelog-path": "CHANGELOG.md"
     }

@@ -17,8 +17,8 @@ Decisions locked in (2026-05-21):
 
 - [ ] Pin react-native peer dep version (suggest `^0.76`). Verify Hermes builds cleanly on Ubuntu 24.04 from that tag.
 - [x] Pick package manager: **pnpm 9** (chosen 2026-05-22 over yarn 3; faster + simpler workspace model).
-- [ ] npm scope: `@react-native-linux/*`? Or unscoped `react-native-linux`? RNW uses both (`react-native-windows` core + `@react-native-windows/cli`). Mirror that.
-- [ ] License: MIT (matches RN + RNW). Add `LICENSE` and copyright header policy.
+- [x] npm scope: `@lucid-softworks/*` (chosen 2026-05-22). All packages live under that scope: `@lucid-softworks/react-native-linux`, `@lucid-softworks/react-native-linux-cli`.
+- [x] License: MIT (chosen 2026-05-22). `LICENSE` is present; copyright-header policy: not required (use SPDX `// SPDX-License-Identifier: MIT` only if a contributor opts in).
 - [ ] Author/org metadata for `package.json` files.
 - [ ] CI provider: GitHub Actions. Confirm Linux-only runners are sufficient.
 - [ ] Distro support matrix: at minimum Ubuntu 22.04 LTS + 24.04 LTS. Stretch: Fedora 40, Arch.
@@ -65,7 +65,7 @@ Decisions locked in (2026-05-21):
 - [ ] Jest setup (`jest.config.js`) + `jest-preset` so consumers can run tests.
 - [ ] Snapshot of supported APIs vs RN core (table in docs/).
 
-## Phase 3 — CLI package (`packages/@react-native-linux/cli`)
+## Phase 3 — CLI package (`packages/@lucid-softworks/cli`)
 
 - [ ] `package.json` depending on `@react-native-community/cli-types`.
 - [ ] `src/index.ts` exporting `commands`, `platforms` for RN CLI config.

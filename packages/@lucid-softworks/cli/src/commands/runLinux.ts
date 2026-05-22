@@ -40,7 +40,7 @@ export const runLinux: Command = {
     const platform = ctx.platforms.linux;
     if (!platform) {
       throw new Error(
-        'linux platform is not configured. Did you forget to add @react-native-linux/cli to your project?',
+        'linux platform is not configured. Did you forget to add @lucid-softworks/react-native-linux-cli to your project?',
       );
     }
     const projCfg = (ctx.project as any).linux as

@@ -8,7 +8,7 @@ export const commands = [runLinux, bundleLinux, initLinux, logLinux];
 
 export const platforms = {
   linux: {
-    npmPackageName: 'react-native-linux',
+    npmPackageName: '@lucid-softworks/react-native-linux',
     projectConfig,
     dependencyConfig,
   },

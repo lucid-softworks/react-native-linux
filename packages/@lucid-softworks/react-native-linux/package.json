@@ -1,5 +1,5 @@
 {
-  "name": "react-native-linux",
+  "name": "@lucid-softworks/react-native-linux",
   "version": "0.0.1",
   "description": "React Native for Linux desktop (GTK4 + Hermes + Fabric)",
   "license": "MIT",

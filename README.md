@@ -22,9 +22,9 @@ structurally modeled after
 
 ```
 react-native-linux/
-├── packages/
+├── packages/@lucid-softworks/
 │   ├── react-native-linux/          # JS-side npm package (Platform shim, components)
-│   └── @react-native-linux/cli/     # CLI plugin: run-linux, bundle-linux, init
+│   └── cli/                         # CLI plugin: run-linux, bundle-linux, init-linux
 ├── vnext/                           # Native C++ runtime (CMake)
 │   ├── include/react-native-linux/  # Public headers
 │   ├── src/                         # Implementation
@@ -55,7 +55,7 @@ react-native-linux/
 
 ```sh
 # In an existing RN app
-pnpm add -D react-native-linux @react-native-linux/cli
+pnpm add -D @lucid-softworks/react-native-linux @lucid-softworks/react-native-linux-cli
 pnpm react-native init-linux
 pnpm react-native run-linux
 ```

@@ -8,7 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Locate the react-native-linux native runtime. By default we expect a sibling
 # checkout via node_modules, but consumers can override REACT_NATIVE_LINUX_DIR.
 if(NOT DEFINED REACT_NATIVE_LINUX_DIR)
-  set(REACT_NATIVE_LINUX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../node_modules/react-native-linux/vnext")
+  set(REACT_NATIVE_LINUX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../node_modules/@lucid-softworks/react-native-linux/vnext")
 endif()
 
 if(NOT EXISTS "${REACT_NATIVE_LINUX_DIR}/CMakeLists.txt")

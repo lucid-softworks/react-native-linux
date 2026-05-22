@@ -1,5 +1,4 @@
 packages:
-  - 'packages/*'
-  - 'packages/@react-native-linux/*'
+  - 'packages/@lucid-softworks/*'
   - 'template'
   - 'apps/*'

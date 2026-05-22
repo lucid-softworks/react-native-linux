@@ -1,4 +1,4 @@
 {
-  "packages/react-native-linux": "0.0.1",
-  "packages/@react-native-linux/cli": "0.0.1"
+  "packages/@lucid-softworks/react-native-linux": "0.0.1",
+  "packages/@lucid-softworks/cli": "0.0.1"
 }
