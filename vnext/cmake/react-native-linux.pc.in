@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: react-native-linux
+Description: React Native for Linux native runtime (GTK4 + Hermes + Fabric)
+URL: https://github.com/lucid-softworks/react-native-linux
+Version: @PROJECT_VERSION@
+Requires: gtk4
+Libs: -L${libdir} -lreact_native_linux
+Cflags: -I${includedir}

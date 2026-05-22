@@ -122,6 +122,14 @@ install(EXPORT react_native_linuxTargets
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/react_native_linux
 )
 
+# pkg-config descriptor for non-CMake consumers.
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/react-native-linux.pc.in
+  ${CMAKE_CURRENT_BINARY_DIR}/react-native-linux.pc
+  @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/react-native-linux.pc
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
 if(REACT_NATIVE_LINUX_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
