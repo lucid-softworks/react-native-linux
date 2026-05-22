@@ -245,8 +245,8 @@ Decisions locked in (2026-05-21):
 
 ## Phase 8 — Distribution
 
-- [ ] `npm publish` workflow on tag push.
-- [ ] Versioning policy (track RN minor versions? Independent?). Document.
+- [x] `npm publish` workflow on tag push (`publish` job in `release-please.yml`, with npm provenance + `paths_released` filter so we only publish bumped packages). Needs `NPM_TOKEN` repo secret.
+- [x] Versioning policy (`docs/versioning.md`): track RN minor versions — `0.X.Y` where `X` mirrors the targeted RN minor.
 - [x] AppImage packaging (linuxdeploy + appimagetool) — `scripts/package/appimage.sh`. Fetches the tools on demand, stages an AppDir, and emits a single-file AppImage. Linux-only (use the Lima dev VM on macOS).
 - [ ] Flatpak manifest (`org.reactnative.Linux.Sample.yaml`) — stretch.
 - [ ] Debian package (.deb) — stretch.

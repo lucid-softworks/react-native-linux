@@ -1,10 +1,12 @@
 name: release-please
 
-# release-please watches main for Conventional Commits and opens / updates a
-# release PR. Merging the release PR creates GitHub Releases and tags for any
-# bumped packages. npm publish is intentionally NOT wired up yet — see
-# TODO.md Phase 8 (distribution) for the work that has to land first
-# (vnext source layout for npm, NPM_TOKEN secret, provenance config).
+# release-please watches main for Conventional Commits and opens / updates
+# a release PR. Merging the release PR creates GitHub Releases and tags
+# for any bumped packages, then this workflow publishes them to npm with
+# provenance.
+#
+# Required repo secret: NPM_TOKEN — an automation token from the
+# Lucid Softworks npm org with publish rights on @lucid-softworks/*.
 
 on:
   push:
@@ -13,13 +15,48 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write # required for npm provenance attestations
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run build
+
+      - name: Publish bumped packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # paths_released is a JSON array of workspace dirs that just got
+          # a new tag. Publish only those, with provenance.
+          paths='${{ needs.release-please.outputs.paths_released }}'
+          echo "Releasing paths: $paths"
+          for dir in $(printf '%s' "$paths" | python3 -c "import json,sys; print(' '.join(json.load(sys.stdin)))"); do
+            echo "▸ Publishing $dir"
+            pnpm --filter "./$dir" publish --access public --provenance --no-git-checks
+          done
