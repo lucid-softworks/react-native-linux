@@ -24,9 +24,52 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm lint:format
+      - run: pnpm test
+
+  lint-cpp:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format
+      - name: Check C++ formatting
+        run: |
+          # Same find command as `pnpm lint:cpp`, kept in sync.
+          find vnext template/linux -name '*.cpp' -o -name '*.h' \
+            | xargs clang-format --dry-run --Werror
+
+  autolink-drift:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install template deps (so RN CLI can resolve)
+        working-directory: template
+        run: pnpm install --no-frozen-lockfile
+      - name: Check autolink output is in sync
+        working-directory: template
+        # Until the CLI is `tsc`-built, this is a smoke test — it will fail
+        # cleanly if the JS surface drifts (autolink-linux missing,
+        # unexpected new dependency declared). Once Phase 6 lands a real
+        # playground with native deps, this becomes a hard gate.
+        run: pnpm exec react-native autolink-linux --check || true
 
   configure-vnext:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +100,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vnext/build/_deps
-          key: vnext-deps-${{ runner.os }}-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
+          key: vnext-deps-${{ matrix.os }}-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
 
       - name: Configure vnext
         run: |

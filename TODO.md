@@ -236,12 +236,12 @@ Decisions locked in (2026-05-21):
 ### 7.4 — CI
 
 - [x] GitHub Actions workflow `.github/workflows/ci.yml`:
-  - [ ] Matrix: ubuntu-22.04, ubuntu-24.04 (currently only ubuntu-24.04).
+  - [x] Matrix: ubuntu-22.04, ubuntu-24.04 (`configure-vnext` job).
   - [x] Install GTK4 + Hermes build deps
   - [ ] Configure + build + test — configure-only for now (full build blocked on Fabric headers).
   - [x] Cache `vnext/build/_deps` and Hermes build output
-- [ ] Lint workflow (eslint runs in `lint-js`; prettier + clang-format + clang-tidy still pending).
-- [ ] Codegen drift check.
+- [x] Lint workflow: `lint-js` (eslint + prettier + jest), `lint-cpp` (clang-format --dry-run --Werror). clang-tidy still pending — needs a successful build first.
+- [x] Codegen drift check via `react-native autolink-linux --check` in the `autolink-drift` job. Currently non-fatal; flips to a hard gate once Phase 6 introduces native deps.
 
 ## Phase 8 — Distribution
 
