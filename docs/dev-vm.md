@@ -11,7 +11,7 @@ The VM provides:
 - The full GTK4 + Hermes build toolchain.
 - TigerVNC + Xfce so you can **see** the app you're building. Connect from
   macOS's built-in `vnc://` viewer.
-- The repo bind-mounted at `~/react-native-linux` — edits on macOS show up
+- The repo bind-mounted at `/workspaces/react-native-linux` — edits on macOS show up
   inside the VM immediately, no sync step.
 
 ## Disk-space reality check
@@ -65,7 +65,7 @@ To run the sample app from inside the VNC session:
 
 ```sh
 # In a terminal inside Xfce
-cd ~/react-native-linux
+cd /workspaces/react-native-linux
 pnpm install
 pnpm cmake:configure
 pnpm cmake:build               # currently does NOT yet succeed end-to-end
@@ -129,7 +129,7 @@ have failed. Check it:
 edit the YAML to allocate more memory.
 
 **Mount looks empty inside the VM** — sshfs mounts initialize on first
-access; `cd ~/react-native-linux && ls` should populate it. If still empty,
+access; `cd /workspaces/react-native-linux && ls` should populate it. If still empty,
 `limactl stop && limactl start` re-runs the mount.
 
 **VM won't fit** — drop the `disk: "30GiB"` to `"20GiB"` *before* the first

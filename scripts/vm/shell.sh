@@ -4,4 +4,4 @@ set -euo pipefail
 
 VM_NAME="${RN_LINUX_VM_NAME:-rn-linux}"
 
-exec limactl shell --workdir "/home/$(id -un).linux/react-native-linux" "${VM_NAME}" "$@"
+exec limactl shell --workdir "/workspaces/react-native-linux" "${VM_NAME}" "$@"

@@ -10,7 +10,7 @@
 #   open vnc://127.0.0.1:5901      # password: rnlinux
 #
 # Inside the VNC session you get an Xfce desktop. Run the app there with:
-#   cd ~/react-native-linux/template/linux/build
+#   cd /workspaces/react-native-linux/template/linux/build
 #   ./rn-linux-app
 
 # Ubuntu 24.04 LTS. The cloud image is small and the runtime is what we
@@ -36,10 +36,14 @@ disk: "30GiB"
 vmType: "vz"
 mountType: "virtiofs"
 
-# Mount the repo into the guest so edits on macOS are visible there.
+# Mount the repo into the guest at /workspaces/react-native-linux (the
+# devcontainer convention). We intentionally don't mount under the user's
+# home directory because Lima's vz vmType creates the guest home at
+# `/home/{user}.guest`, not `/home/{user}.linux`, and the mismatch made
+# earlier provisioning paths fragile.
 mounts:
   - location: "{{.Home}}/code/lucid-softworks/react-native-linux"
-    mountPoint: "/home/{{.User}}.linux/react-native-linux"
+    mountPoint: "/workspaces/react-native-linux"
     writable: true
 
 # Forward TigerVNC out to the host so a macOS VNC viewer can connect.
@@ -97,7 +101,10 @@ provision:
       #!/bin/bash
       set -euxo pipefail
       LIMA_USER="{{.User}}"
-      LIMA_HOME="/home/${LIMA_USER}.linux"
+      # Resolve the user's actual home dir at runtime — Lima's vz path is
+      # `/home/{user}.guest` but historically was `.linux`. Looking it up
+      # via getent keeps this template robust across Lima versions.
+      LIMA_HOME="$(getent passwd "${LIMA_USER}" | cut -d: -f6)"
       cat > /etc/systemd/system/rn-linux-vnc.service <<UNIT
       [Unit]
       Description=TigerVNC for react-native-linux dev (display :1)
@@ -108,6 +115,7 @@ provision:
       Type=forking
       User=${LIMA_USER}
       Environment=HOME=${LIMA_HOME}
+      WorkingDirectory=${LIMA_HOME}
       ExecStart=/usr/bin/tigervncserver :1 -geometry 1440x900 -localhost no -rfbauth ${LIMA_HOME}/.vnc/passwd
       ExecStop=/usr/bin/tigervncserver -kill :1
       Restart=on-failure
@@ -131,14 +139,14 @@ probes:
 message: |
   --- react-native-linux VM is ready ---
 
-  Repo is mounted at:    ~/react-native-linux  (inside the VM)
+  Repo is mounted at:    /workspaces/react-native-linux  (inside the VM)
   VNC server: display :1, password "rnlinux"
 
   Connect from macOS:
       open vnc://127.0.0.1:5901
 
   Then inside the VM:
-      cd ~/react-native-linux
+      cd /workspaces/react-native-linux
       pnpm install
       pnpm cmake:configure
       pnpm cmake:build

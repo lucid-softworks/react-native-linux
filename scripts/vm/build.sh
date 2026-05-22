@@ -4,7 +4,7 @@
 set -euo pipefail
 
 VM_NAME="${RN_LINUX_VM_NAME:-rn-linux}"
-MOUNT_PATH="/home/$(id -un).linux/react-native-linux"
+MOUNT_PATH="/workspaces/react-native-linux"
 
 if ! limactl list --quiet 2>/dev/null | grep -qx "${VM_NAME}"; then
   echo "VM '${VM_NAME}' does not exist. Run scripts/vm/start.sh first." >&2
