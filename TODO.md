@@ -110,7 +110,7 @@ Decisions locked in (2026-05-21):
   - [x] `FetchFolly.cmake`, `FetchGlog.cmake`, `FetchFmt.cmake`, `FetchDoubleConversion.cmake`, `FetchBoost.cmake` (Boost: header-only subset for RN's needs)
   - [x] `ReactNativeHeaders.cmake` — locate `node_modules/react-native/ReactCommon/**`
 - [x] Install rules + `react-native-linux.pc` pkg-config file. Downstream consumers use `add_subdirectory(...)` (the template) or pkg-config; a real `find_package` config is deferred because Hermes is FetchContent-built and cannot be included in an exported targets file.
-- [ ] Verify clean build on Ubuntu 22.04 + 24.04 (CI matrix configures both; full `cmake --build` not yet expected to succeed end-to-end — Fabric headers still stubbed).
+- [x] CMake **configure** succeeds on Ubuntu 24.04 aarch64 inside the Lima dev VM (2026-05-22). Hermes fetched at the RN 0.76.2 commit, Folly built against system Boost/glog/fmt/double-conversion, GTK4 4.14 detected, codegen target wired. Ubuntu 22.04 + a full `cmake --build` are still pending.
 
 ### 5.2 — Host / instance plumbing
 
