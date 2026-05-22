@@ -19,10 +19,8 @@ struct RNLinuxApplication::Impl {
   std::shared_ptr<LinuxMountingManager> mountingManager;
 };
 
-namespace {
-
-void onActivate(GtkApplication* app, gpointer userData) {
-  auto* impl = static_cast<RNLinuxApplication::Impl*>(userData);
+void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
+  auto* impl = static_cast<Impl*>(userData);
 
   impl->window = gtk_application_window_new(app);
   gtk_window_set_title(GTK_WINDOW(impl->window),
@@ -50,14 +48,12 @@ void onActivate(GtkApplication* app, gpointer userData) {
   RNL_LOGI("RNLinuxApplication") << "window presented";
 }
 
-void onShutdown(GtkApplication*, gpointer userData) {
-  auto* impl = static_cast<RNLinuxApplication::Impl*>(userData);
+void RNLinuxApplication::onShutdown(GtkApplication*, void* userData) {
+  auto* impl = static_cast<Impl*>(userData);
   if (impl->host) {
     impl->host->stop();
   }
 }
-
-}  // namespace
 
 RNLinuxApplication::RNLinuxApplication(RNLinuxHost::Config config)
     : impl_(std::make_unique<Impl>()) {

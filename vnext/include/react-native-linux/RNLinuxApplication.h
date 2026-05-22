@@ -27,8 +27,14 @@ class RNLinuxApplication {
   int run(int argc, char** argv);
 
  private:
+  // PIMPL — full struct lives in RNLinuxApplication.cpp. The static GTK
+  // signal handlers below need access to its members, so they are
+  // members themselves (private — never called outside the class).
   struct Impl;
   std::unique_ptr<Impl> impl_;
+
+  static void onActivate(GtkApplication* app, void* userData);
+  static void onShutdown(GtkApplication* app, void* userData);
 };
 
 }  // namespace rnlinux
