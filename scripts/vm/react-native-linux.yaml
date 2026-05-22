@@ -30,17 +30,17 @@ memory: "6GiB"
 # matters because Hermes + Folly + RN headers can hit ~12 GiB.
 disk: "30GiB"
 
-# Mount the repo into the guest so edits on macOS are visible there. The
-# mount is sshfs-backed (writable).
+# Use Apple's Virtualization framework + virtiofs on Apple Silicon hosts
+# for near-bare-metal mount performance and no macFUSE dependency. Falls
+# back gracefully on x86_64 hosts (Lima auto-selects qemu).
+vmType: "vz"
+mountType: "virtiofs"
+
+# Mount the repo into the guest so edits on macOS are visible there.
 mounts:
   - location: "{{.Home}}/code/lucid-softworks/react-native-linux"
     mountPoint: "/home/{{.User}}.linux/react-native-linux"
     writable: true
-    sshfs:
-      cache: true
-      followSymlinks: false
-
-mountType: "sshfs"
 
 # Forward TigerVNC out to the host so a macOS VNC viewer can connect.
 portForwards:
