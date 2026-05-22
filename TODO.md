@@ -19,7 +19,7 @@ Decisions locked in (2026-05-21):
 - [x] Pick package manager: **pnpm 9** (chosen 2026-05-22 over yarn 3; faster + simpler workspace model).
 - [x] npm scope: `@lucid-softworks/*` (chosen 2026-05-22). All packages live under that scope: `@lucid-softworks/react-native-linux`, `@lucid-softworks/react-native-linux-cli`.
 - [x] License: MIT (chosen 2026-05-22). `LICENSE` is present; copyright-header policy: not required (use SPDX `// SPDX-License-Identifier: MIT` only if a contributor opts in).
-- [ ] Author/org metadata for `package.json` files.
+- [x] Author/org metadata for `package.json` files (`author`, `repository`, `bugs`, `homepage` on root + both published packages).
 - [x] CI provider: GitHub Actions, Linux-only runners are sufficient (`.github/workflows/ci.yml`).
 - [x] Distro support matrix: Ubuntu 22.04 LTS + 24.04 LTS (CI matrix). Stretch: Fedora 40, Arch (post-MVP).
 - [x] Hermes acquisition strategy: **Option A** (build from source via CMake `FetchContent`, pinned to the RN-vendored tag). Implemented in `vnext/cmake/FetchHermes.cmake`. Option B (prebuilt vendor) deferred.

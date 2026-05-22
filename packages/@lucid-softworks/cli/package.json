@@ -3,6 +3,16 @@
   "version": "0.0.1",
   "description": "Linux platform plugin for @react-native-community/cli",
   "license": "MIT",
+  "author": "Lucid Softworks <hello@lucidsoft.works> (https://lucidsoft.works)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucid-softworks/react-native-linux.git",
+    "directory": "packages/@lucid-softworks/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/lucid-softworks/react-native-linux/issues"
+  },
+  "homepage": "https://github.com/lucid-softworks/react-native-linux#readme",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "files": [

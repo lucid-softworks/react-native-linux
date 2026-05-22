@@ -4,6 +4,15 @@
   "version": "0.0.0",
   "description": "React Native for Linux (GTK4 + Hermes + Fabric)",
   "license": "MIT",
+  "author": "Lucid Softworks <hello@lucidsoft.works> (https://lucidsoft.works)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucid-softworks/react-native-linux.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lucid-softworks/react-native-linux/issues"
+  },
+  "homepage": "https://github.com/lucid-softworks/react-native-linux#readme",
   "scripts": {
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
