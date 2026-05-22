@@ -293,23 +293,31 @@ In rough priority order:
 
 ## Open questions to revisit
 
-- [ ] How do we handle `react-native` headers that assume Android/iOS? Patch or upstream?
-- [ ] Does Hermes need any patches for glibc / musl?
-- [ ] Should we ship Hermes prebuilt as an OCI image artifact in GH Releases?
-- [ ] What's the story for native-modules that already exist for iOS/Android — do we provide a shim layer or require new linux ports?
-- [ ] Threading: can we get away with a single-threaded `RuntimeExecutor` for MVP and add the JS thread later?
-- [ ] Yoga: bundled with RN, but does its CMake export work cleanly when consumed externally?
+- [x] **RN headers that assume Android/iOS?** Use upstream RN's ReactCommon as-is and `#ifdef RNL_PLATFORM_LINUX` where we need to diverge. Patches stay in the form of additive `*.linux.cpp` files under `vnext/src/`; upstream PRs only when something is clearly cross-platform.
+- [ ] Does Hermes need any patches for glibc / musl? (Decide once the first VM build runs end-to-end.)
+- [x] **Hermes prebuilt as OCI artifact?** Not now — `FetchHermes.cmake` builds from source per the Phase 0 decision. Revisit if Ubuntu CI build times exceed ~20 min after caching.
+- [x] **Native modules that already exist for iOS/Android?** We require a new linux port per module. A shim layer over Android's JNI is out of scope. Documented in `docs/native-modules.md`.
+- [ ] **Threading: single-threaded `RuntimeExecutor` for MVP?** (Decide after first GTK window draws.) Current code path spawns a JS thread; could collapse to single-thread for MVP if folly setup is painful.
+- [ ] **Yoga CMake export when consumed externally?** (Verify once first build runs — RN's Yoga `add_library` may need re-exporting from `vnext/CMakeLists.txt`.)
+- [x] **Codegen: stock or fork @react-native/codegen?** Need a fork to add a `linux` generator (mirroring `@react-native-windows/codegen`). Scaffolded in `scripts/codegen/run.js`; tracked in Phase 5.6.
 
-## First-week order of operations (resume here in the morning)
+## Status snapshot (2026-05-22)
 
-1. Phase 0 decisions (1 hour).
-2. Phase 1 repo scaffolding (2 hours).
-3. Phase 2 JS package skeleton (2 hours).
-4. Phase 4 template skeleton — get `npx react-native init` producing *something* (3 hours).
-5. Phase 5.1 CMake + dep fetching — get Hermes building (half a day).
-6. Phase 5.2 RNLinuxHost stub that loads + evaluates a bundle (no rendering) (half a day).
-7. Phase 5.3 + 5.4 — first GTK window with a single hard-coded `GtkLabel` driven by Fabric (1–2 days).
-8. Wire Metro reload (4 hours).
-9. CI green on ubuntu-24.04 (4 hours).
+What's in the tree, ready to build on:
 
-End of week-1 success criterion: `cd template && pnpm install && pnpm react-native run-linux` opens a window saying "Hello from React Native on Linux".
+- ✅ **Phases 0, 1, 2, 3, 4** essentially complete (only `template/linux/icons/` and the `--help` smoke test outstanding).
+- ✅ **Phase 5.1** build system done (CMake, all dep helpers, install rules, pkg-config).
+- ✅ **Phase 5.7** stderr logger + crash handler with backtrace.
+- 🚧 **Phase 5.2–5.6, 5.8** scaffolded but stubbed against Fabric/Hermes — wakes up once the dev VM is provisioned and RN headers compile in.
+- ✅ **Phase 6** playground app in `apps/playground/`.
+- ✅ **Phase 7.1, 7.2, 7.3** jest preset + jest coverage + xvfb e2e harness all in place.
+- ✅ **Phase 7.4** CI runs lint + typecheck + tests + format checks across Ubuntu 22.04/24.04, plus autolink drift, plus an aggregated jest lcov artifact.
+- ✅ **Phase 8** npm publish on release-please tag + AppImage script + versioning doc.
+
+Gating items for "MVP working":
+
+1. Boot the Lima dev VM (`scripts/vm/start.sh`).
+2. First `cmake --build vnext/build` finishes — likely surfaces patches needed in Phase 5.2 (ReactInstance/Scheduler wiring) and 5.3 (descriptor registry).
+3. First `apps/playground/linux/build/rn-linux-playground` window appears.
+4. `scripts/test/e2e.sh` captures a non-empty screenshot.
+5. Wire that screenshot diff as a hard gate in CI.
