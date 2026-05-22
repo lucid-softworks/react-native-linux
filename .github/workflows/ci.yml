@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-js:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn typecheck
+      - run: yarn lint
+
+  configure-vnext:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build cmake pkg-config \
+            libgtk-4-dev \
+            libglib2.0-dev \
+            python3 python3-pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - run: corepack enable
+      - run: yarn install --immutable
+
+      - name: Install template deps (provides node_modules/react-native)
+        working-directory: template
+        run: |
+          yarn install --no-immutable
+
+      - name: Cache CMake FetchContent _deps
+        uses: actions/cache@v4
+        with:
+          path: vnext/build/_deps
+          key: vnext-deps-${{ runner.os }}-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
+
+      - name: Configure vnext
+        run: |
+          cmake -S vnext -B vnext/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DREACT_NATIVE_ROOT=${{ github.workspace }}/template/node_modules/react-native
+        # NB: a full `cmake --build` is not yet expected to succeed — the
+        # native code is structurally complete but several Fabric headers are
+        # still stubbed. Configure-only is the gate for now.

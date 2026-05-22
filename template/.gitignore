@@ -1,0 +1,7 @@
+node_modules/
+.metro-cache/
+*.log
+
+linux/build/
+linux/build-release/
+linux/compile_commands.json

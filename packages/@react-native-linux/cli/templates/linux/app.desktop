@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hello RN Linux
+Comment=React Native sample application
+Exec=rn-linux-app
+Icon=rn-linux-app
+Terminal=false
+Categories=Development;
+StartupNotify=true

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-component-in-tag": true,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "draft": false,
+  "prerelease": false,
+  "separate-pull-requests": false,
+  "plugins": ["node-workspace"],
+  "packages": {
+    "packages/react-native-linux": {
+      "package-name": "react-native-linux",
+      "release-type": "node",
+      "extra-files": ["../../vnext/CMakeLists.txt"],
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/@react-native-linux/cli": {
+      "package-name": "@react-native-linux/cli",
+      "release-type": "node",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

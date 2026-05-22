@@ -1,0 +1,25 @@
+name: release-please
+
+# release-please watches main for Conventional Commits and opens / updates a
+# release PR. Merging the release PR creates GitHub Releases and tags for any
+# bumped packages. npm publish is intentionally NOT wired up yet — see
+# TODO.md Phase 8 (distribution) for the work that has to land first
+# (vnext source layout for npm, NPM_TOKEN secret, provenance config).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

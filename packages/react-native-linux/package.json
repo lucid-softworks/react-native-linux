@@ -1,0 +1,38 @@
+{
+  "name": "react-native-linux",
+  "version": "0.0.1",
+  "description": "React Native for Linux desktop (GTK4 + Hermes + Fabric)",
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "Libraries/",
+    "react-native.config.js"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests",
+    "build": "echo 'no build step'",
+    "clean": "rimraf lib"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "^0.76.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "react": "18.3.1",
+    "react-native": "^0.76.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "react-native",
+    "linux",
+    "gtk",
+    "gtk4",
+    "fabric",
+    "hermes"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "react-native-linux-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "React Native for Linux (GTK4 + Hermes + Fabric)",
+  "license": "MIT",
+  "workspaces": {
+    "packages": [
+      "packages/*",
+      "packages/@react-native-linux/*",
+      "template",
+      "apps/*"
+    ]
+  },
+  "scripts": {
+    "build": "yarn workspaces foreach -A --topological run build",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "format:cpp": "find vnext template/linux -name '*.cpp' -o -name '*.h' | xargs clang-format -i",
+    "test": "yarn workspaces foreach -A run test",
+    "typecheck": "yarn workspaces foreach -A run typecheck",
+    "cmake:configure": "cmake -S vnext -B vnext/build -G Ninja",
+    "cmake:build": "cmake --build vnext/build",
+    "clean": "rimraf vnext/build && yarn workspaces foreach -A run clean"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "yarn@3.6.4"
+}
