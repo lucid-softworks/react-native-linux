@@ -85,7 +85,7 @@ provision:
         git \
         libgtk-4-dev libglib2.0-dev \
         python3 python3-pip \
-        xvfb tigervnc-standalone-server tigervnc-common \
+        xvfb tigervnc-standalone-server tigervnc-common tigervnc-tools \
         xfce4 xfce4-terminal dbus-x11 \
         fonts-noto-core fonts-noto-color-emoji \
         gnome-themes-extra \

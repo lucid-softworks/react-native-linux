@@ -13,13 +13,18 @@ if(REACT_NATIVE_LINUX_USE_SYSTEM_HERMES)
   return()
 endif()
 
-set(HERMES_TAG "hermes-2024-09-10-RNv0.76.0-5b143ad4dcb6e07d99b71b88bf95e35cefcae092"
-    CACHE STRING "Hermes git tag to fetch")
+# Hermes commit that React Native 0.76.2 was built against. Source of
+# truth: `node_modules/react-native/sdks/.hermesversion`, which is a
+# string of the form `hermes-YYYY-MM-DD-RNvX.Y.Z-<sha>`. We pin the
+# <sha> part directly because the literal `hermes-…-<sha>` string is
+# RN's vendoring tag, not a tag on facebook/hermes.
+set(HERMES_COMMIT "5b4aa20c719830dcf5684832b89a6edb95ac3d64"
+    CACHE STRING "Hermes git commit to fetch (matches RN 0.76.2 .hermesversion)")
 
 FetchContent_Declare(hermes
   GIT_REPOSITORY https://github.com/facebook/hermes.git
-  GIT_TAG        ${HERMES_TAG}
-  GIT_SHALLOW    TRUE
+  GIT_TAG        ${HERMES_COMMIT}
+  GIT_SHALLOW    FALSE   # GIT_SHALLOW requires a branch/tag, not a SHA
 )
 
 set(HERMES_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
@@ -34,4 +39,4 @@ if(NOT TARGET Hermes::Hermes)
   add_library(Hermes::Hermes ALIAS hermesvm)
 endif()
 
-message(STATUS "Hermes fetched at tag ${HERMES_TAG}")
+message(STATUS "Hermes fetched at commit ${HERMES_COMMIT}")
