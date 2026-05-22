@@ -27,7 +27,12 @@ vnext/cmake-build-*/
 .hermes/
 
 # Editor / OS
-.vscode/
+# Commit shared VS Code workspace settings; ignore per-user state.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
 .idea/
 *.swp
 .DS_Store

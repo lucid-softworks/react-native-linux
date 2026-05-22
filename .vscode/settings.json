@@ -1,0 +1,58 @@
+{
+  // CMake Tools — point at vnext/ as the canonical project.
+  //
+  // template/linux/CMakeLists.txt and packages/@lucid-softworks/cli/templates/
+  // linux/CMakeLists.txt are intentionally NOT configured from this workspace:
+  // they require REACT_NATIVE_LINUX_DIR to point at node_modules/@lucid-
+  // softworks/react-native-linux/vnext, which only exists inside a generated
+  // app. Configuring them from here surfaces a "react-native-linux native
+  // runtime not found" error.
+  "cmake.sourceDirectory": "${workspaceFolder}/vnext",
+  "cmake.buildDirectory": "${workspaceFolder}/vnext/build",
+  "cmake.configureSettings": {
+    "REACT_NATIVE_ROOT": "${workspaceFolder}/template/node_modules/react-native",
+    "REACT_NATIVE_LINUX_BUILD_TESTS": "ON"
+  },
+  "cmake.generator": "Ninja",
+  "cmake.useCMakePresets": "never",
+
+  // clangd: vnext exports compile_commands.json into vnext/build.
+  "clangd.arguments": ["--compile-commands-dir=${workspaceFolder}/vnext/build"],
+
+  // ESLint scope.
+  "eslint.workingDirectories": [{"mode": "auto"}],
+
+  // Prettier as the default formatter for JS/TS/JSON/Markdown.
+  "[javascript]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[javascriptreact]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[typescript]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[typescriptreact]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[json]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[jsonc]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[markdown]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
+  "[cpp]": {"editor.defaultFormatter": "xaver.clang-format"},
+  "[c]": {"editor.defaultFormatter": "xaver.clang-format"},
+
+  // Keep editor + prettier + eslint configs in sync with our own files.
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // Hide noisy generated dirs in the file tree.
+  "files.exclude": {
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "**/lib": true,
+    "**/dist": true,
+    "vnext/build": true,
+    "vnext/codegen": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/lib": true,
+    "**/dist": true,
+    "vnext/build": true,
+    "pnpm-lock.yaml": true
+  }
+}
