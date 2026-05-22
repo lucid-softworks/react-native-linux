@@ -33,6 +33,7 @@ include(FetchGlog)        # glog
 include(FetchFmt)         # fmt
 include(FetchDoubleConversion)
 include(FetchBoost)       # Boost (header-only subset)
+include(Codegen)          # @react-native/codegen driver
 
 # ------------------------------------------------------------------
 # Sources
@@ -71,10 +72,15 @@ target_include_directories(react_native_linux
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${RN_LINUX_CODEGEN_OUTPUT_DIR}
     ${REACT_NATIVE_ROOT}/ReactCommon
     ${REACT_NATIVE_ROOT}/ReactCommon/jsi
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer
 )
+
+if(RN_LINUX_CODEGEN_AVAILABLE)
+  add_dependencies(react_native_linux react_native_linux_codegen)
+endif()
 
 target_link_libraries(react_native_linux
   PUBLIC

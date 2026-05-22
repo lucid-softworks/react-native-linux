@@ -189,9 +189,9 @@ Decisions locked in (2026-05-21):
 - [ ] CxxModule registration hook for autolinking.
 - [ ] One sample TurboModule shipped in core (e.g. `PlatformConstants` returning OS info from `uname` + `/etc/os-release`).
 - [ ] Codegen integration:
-  - [ ] Run `@react-native/codegen` against `linux` platform.
-  - [ ] Emit C++ spec headers under `vnext/codegen/`.
-  - [ ] CMake target for codegen step.
+  - [ ] Run `@react-native/codegen` against `linux` platform — driver scaffold present (`scripts/codegen/run.js`); actual `linux` generator pending an `@react-native/codegen` fork in the style of `@react-native-windows/codegen`.
+  - [ ] Emit C++ spec headers under `vnext/codegen/` — emits `Markers.h` + a `.codegen-stamp.json` manifest today; real `Props.h` / `ComponentDescriptors.h` blocked on the previous item.
+  - [x] CMake target for codegen step (`react_native_linux_codegen`, wired into `vnext/CMakeLists.txt` and added to the include path).
 
 ### 5.7 — Logging + diagnostics
 
