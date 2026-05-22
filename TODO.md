@@ -109,7 +109,7 @@ Decisions locked in (2026-05-21):
   - [x] `FetchHermes.cmake`
   - [x] `FetchFolly.cmake`, `FetchGlog.cmake`, `FetchFmt.cmake`, `FetchDoubleConversion.cmake`, `FetchBoost.cmake` (Boost: header-only subset for RN's needs)
   - [x] `ReactNativeHeaders.cmake` — locate `node_modules/react-native/ReactCommon/**`
-- [x] Install rules (in `vnext/CMakeLists.txt`) + `react-native-linux.pc` pkg-config file emitted via `configure_file` from `cmake/react-native-linux.pc.in` and installed under `${libdir}/pkgconfig/`.
+- [x] Install rules + `react-native-linux.pc` pkg-config file. Downstream consumers use `add_subdirectory(...)` (the template) or pkg-config; a real `find_package` config is deferred because Hermes is FetchContent-built and cannot be included in an exported targets file.
 - [ ] Verify clean build on Ubuntu 22.04 + 24.04 (CI matrix configures both; full `cmake --build` not yet expected to succeed end-to-end — Fabric headers still stubbed).
 
 ### 5.2 — Host / instance plumbing

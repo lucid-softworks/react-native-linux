@@ -116,18 +116,17 @@ set_target_properties(react_native_linux PROPERTIES
 # ------------------------------------------------------------------
 # Install
 # ------------------------------------------------------------------
+#
+# We don't ship a CMake config (`find_package(react_native_linux)`) yet:
+# Hermes is statically linked from the FetchContent build tree, which
+# CMake refuses to include in an exported targets file. Downstream
+# consumers should use `add_subdirectory(...)` (what the template does)
+# or pkg-config, both of which work without exporting Hermes.
 install(TARGETS react_native_linux
-  EXPORT react_native_linuxTargets
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/react-native-linux
-)
-
-install(EXPORT react_native_linuxTargets
-  FILE react_native_linuxTargets.cmake
-  NAMESPACE react_native_linux::
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/react_native_linux
 )
 
 # pkg-config descriptor for non-CMake consumers.
