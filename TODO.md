@@ -110,7 +110,7 @@ Decisions locked in (2026-05-21):
   - [x] `FetchFolly.cmake`, `FetchGlog.cmake`, `FetchFmt.cmake`, `FetchDoubleConversion.cmake`, `FetchBoost.cmake` (Boost: header-only subset for RN's needs)
   - [x] `ReactNativeHeaders.cmake` — locate `node_modules/react-native/ReactCommon/**`
 - [x] Install rules + `react-native-linux.pc` pkg-config file. Downstream consumers use `add_subdirectory(...)` (the template) or pkg-config; a real `find_package` config is deferred because Hermes is FetchContent-built and cannot be included in an exported targets file.
-- [x] CMake **configure** succeeds on Ubuntu 24.04 aarch64 inside the Lima dev VM (2026-05-22). Hermes fetched at the RN 0.76.2 commit, Folly built against system Boost/glog/fmt/double-conversion, GTK4 4.14 detected, codegen target wired. Ubuntu 22.04 + a full `cmake --build` are still pending.
+- [x] First **green `cmake --build`** on Ubuntu 24.04 aarch64 inside the Lima dev VM (2026-05-22). `libreact_native_linux.so.0.0.1` (~2.4 MB) links cleanly against the FetchContent-built Hermes + Folly; all 829 `rnlinux::*` public symbols are exported. Ubuntu 22.04 build + a hermes-inspector-enabled build are the remaining sub-gates.
 
 ### 5.2 — Host / instance plumbing
 
@@ -316,8 +316,8 @@ What's in the tree, ready to build on:
 
 Gating items for "MVP working":
 
-1. Boot the Lima dev VM (`scripts/vm/start.sh`).
-2. First `cmake --build vnext/build` finishes — likely surfaces patches needed in Phase 5.2 (ReactInstance/Scheduler wiring) and 5.3 (descriptor registry).
+1. ~~Boot the Lima dev VM~~ ✅ (2026-05-22 — `scripts/vm/start.sh`).
+2. ~~First `cmake --build vnext/build` finishes~~ ✅ (2026-05-22 — libreact_native_linux.so links). Our Fabric stubs link because they reference RN types only through forward declarations; the next wave (real ReactInstance, Scheduler, ComponentDescriptors) is where the stubs get filled in.
 3. First `apps/playground/linux/build/rn-linux-playground` window appears.
 4. `scripts/test/e2e.sh` captures a non-empty screenshot.
 5. Wire that screenshot diff as a hard gate in CI.
