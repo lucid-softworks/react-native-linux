@@ -22,7 +22,7 @@
     "format:cpp": "find vnext template/linux -name '*.cpp' -o -name '*.h' | xargs clang-format -i",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
-    "cmake:configure": "cmake -S vnext -B vnext/build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DREACT_NATIVE_ROOT=$PWD/template/node_modules/react-native",
+    "cmake:configure": "cmake -S vnext -B vnext/build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DREACT_NATIVE_ROOT=$PWD/node_modules/react-native",
     "cmake:build": "cmake --build vnext/build",
     "clean": "rimraf vnext/build && pnpm -r run clean",
     "prepare": "husky"
