@@ -35,8 +35,19 @@ set(HERMES_ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(hermes)
 
+# Hermes exposes its JSI runtime as the `libhermes` target (since the
+# 2023 cleanup that retired `hermesvm` from the public surface). Alias
+# it under the Hermes::Hermes name our vnext/CMakeLists.txt uses.
 if(NOT TARGET Hermes::Hermes)
-  add_library(Hermes::Hermes ALIAS hermesvm)
+  if(TARGET libhermes)
+    add_library(Hermes::Hermes ALIAS libhermes)
+  elseif(TARGET hermes)
+    add_library(Hermes::Hermes ALIAS hermes)
+  else()
+    message(FATAL_ERROR
+      "Hermes was fetched but neither `libhermes` nor `hermes` target exists. "
+      "Has Hermes renamed its public library again?")
+  endif()
 endif()
 
 message(STATUS "Hermes fetched at commit ${HERMES_COMMIT}")

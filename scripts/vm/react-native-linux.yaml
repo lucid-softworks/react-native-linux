@@ -84,6 +84,12 @@ provision:
         clang clang-format clang-tidy \
         git \
         libgtk-4-dev libglib2.0-dev \
+        libboost-dev libboost-context-dev libboost-filesystem-dev \
+        libboost-program-options-dev libboost-regex-dev libboost-system-dev \
+        libboost-thread-dev \
+        libdouble-conversion-dev libfmt-dev libgflags-dev libgoogle-glog-dev \
+        libssl-dev libsodium-dev libzstd-dev liblz4-dev libsnappy-dev \
+        libevent-dev \
         python3 python3-pip \
         xvfb tigervnc-standalone-server tigervnc-common tigervnc-tools \
         xfce4 xfce4-terminal dbus-x11 \
