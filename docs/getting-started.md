@@ -78,8 +78,26 @@ cmake --build linux/build
 ls linux/build/rn-linux-app linux/build/index.linux.bundle
 ```
 
-For redistribution, see [docs/architecture.md](./architecture.md) and the
-"Distribution" section of [TODO.md](../TODO.md).
+## Packaging as an AppImage
+
+Once you have a working Release build, bundle it into a single-file
+AppImage:
+
+```sh
+scripts/package/appimage.sh \
+  --app-dir linux/build \
+  --executable rn-linux-app \
+  --desktop linux/app.desktop \
+  --bundle linux/build/assets/index.linux.bundle \
+  --output dist/rn-linux-app.AppImage
+```
+
+The script fetches `linuxdeploy` and `appimagetool` on first run, stages an
+AppDir, copies in the JS bundle, and emits a runnable AppImage. Linux-only
+— run it from inside the Lima dev VM if you're on macOS.
+
+For Flatpak, Debian, and Snap targets see the "Distribution" section of
+[TODO.md](../TODO.md); they're tracked as stretch items.
 
 ## Troubleshooting
 

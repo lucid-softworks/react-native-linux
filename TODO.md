@@ -247,7 +247,7 @@ Decisions locked in (2026-05-21):
 
 - [ ] `npm publish` workflow on tag push.
 - [ ] Versioning policy (track RN minor versions? Independent?). Document.
-- [ ] AppImage packaging (linuxdeploy + appimagetool) — script in `scripts/`.
+- [x] AppImage packaging (linuxdeploy + appimagetool) — `scripts/package/appimage.sh`. Fetches the tools on demand, stages an AppDir, and emits a single-file AppImage. Linux-only (use the Lima dev VM on macOS).
 - [ ] Flatpak manifest (`org.reactnative.Linux.Sample.yaml`) — stretch.
 - [ ] Debian package (.deb) — stretch.
 - [ ] Snap (snapcraft.yaml) — stretch.
