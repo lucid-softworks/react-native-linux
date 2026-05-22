@@ -36,6 +36,14 @@ disk: "30GiB"
 vmType: "vz"
 mountType: "virtiofs"
 
+# Disable Lima's built-in containerd/nerdctl install. We don't run
+# containers from this VM; skipping shaves ~3-5 minutes off boot and
+# stops it from competing with our own provisioning for the 10-minute
+# hostagent timer.
+containerd:
+  system: false
+  user: false
+
 # Mount the repo into the guest at /workspaces/react-native-linux (the
 # devcontainer convention). We intentionally don't mount under the user's
 # home directory because Lima's vz vmType creates the guest home at
