@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RN-Linux Playground
+Comment=Sample application showcasing react-native-linux
+Exec=rn-linux-playground
+Icon=rn-linux-playground
+Terminal=false
+Categories=Development;
+StartupNotify=true

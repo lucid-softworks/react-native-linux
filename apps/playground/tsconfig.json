@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-native",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.js"],
+  "exclude": ["node_modules", "linux/build"]
+}

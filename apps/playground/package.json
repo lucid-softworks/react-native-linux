@@ -1,0 +1,37 @@
+{
+  "name": "@lucid-softworks/playground",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Sample react-native-linux app — also the CI smoke target",
+  "license": "MIT",
+  "scripts": {
+    "start": "react-native start",
+    "linux": "react-native run-linux",
+    "bundle": "react-native bundle-linux",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests",
+    "build": "echo 'no build step'",
+    "clean": "rimraf linux/build"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-native": "^0.76.0",
+    "@lucid-softworks/react-native-linux": "workspace:*"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "@babel/runtime": "^7.24.0",
+    "@lucid-softworks/react-native-linux-cli": "workspace:*",
+    "@react-native/babel-preset": "^0.76.0",
+    "@react-native/metro-config": "^0.76.0",
+    "@types/react": "^18.2.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "react-test-renderer": "18.3.1",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

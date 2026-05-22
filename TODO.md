@@ -209,9 +209,9 @@ Decisions locked in (2026-05-21):
 
 ## Phase 6 — Sample app (`apps/playground/`)
 
-- [ ] Built from the template + a richer screen tree.
-- [ ] Showcases: View nesting, Text styles, basic layout (flexbox via Yoga, already in RN).
-- [ ] Used as the integration target for CI smoke tests.
+- [x] Built from the template + a richer screen tree (`apps/playground/`).
+- [x] Showcases: View nesting, Text styles, basic flex layout, dynamic `Platform.constants`.
+- [ ] Used as the integration target for CI smoke tests (smoke job wired up once a full build succeeds; today the playground only builds where the runtime does).
 
 ## Phase 7 — Testing
 
