@@ -16,21 +16,42 @@
   "scripts": {
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "lint:format": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
+    "lint:cpp": "find vnext template/linux -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
     "format:cpp": "find vnext template/linux -name '*.cpp' -o -name '*.h' | xargs clang-format -i",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "cmake:configure": "cmake -S vnext -B vnext/build -G Ninja",
     "cmake:build": "cmake --build vnext/build",
-    "clean": "rimraf vnext/build && pnpm -r run clean"
+    "clean": "rimraf vnext/build && pnpm -r run clean",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@react-native/eslint-config": "^0.76.0",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
     "prettier": "^3.2.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.4.0"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    "*.{cpp,h}": [
+      "clang-format -i"
+    ]
   },
   "engines": {
     "node": ">=18",

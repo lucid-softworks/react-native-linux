@@ -1,0 +1,11 @@
+node_modules/
+**/node_modules/
+**/lib/
+**/dist/
+**/build/
+vnext/build/
+vnext/codegen/
+**/*.cpp
+**/*.h
+*.lockb
+pnpm-lock.yaml

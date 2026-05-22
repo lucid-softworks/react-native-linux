@@ -28,14 +28,13 @@ Decisions locked in (2026-05-21):
 ## Phase 1 — Repo + tooling foundation
 
 - [x] Root `package.json` declares JS-only packages via `pnpm-workspace.yaml` (`packages/@lucid-softworks/*`, `template`, `apps/*`). vnext is C++, not a workspace.
-- [x] `.editorconfig`, `.prettierrc` (`.eslintrc.js` pending — see below).
-- [ ] `.eslintrc.js` (extend `@react-native`).
+- [x] `.editorconfig`, `.prettierrc`, `.eslintrc.js` (extend `@react-native`).
 - [x] `clang-format` config for C++ (LLVM-derived, RN style).
 - [x] `tsconfig.base.json` consumed by each TS package.
 - [x] `LICENSE` (MIT).
 - [x] `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
 - [x] `CODEOWNERS`.
-- [ ] Pre-commit: husky + lint-staged running eslint + prettier + clang-format on staged files.
+- [x] Pre-commit: husky + lint-staged running eslint + prettier + clang-format on staged files.
 - [x] Commit-message convention (Conventional Commits, documented in `CONTRIBUTING.md`). Replacing `changesets` with `release-please` (already configured in `release-please-config.json`).
 - [ ] Dependabot config (`.github/dependabot.yml`).
 - [x] Top-level `README.md` with quick-start + repo layout (architecture diagram lives in `docs/architecture.md`).
