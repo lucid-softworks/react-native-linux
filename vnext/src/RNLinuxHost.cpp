@@ -8,7 +8,10 @@
 #include "jsi/HermesRuntimeFactory.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <thread>
 
 namespace rnlinux {
@@ -20,9 +23,8 @@ struct RNLinuxHost::Impl {
   std::thread jsThread;
   std::atomic<bool> running{false};
 
-  // TODO: store facebook::react::Scheduler + ReactInstance once Fabric headers
-  // are wired in. Keeping them as opaque unique_ptrs for now to avoid pulling
-  // RN headers into the public interface.
+  // TODO (Phase 5.3): store facebook::react::Scheduler once we can construct
+  // a SchedulerToolbox without crashing on partial RN headers.
 };
 
 RNLinuxHost::RNLinuxHost(Config config)
@@ -32,38 +34,72 @@ RNLinuxHost::~RNLinuxHost() {
   stop();
 }
 
+namespace {
+
+// Synchronously turn an async BundleLoader call into bytes-or-error. The
+// MVP host calls this on whatever thread invoked start() — typically the
+// UI thread once. Acceptable while bundle loads are O(50ms) for file://
+// and O(seconds) for http://; revisit when we need to keep the UI loop
+// responsive during reload.
+struct SyncBundleResult {
+  bool ok = false;
+  std::string source;
+  std::string sourceUrl;
+  std::string error;
+};
+
+SyncBundleResult loadBundleSync(const std::string& url) {
+  SyncBundleResult out;
+  std::mutex mu;
+  std::condition_variable cv;
+  bool done = false;
+  loadBundle(url, [&](BundleLoadResult res) {
+    std::lock_guard<std::mutex> g{mu};
+    if (res.ok) {
+      out.ok = true;
+      out.source.assign(res.bytes.begin(), res.bytes.end());
+      out.sourceUrl = res.sourceUrl;
+    } else {
+      out.error = std::move(res.error);
+    }
+    done = true;
+    cv.notify_one();
+  });
+  std::unique_lock<std::mutex> lk{mu};
+  cv.wait(lk, [&] { return done; });
+  return out;
+}
+
+}  // namespace
+
 void RNLinuxHost::start() {
   if (impl_->running.exchange(true)) {
     return;
   }
   RNL_LOGI("RNLinuxHost") << "starting (bundle=" << config_.bundleUrl << ")";
 
-  // 1. Create the Hermes runtime + JSI executor.
+  // 1. Create the Hermes runtime.
   impl_->runtimeHolder = makeHermesRuntimeHolder();
 
-  // 2. Spawn the JS thread.
-  //    TODO: replace with folly::Executor + react::RuntimeExecutor.
-  impl_->jsThread = std::thread([this] {
-    RNL_LOGD("RNLinuxHost") << "js thread started";
-    // The real implementation drives the runtime's message queue here.
-  });
+  // 2. Load the bundle synchronously (Phase 5.2 first pass — see TODO).
+  const auto bundle = loadBundleSync(config_.bundleUrl);
+  if (!bundle.ok) {
+    RNL_LOGE("RNLinuxHost") << "bundle load failed: " << bundle.error;
+    impl_->running = false;
+    return;
+  }
+  RNL_LOGI("RNLinuxHost") << "bundle loaded (" << bundle.source.size()
+                          << " bytes from " << bundle.sourceUrl << ")";
 
-  // 3. Load the bundle on the JS thread.
-  //    TODO: BundleLoader::loadFromUrl(config_.bundleUrl, ...) then evaluate
-  //    in the Hermes runtime via JSIExecutor::loadBundle.
-  loadBundle(config_.bundleUrl, [](BundleLoadResult res) {
-    if (res.ok) {
-      RNL_LOGI("RNLinuxHost") << "bundle loaded (" << res.bytes.size() << " bytes)";
-    } else {
-      RNL_LOGE("RNLinuxHost") << "bundle load failed: " << res.error;
-    }
-  });
+  // 3. Evaluate the bundle on the calling thread. Single-threaded for the
+  //    first cut; a dedicated JS thread + folly RuntimeExecutor lands in
+  //    the next Phase 5.2 commit.
+  if (!impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl)) {
+    RNL_LOGE("RNLinuxHost") << "bundle evaluation failed; runtime still alive";
+    // Leave running=true so callers can inspect; reload() can replace.
+  }
 
-  // 4. Construct Fabric Scheduler with the LinuxComponentDescriptorRegistry
-  //    and our SchedulerDelegate.
-  //    TODO once headers are wired:
-  //      auto toolbox = react::SchedulerToolbox{...};
-  //      scheduler_ = std::make_shared<react::Scheduler>(toolbox, ..., delegate_.get());
+  // 4. Fabric Scheduler — still stubbed. Phase 5.3.
   impl_->schedulerDelegate =
       std::make_unique<LinuxSchedulerDelegate>(impl_->mountingManager);
 }
@@ -74,11 +110,11 @@ void RNLinuxHost::stop() {
   }
   RNL_LOGI("RNLinuxHost") << "stopping";
 
-  // TODO: scheduler_->stopSurface for each, then destroy scheduler before the
-  // runtime to ensure JSI references are released in the right order.
   if (impl_->jsThread.joinable()) {
     impl_->jsThread.join();
   }
+  // Tear down in the inverse order of construction: scheduler bits first
+  // (they hold JSI references), then the runtime.
   impl_->schedulerDelegate.reset();
   impl_->runtimeHolder.reset();
 }
@@ -98,20 +134,19 @@ facebook::react::SurfaceHandler& RNLinuxHost::createSurface(
     std::string initialPropsJson) {
   RNL_LOGI("RNLinuxHost") << "createSurface module=" << moduleName
                           << " props=" << initialPropsJson;
-  // TODO: construct SurfaceHandler, register with Scheduler, set layout
-  // constraints (initialWidth/Height/pointScaleFactor), and return the
-  // reference. Until headers are wired the caller cannot meaningfully use
-  // the return; this is the stub.
+  // TODO (Phase 5.3): construct SurfaceHandler, register with Scheduler,
+  // set layout constraints. Until then the caller cannot meaningfully
+  // use the return value.
   static facebook::react::SurfaceHandler* placeholder = nullptr;
-  return *placeholder;  // intentional: real impl must replace this.
+  return *placeholder;
 }
 
 void RNLinuxHost::startSurface(facebook::react::SurfaceHandler&) {
-  // TODO: scheduler_->registerSurface(s); s.start();
+  // TODO (Phase 5.3): scheduler_->registerSurface(s); s.start();
 }
 
 void RNLinuxHost::stopSurface(facebook::react::SurfaceHandler&) {
-  // TODO: s.stop(); scheduler_->unregisterSurface(s);
+  // TODO (Phase 5.3): s.stop(); scheduler_->unregisterSurface(s);
 }
 
 }  // namespace rnlinux

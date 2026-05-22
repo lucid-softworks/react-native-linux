@@ -1,16 +1,11 @@
 #include "HermesRuntimeFactory.h"
 #include "react-native-linux/Logging.h"
 
-// Hermes JSI runtime headers. These come from the Hermes::Hermes target
-// fetched by FetchHermes.cmake.
-//
-// #include <hermes/hermes.h>
-//
-// Real implementation pseudocode:
-//
-//   auto config = hermes::vm::RuntimeConfig::Builder().build();
-//   auto runtime = facebook::hermes::makeHermesRuntime(config);
-//   runtime->evaluateJavaScript(buffer, sourceUrl);
+#include <hermes/hermes.h>
+#include <jsi/jsi.h>
+
+#include <exception>
+#include <memory>
 
 namespace rnlinux {
 
@@ -19,16 +14,41 @@ namespace {
 class HermesRuntimeHolderImpl final : public HermesRuntimeHolder {
  public:
   HermesRuntimeHolderImpl() {
-    RNL_LOGD("Hermes") << "HermesRuntimeHolder created (stub)";
-    // TODO: runtime_ = facebook::hermes::makeHermesRuntime(...);
+    // Default RuntimeConfig: small GC, no sampling profiler, no
+    // crash manager. Tune later via env or RNLinuxHost::Config.
+    auto config = ::hermes::vm::RuntimeConfig::Builder().build();
+    runtime_ = facebook::hermes::makeHermesRuntime(config);
+    RNL_LOGI("Hermes") << "runtime constructed";
   }
 
-  bool evaluate(const std::string& source, const std::string& sourceUrl) override {
-    RNL_LOGI("Hermes") << "evaluate(" << sourceUrl << ", " << source.size()
-                        << " bytes) — stub";
-    // TODO: runtime_->evaluateJavaScript(std::make_shared<StringBuffer>(source), sourceUrl);
-    return true;
+  bool evaluate(const std::string& source,
+                const std::string& sourceUrl) override {
+    if (!runtime_) {
+      RNL_LOGE("Hermes") << "evaluate() called with null runtime";
+      return false;
+    }
+    RNL_LOGI("Hermes") << "evaluate " << sourceUrl << " (" << source.size()
+                       << " bytes)";
+    try {
+      // StringBuffer copies the source — the bundle bytes outlive the
+      // buffer so we don't have to worry about lifetime here.
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(source);
+      runtime_->evaluateJavaScript(buffer, sourceUrl);
+      return true;
+    } catch (const facebook::jsi::JSError& e) {
+      RNL_LOGE("Hermes") << "JS error: " << e.getMessage()
+                         << "\nstack:\n" << e.getStack();
+      return false;
+    } catch (const std::exception& e) {
+      RNL_LOGE("Hermes") << "evaluate threw: " << e.what();
+      return false;
+    }
   }
+
+  facebook::jsi::Runtime& runtime() override { return *runtime_; }
+
+ private:
+  std::unique_ptr<facebook::hermes::HermesRuntime> runtime_;
 };
 
 }  // namespace

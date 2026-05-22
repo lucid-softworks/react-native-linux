@@ -114,20 +114,20 @@ Decisions locked in (2026-05-21):
 
 ### 5.2 — Host / instance plumbing
 
-- [ ] `vnext/include/react-native-linux/RNLinuxHost.h`
-  - [ ] Constructor takes bundle URL + assets path.
-  - [ ] `start()`, `stop()`, `reload()`.
-  - [ ] `attachSurface(SurfaceHandler&)`.
+- [x] `vnext/include/react-native-linux/RNLinuxHost.h`
+  - [x] Constructor takes bundle URL (assets path TBD — Phase 9 `Image` work).
+  - [x] `start()`, `stop()`, `reload()`.
+  - [ ] `attachSurface(SurfaceHandler&)` — Phase 5.3.
 - [ ] `vnext/src/RNLinuxHost.cpp`
   - [ ] Owns `ReactInstance` (`react/runtime/ReactInstance.h`).
-  - [ ] Owns Hermes runtime via `hermes::makeHermesRuntime`.
+  - [x] Owns Hermes runtime via `hermes::makeHermesRuntime` (through `HermesRuntimeHolder`).
   - [ ] Owns `JSExecutorFactory` wrapping Hermes.
-  - [ ] Owns `Scheduler` for Fabric.
-  - [ ] Owns `RuntimeExecutor`.
-  - [ ] Bundle loader (file:// + http:// for Metro dev server).
-- [ ] `vnext/src/jsi/HermesRuntimeFactory.cpp` — adapter.
+  - [ ] Owns `Scheduler` for Fabric — Phase 5.3.
+  - [ ] Owns `RuntimeExecutor` — pending the JS thread.
+  - [x] Bundle loader (file:// works; http:// still stubbed pending libcurl/libsoup3).
+- [x] `vnext/src/jsi/HermesRuntimeFactory.cpp` — adapter: `makeHermesRuntimeHolder()` returns a holder exposing `evaluate()` + `runtime()` (jsi::Runtime&).
 - [ ] Threading model:
-  - [ ] JS thread: dedicated `std::thread` with folly executor.
+  - [ ] JS thread: dedicated `std::thread` with folly executor — current code is single-threaded (host evaluates on its caller's thread).
   - [ ] UI thread: GTK4 `GMainContext` (the main loop owns it).
   - [ ] Cross-thread dispatch: `g_idle_add` for JS→UI, `JSExecutor::invokeAsync` for UI→JS.
 
