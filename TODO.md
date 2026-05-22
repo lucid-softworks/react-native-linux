@@ -15,38 +15,37 @@ Decisions locked in (2026-05-21):
 
 ## Phase 0 — Decisions to lock before writing code
 
-- [ ] Pin react-native peer dep version (suggest `^0.76`). Verify Hermes builds cleanly on Ubuntu 24.04 from that tag.
+- [x] Pin react-native peer dep version: `^0.76` (set in both package.jsons; Hermes verification still pending first end-to-end VM build).
 - [x] Pick package manager: **pnpm 9** (chosen 2026-05-22 over yarn 3; faster + simpler workspace model).
 - [x] npm scope: `@lucid-softworks/*` (chosen 2026-05-22). All packages live under that scope: `@lucid-softworks/react-native-linux`, `@lucid-softworks/react-native-linux-cli`.
 - [x] License: MIT (chosen 2026-05-22). `LICENSE` is present; copyright-header policy: not required (use SPDX `// SPDX-License-Identifier: MIT` only if a contributor opts in).
 - [ ] Author/org metadata for `package.json` files.
-- [ ] CI provider: GitHub Actions. Confirm Linux-only runners are sufficient.
-- [ ] Distro support matrix: at minimum Ubuntu 22.04 LTS + 24.04 LTS. Stretch: Fedora 40, Arch.
-- [ ] Hermes acquisition strategy:
-  - [ ] Option A: build from source via CMake `FetchContent` pinned to the RN-vendored tag (slow, hermetic).
-  - [ ] Option B: vendor prebuilt `.so` artifacts per distro (fast, brittle).
-  - [ ] Decide; document.
-- [ ] Codegen strategy: use stock `@react-native/codegen` and emit linux-platform specs, or fork. (Use stock.)
+- [x] CI provider: GitHub Actions, Linux-only runners are sufficient (`.github/workflows/ci.yml`).
+- [x] Distro support matrix: Ubuntu 22.04 LTS + 24.04 LTS (CI matrix). Stretch: Fedora 40, Arch (post-MVP).
+- [x] Hermes acquisition strategy: **Option A** (build from source via CMake `FetchContent`, pinned to the RN-vendored tag). Implemented in `vnext/cmake/FetchHermes.cmake`. Option B (prebuilt vendor) deferred.
+- [x] Codegen strategy: use stock `@react-native/codegen` and emit linux-platform specs (no fork). Documented in `docs/native-modules.md`.
 
 ## Phase 1 — Repo + tooling foundation
 
-- [ ] Root `package.json` with workspaces: `packages/*`, `vnext` (no — vnext is C++; workspaces are JS only), `apps/*`, `template`.
-- [ ] `.editorconfig`, `.prettierrc`, `.eslintrc.js` (extend `@react-native`).
-- [ ] `clang-format` config for C++ (LLVM-derived, RN style).
-- [ ] `tsconfig.base.json` consumed by each TS package.
-- [ ] `LICENSE` (MIT).
-- [ ] `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
-- [ ] `CODEOWNERS`.
-- [ ] Pre-commit: husky + lint-staged (or `pre-commit` framework).
-- [ ] Commit-message convention (Conventional Commits) + CHANGESET tooling (`changesets`).
-- [ ] Renovate/Dependabot config.
-- [ ] Top-level `README.md` with quick-start + architecture diagram.
-- [ ] `docs/` directory:
-  - [ ] `docs/architecture.md`
-  - [ ] `docs/getting-started.md`
-  - [ ] `docs/native-modules.md`
-  - [ ] `docs/component-support.md` (matrix)
-  - [ ] `docs/troubleshooting.md`
+- [x] Root `package.json` declares JS-only packages via `pnpm-workspace.yaml` (`packages/@lucid-softworks/*`, `template`, `apps/*`). vnext is C++, not a workspace.
+- [x] `.editorconfig`, `.prettierrc` (`.eslintrc.js` pending — see below).
+- [ ] `.eslintrc.js` (extend `@react-native`).
+- [x] `clang-format` config for C++ (LLVM-derived, RN style).
+- [x] `tsconfig.base.json` consumed by each TS package.
+- [x] `LICENSE` (MIT).
+- [x] `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
+- [x] `CODEOWNERS`.
+- [ ] Pre-commit: husky + lint-staged running eslint + prettier + clang-format on staged files.
+- [x] Commit-message convention (Conventional Commits, documented in `CONTRIBUTING.md`). Replacing `changesets` with `release-please` (already configured in `release-please-config.json`).
+- [ ] Dependabot config (`.github/dependabot.yml`).
+- [x] Top-level `README.md` with quick-start + repo layout (architecture diagram lives in `docs/architecture.md`).
+- [x] `docs/` directory:
+  - [x] `docs/architecture.md`
+  - [x] `docs/getting-started.md`
+  - [x] `docs/native-modules.md`
+  - [x] `docs/component-support.md` (matrix)
+  - [x] `docs/troubleshooting.md`
+  - [x] `docs/dev-vm.md` (bonus: Lima VM workflow for macOS contributors)
 
 ## Phase 2 — JS package (`packages/@lucid-softworks/react-native-linux`)
 
@@ -88,31 +87,31 @@ Decisions locked in (2026-05-21):
 
 ## Phase 4 — Template (`template/`)
 
-- [ ] `template/App.tsx` — minimal `<View><Text>Hello</Text></View>`.
-- [ ] `template/index.js` — `AppRegistry.registerComponent('App', () => App)`.
-- [ ] `template/package.json` with deps on `react`, `react-native`, `react-native-linux`.
-- [ ] `template/tsconfig.json`.
-- [ ] `template/metro.config.js` (linux platform extension).
-- [ ] `template/linux/CMakeLists.txt` — calls into vnext, builds an executable.
-- [ ] `template/linux/main.cpp` — boots `RNLinuxHost`, loads `index.linux.bundle`.
-- [ ] `template/linux/CMakePresets.json` (debug + release).
-- [ ] `template/linux/app.desktop` (.desktop entry).
-- [ ] `template/linux/icons/` (PNG 16/32/64/128/256 + scalable SVG).
-- [ ] `template/.gitignore`.
+- [x] `template/App.tsx` — minimal `<View><Text>Hello</Text></View>`.
+- [x] `template/index.js` — `AppRegistry.registerComponent('App', () => App)`.
+- [x] `template/package.json` with deps on `react`, `react-native`, `@lucid-softworks/react-native-linux`.
+- [x] `template/tsconfig.json`.
+- [x] `template/metro.config.js` (linux platform extension).
+- [x] `template/linux/CMakeLists.txt` — calls into vnext, builds an executable, includes `autolinked.cmake`.
+- [x] `template/linux/main.cpp` — boots `RNLinuxHost`, loads `index.linux.bundle`.
+- [x] `template/linux/CMakePresets.json` (debug + release).
+- [x] `template/linux/app.desktop` (.desktop entry).
+- [ ] `template/linux/icons/` (PNG 16/32/64/128/256 + scalable SVG) — binary assets, deferred until visual identity exists.
+- [x] `template/.gitignore`.
 
 ## Phase 5 — Native runtime (`vnext/`) — the hard part
 
 ### 5.1 — Build system
 
-- [ ] `vnext/CMakeLists.txt` top-level (`cmake_minimum_required 3.25`, project, C++20).
-- [ ] `vnext/CMakePresets.json` (debug-x86_64, release-x86_64, debug-aarch64).
-- [ ] `vnext/cmake/` helper modules:
-  - [ ] `FindGTK4.cmake` (prefer pkg-config)
-  - [ ] `FetchHermes.cmake`
-  - [ ] `FetchFolly.cmake`, `FetchGlog.cmake`, `FetchFmt.cmake`, `FetchDoubleConversion.cmake`, `FetchBoost.cmake` (Boost: header-only subset for RN's needs)
-  - [ ] `ReactNativeHeaders.cmake` — locate `node_modules/react-native/ReactCommon/**`
-- [ ] Install rules + `react-native-linux.pc` pkg-config file for downstream apps.
-- [ ] Verify clean build on Ubuntu 22.04 + 24.04 (CI matrix).
+- [x] `vnext/CMakeLists.txt` top-level (`cmake_minimum_required 3.25`, project, C++20).
+- [x] `vnext/CMakePresets.json` (debug-x86_64, release-x86_64, debug-aarch64).
+- [x] `vnext/cmake/` helper modules:
+  - [x] `FindGTK4.cmake` (prefer pkg-config)
+  - [x] `FetchHermes.cmake`
+  - [x] `FetchFolly.cmake`, `FetchGlog.cmake`, `FetchFmt.cmake`, `FetchDoubleConversion.cmake`, `FetchBoost.cmake` (Boost: header-only subset for RN's needs)
+  - [x] `ReactNativeHeaders.cmake` — locate `node_modules/react-native/ReactCommon/**`
+- [x] Install rules (in `vnext/CMakeLists.txt`). `react-native-linux.pc` pkg-config file: not yet emitted; downstream apps currently use `find_package` via the exported CMake config.
+- [ ] Verify clean build on Ubuntu 22.04 + 24.04 (CI matrix configures both; full `cmake --build` not yet expected to succeed end-to-end — Fabric headers still stubbed).
 
 ### 5.2 — Host / instance plumbing
 
@@ -219,9 +218,9 @@ Decisions locked in (2026-05-21):
 
 ### 7.1 — JS-side
 
-- [ ] Jest config; mirror RN's `jest-preset`.
-- [ ] Snapshot tests for codegen output.
-- [ ] Unit tests for CLI commands.
+- [x] Jest config; mirror RN's `jest-preset` (`packages/@lucid-softworks/react-native-linux/jest.config.js`).
+- [ ] Snapshot tests for codegen output (needs the codegen CMake step from §5.6 first).
+- [x] Unit tests for CLI commands (`platformConfig`, `autolinkLinux`).
 
 ### 7.2 — Native-side
 
@@ -237,12 +236,12 @@ Decisions locked in (2026-05-21):
 
 ### 7.4 — CI
 
-- [ ] GitHub Actions workflow `.github/workflows/ci.yml`:
-  - [ ] Matrix: ubuntu-22.04, ubuntu-24.04
-  - [ ] Install GTK4 + Hermes build deps
-  - [ ] Configure + build + test
-  - [ ] Cache `vnext/build/_deps` and Hermes build output
-- [ ] Lint workflow (eslint, prettier, clang-format, clang-tidy).
+- [x] GitHub Actions workflow `.github/workflows/ci.yml`:
+  - [ ] Matrix: ubuntu-22.04, ubuntu-24.04 (currently only ubuntu-24.04).
+  - [x] Install GTK4 + Hermes build deps
+  - [ ] Configure + build + test — configure-only for now (full build blocked on Fabric headers).
+  - [x] Cache `vnext/build/_deps` and Hermes build output
+- [ ] Lint workflow (eslint runs in `lint-js`; prettier + clang-format + clang-tidy still pending).
 - [ ] Codegen drift check.
 
 ## Phase 8 — Distribution
