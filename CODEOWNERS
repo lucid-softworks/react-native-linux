@@ -1,0 +1,17 @@
+# CODEOWNERS — auto-request reviews on PRs touching matching paths.
+#
+# Until a wider maintainer set exists, everything routes to the
+# lucid-softworks/maintainers team. Add granular rules below as the project
+# grows (e.g. separate owners for vnext/, packages/, docs/).
+
+* @lucid-softworks/maintainers
+
+# Native runtime — also notify the GTK/C++ subteam once it exists.
+/vnext/                       @lucid-softworks/maintainers
+
+# JS / CLI packages.
+/packages/                    @lucid-softworks/maintainers
+
+# Release / CI plumbing.
+/.github/                     @lucid-softworks/maintainers
+/release-please-config.json   @lucid-softworks/maintainers
