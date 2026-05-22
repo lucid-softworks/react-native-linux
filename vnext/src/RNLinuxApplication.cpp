@@ -32,6 +32,26 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
   impl->rootView = gtk_fixed_new();
   gtk_window_set_child(GTK_WINDOW(impl->window), impl->rootView);
 
+  // Pre-Fabric placeholder so the window isn't blank while the host is
+  // still being wired up. The mounting layer will replace this with the
+  // real React tree once Phase 5.3 lands; in the meantime a visible
+  // "Hello" doubles as a sanity check that GTK + CSS + Pango all work.
+  GtkWidget* placeholder = gtk_label_new(nullptr);
+  gtk_label_set_use_markup(GTK_LABEL(placeholder), TRUE);
+  gtk_label_set_markup(GTK_LABEL(placeholder),
+      "<span size=\"xx-large\" weight=\"bold\">Hello from React Native on Linux</span>\n"
+      "<span size=\"medium\" foreground=\"#888\">"
+      "vnext is running — Hermes alive, Fabric pending (Phase 5.3)"
+      "</span>");
+  gtk_label_set_justify(GTK_LABEL(placeholder), GTK_JUSTIFY_CENTER);
+  gtk_widget_set_halign(placeholder, GTK_ALIGN_CENTER);
+  gtk_widget_set_valign(placeholder, GTK_ALIGN_CENTER);
+  // GtkFixed positions children by absolute coords — center roughly in the
+  // 1024x720 default window.
+  gtk_fixed_put(GTK_FIXED(impl->rootView), placeholder,
+                impl->config.initialWidth / 2 - 220,
+                impl->config.initialHeight / 2 - 30);
+
   // Wire up the Fabric mounting manager to the root widget.
   impl->mountingManager =
       std::make_shared<LinuxMountingManager>(impl->rootView);
