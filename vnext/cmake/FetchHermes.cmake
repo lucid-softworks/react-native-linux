@@ -37,7 +37,25 @@ set(HERMES_ENABLE_TEST_SUITE OFF CACHE BOOL "" FORCE)
 # ninja error when tools are disabled.
 set(HERMES_ENABLE_TOOLS ON CACHE BOOL "" FORCE)
 
+# Workaround: Hermes' CDP sources (e.g. API/hermes/cdp/DomainState.cpp)
+# rely on std::string / std::vector / std::memory being pulled in
+# transitively by other headers — true for older libstdc++ but not for
+# the libstdc++ 13 that ships in Ubuntu 24.04. The result is
+# "incomplete type std::__cxx11::basic_string<char>" errors.
+#
+# Force-include the missing standard headers for every Hermes
+# translation unit by tweaking CMAKE_CXX_FLAGS just around the
+# add_subdirectory that FetchContent_MakeAvailable performs. Restore
+# afterwards so our own code isn't affected.
+set(_rnl_save_cxx_flags "${CMAKE_CXX_FLAGS}")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  set(CMAKE_CXX_FLAGS
+    "${CMAKE_CXX_FLAGS} -include cstdint -include cstring -include string -include memory -include vector")
+endif()
+
 FetchContent_MakeAvailable(hermes)
+
+set(CMAKE_CXX_FLAGS "${_rnl_save_cxx_flags}")
 
 # Hermes exposes its JSI runtime as the `libhermes` target (since the
 # 2023 cleanup that retired `hermesvm` from the public surface). Alias
