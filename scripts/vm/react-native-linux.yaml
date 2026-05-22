@@ -1,0 +1,144 @@
+# Lima template for react-native-linux development.
+#
+# Usage:
+#   limactl start --name=rn-linux ./scripts/vm/react-native-linux.yaml
+#   limactl shell rn-linux
+#
+# Or use the wrapper scripts under scripts/vm/.
+#
+# Once booted, connect to the VNC display from macOS:
+#   open vnc://127.0.0.1:5901      # password: rnlinux
+#
+# Inside the VNC session you get an Xfce desktop. Run the app there with:
+#   cd ~/react-native-linux/template/linux/build
+#   ./rn-linux-app
+
+# Ubuntu 24.04 LTS. The cloud image is small and the runtime is what we
+# actually target in CI.
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+# 4 CPUs + 6 GB RAM is enough for a Hermes-from-source build.
+cpus: 4
+memory: "6GiB"
+
+# 30 GiB sparse — qcow2 only allocates what's actually written, so the host
+# disk impact starts ~3-4 GiB and grows with the build. The hard ceiling
+# matters because Hermes + Folly + RN headers can hit ~12 GiB.
+disk: "30GiB"
+
+# Mount the repo into the guest so edits on macOS are visible there. The
+# mount is sshfs-backed (writable).
+mounts:
+  - location: "{{.Home}}/code/lucid-softworks/react-native-linux"
+    mountPoint: "/home/{{.User}}.linux/react-native-linux"
+    writable: true
+    sshfs:
+      cache: true
+      followSymlinks: false
+
+mountType: "sshfs"
+
+# Forward TigerVNC out to the host so a macOS VNC viewer can connect.
+portForwards:
+  - guestPort: 5901
+    hostPort: 5901
+  - guestPort: 8081   # Metro, in case Metro runs inside the VM
+    hostPort: 8081
+
+# Provision the guest. Single `provision:` block; Lima runs the entries in
+# order. Splitting them out into multiple top-level `provision:` keys is a
+# common footgun — the last one wins and earlier ones are silently dropped.
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euxo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        build-essential cmake ninja-build pkg-config \
+        clang clang-format clang-tidy \
+        git curl ca-certificates \
+        libgtk-4-dev libglib2.0-dev \
+        python3 python3-pip \
+        xvfb tigervnc-standalone-server tigervnc-common \
+        xfce4 xfce4-terminal dbus-x11 \
+        fonts-noto-core fonts-noto-color-emoji \
+        gnome-themes-extra \
+        nodejs npm \
+        less file unzip
+      # corepack + pnpm
+      npm install -g corepack@latest
+      corepack enable
+      corepack prepare pnpm@9.12.0 --activate
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -euxo pipefail
+      mkdir -p "$HOME/.vnc"
+      # TigerVNC password: 'rnlinux'. Stored in the standard obfuscated format.
+      echo "rnlinux" | vncpasswd -f > "$HOME/.vnc/passwd"
+      chmod 600 "$HOME/.vnc/passwd"
+      cat > "$HOME/.vnc/xstartup" <<'XSTART'
+      #!/bin/sh
+      unset SESSION_MANAGER
+      unset DBUS_SESSION_BUS_ADDRESS
+      exec dbus-launch --exit-with-session startxfce4
+      XSTART
+      chmod 755 "$HOME/.vnc/xstartup"
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euxo pipefail
+      LIMA_USER="{{.User}}"
+      LIMA_HOME="/home/${LIMA_USER}.linux"
+      cat > /etc/systemd/system/rn-linux-vnc.service <<UNIT
+      [Unit]
+      Description=TigerVNC for react-native-linux dev (display :1)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=forking
+      User=${LIMA_USER}
+      Environment=HOME=${LIMA_HOME}
+      ExecStart=/usr/bin/tigervncserver :1 -geometry 1440x900 -localhost no -rfbauth ${LIMA_HOME}/.vnc/passwd
+      ExecStop=/usr/bin/tigervncserver -kill :1
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+      UNIT
+      systemctl daemon-reload
+      systemctl enable --now rn-linux-vnc.service || true
+
+probes:
+  - description: "VNC port reachable"
+    script: |
+      #!/bin/bash
+      set -eu
+      timeout 60s bash -c "until ss -tln | grep -q ':5901'; do sleep 1; done"
+    hint: |
+      VNC server did not come up. Check:
+        limactl shell rn-linux -- journalctl -u rn-linux-vnc.service -n 50
+
+message: |
+  --- react-native-linux VM is ready ---
+
+  Repo is mounted at:    ~/react-native-linux  (inside the VM)
+  VNC server: display :1, password "rnlinux"
+
+  Connect from macOS:
+      open vnc://127.0.0.1:5901
+
+  Then inside the VM:
+      cd ~/react-native-linux
+      pnpm install
+      pnpm cmake:configure
+      pnpm cmake:build
