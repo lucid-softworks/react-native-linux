@@ -140,10 +140,13 @@ Decisions locked in (2026-05-21):
   - [x] `TextComponentDescriptor`
   - [ ] (later) `ScrollViewComponentDescriptor`
   - [ ] (later) `ImageComponentDescriptor`
-- [ ] `LinuxSchedulerDelegate` (implements `SchedulerDelegate`):
-  - [ ] `schedulerDidFinishTransaction` → forward to mounting manager.
-  - [ ] `schedulerDidRequestPreliminaryViewAllocation`.
-  - [ ] `schedulerDidDispatchCommand`.
+- [x] `LinuxSchedulerDelegate` (implements `SchedulerDelegate` — all six pure-virtuals):
+  - [x] `schedulerDidFinishTransaction` → posts `MountingCoordinator::Shared` to the UI thread via `g_idle_add`, pulls the transaction there, hands to `LinuxMountingManager`.
+  - [x] `schedulerShouldRenderTransactions` (treats same as didFinish for MVP).
+  - [x] `schedulerDidRequestPreliminaryViewAllocation` (no-op; GTK widget alloc is cheap).
+  - [x] `schedulerDidDispatchCommand` (logs; routing to component views is Phase 9).
+  - [x] `schedulerDidSendAccessibilityEvent` (logs; AT-SPI2 hookup is Phase 9).
+  - [x] `schedulerDidSetIsJSResponder` (no-op; GTK gesture controllers own grab state).
 - [ ] `SurfaceHandler` lifecycle (start/stop, layout constraints).
 - [ ] `LayoutContext` (point scale factor from `gdk_monitor_get_scale_factor`).
 - [x] Renderer + Yoga + telemetry + runtime-scheduler + mounting + featureflags sources compiled into a static `react_native_rn_renderer` library, link-included with `-Wl,--whole-archive` so descriptor-provider statics survive dead-strip.
