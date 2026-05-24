@@ -28,6 +28,12 @@ struct State {
   GtkWidget* rootView = nullptr;
   std::atomic<int> nextId{1};
   std::unordered_map<int, GtkWidget*> nodes;
+  // Click handlers — registered by `rnLinux.onClick(nodeId, fn)` and
+  // invoked from GtkGestureClick's `released` signal. We're
+  // single-threaded today so calling into the runtime from the GTK
+  // callback is safe.
+  jsi::Runtime* runtime = nullptr;
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> clickHandlers;
 
   int registerWidget(GtkWidget* w) {
     int id = nextId.fetch_add(1);
@@ -75,6 +81,10 @@ GtkCssProvider* ensureCssProvider(GtkWidget* w) {
 
 void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   state().rootView = rootView;
+  // Stash the runtime so the GTK-signal trampoline below can call back
+  // into JS without going through a captured lambda (which would have
+  // to outlive its host function).
+  state().runtime = &rt;
 
   jsi::Object rnLinux{rt};
 
@@ -212,6 +222,60 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
     if (level == "error") RNL_LOGE("js") << msg;
     else if (level == "warn") RNL_LOGW("js") << msg;
     else RNL_LOGI("js") << msg;
+    return jsi::Value::undefined();
+  });
+
+  // `rnLinux.onClick(nodeId, fn | null)` — install / replace / remove a
+  // press handler. fn is invoked once per click (released-after-press)
+  // with no arguments. Passing null detaches the handler; the
+  // GtkGestureClick controller stays attached (cheap) but inert.
+  bindMethod(rt, rnLinux, "onClick", 2,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 2) return jsi::Value::undefined();
+    int id = static_cast<int>(args[0].asNumber());
+    GtkWidget* w = state().lookup(id);
+    if (!w) return jsi::Value::undefined();
+
+    if (args[1].isNull() || args[1].isUndefined()) {
+      state().clickHandlers.erase(id);
+      return jsi::Value::undefined();
+    }
+    state().clickHandlers[id] = std::make_shared<jsi::Function>(
+        args[1].asObject(rt).asFunction(rt));
+
+    // Add a GtkGestureClick once per widget; subsequent calls just
+    // replace the stored jsi::Function above.
+    if (!g_object_get_data(G_OBJECT(w), "rnl-click-gesture")) {
+      auto* gesture = gtk_gesture_click_new();
+      g_object_set_data_full(G_OBJECT(w), "rnl-click-gesture",
+                             gesture, g_object_unref);
+      auto idPayload = GINT_TO_POINTER(id);
+      g_signal_connect_data(
+          gesture, "released",
+          G_CALLBACK(+[](GtkGestureClick* /*gc*/, int /*n_press*/,
+                          double /*x*/, double /*y*/, gpointer ud) {
+            int nodeId = GPOINTER_TO_INT(ud);
+            auto it = state().clickHandlers.find(nodeId);
+            if (it == state().clickHandlers.end() || !state().runtime) return;
+            try {
+              it->second->call(*state().runtime);
+              // React's scheduler queues the re-render on a microtask
+              // (our setTimeout shim ends up doing Promise.resolve().then).
+              // Hermes only auto-drains the queue at evaluateJavaScript
+              // boundaries, so we drain explicitly here — otherwise the
+              // post-setState commit never happens until the next
+              // unrelated JS entry-point.
+              state().runtime->drainMicrotasks();
+            } catch (const jsi::JSError& e) {
+              RNL_LOGE("rnLinux") << "click handler threw: " << e.getMessage();
+            } catch (const std::exception& e) {
+              RNL_LOGE("rnLinux") << "click handler threw: " << e.what();
+            }
+          }),
+          idPayload, /*destroy=*/nullptr, /*flags=*/static_cast<GConnectFlags>(0));
+      gtk_widget_add_controller(w, GTK_EVENT_CONTROLLER(gesture));
+    }
     return jsi::Value::undefined();
   });
 

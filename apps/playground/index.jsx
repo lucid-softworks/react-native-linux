@@ -151,6 +151,12 @@ const hostConfig = {
   resetTextContent: noop,
   commitTextUpdate: noop,
 
+  // React-reconciler calls prepareUpdate for every prop change; if it
+  // returns null/false commitUpdate is skipped. We don't bother diffing
+  // — return a truthy sentinel so commitUpdate always runs, then do the
+  // actual prop apply there.
+  prepareUpdate: () => true,
+
   commitMount: noop,
   commitUpdate(instance, _updatePayload, _type, _oldProps, newProps) {
     instance.props = newProps;
@@ -164,14 +170,17 @@ const hostConfig = {
   unhideTextInstance: noop,
 };
 
-// Props that don't depend on having a parent (text, color). Safe to apply
-// during createInstance — they're idempotent.
+// Props that don't depend on having a parent (text, color, click). Safe
+// to apply during createInstance — they're idempotent.
 function applyNonBoundsProps(inst) {
   const {id, type, props: p} = inst;
   if (type === 'label' && typeof p.text === 'string') {
     rnLinux.setText(id, p.text);
   }
   if (p.backgroundColor) rnLinux.setBackgroundColor(id, p.backgroundColor);
+  // Register / replace / detach the click handler in one shot. Pass
+  // `null` (vs `undefined`) so the C++ side recognises "no handler".
+  rnLinux.onClick(id, typeof p.onClick === 'function' ? p.onClick : null);
 }
 
 // Position/size go through gtk_fixed_move on the parent — so we must run
@@ -188,40 +197,72 @@ function applyBounds(inst) {
 
 const reconciler = Reconciler(hostConfig);
 
-function Swatch({x, color, label}) {
+function Button({x, y, width = 200, height = 60, color = '#3b82f6', label, onClick}) {
   return React.createElement(
     'box',
-    {x, y: 280, width: 200, height: 80, backgroundColor: color},
+    {x, y, width, height, backgroundColor: color, onClick},
     React.createElement('label', {
-      x: 12, y: 28, width: 180, height: 24, text: label,
+      x: 16, y: 16, width: width - 32, height: height - 32, text: label,
     }),
   );
 }
 
 function App() {
+  const [count, setCount] = React.useState(0);
+
   React.useEffect(() => {
     rnLinux.log('info', 'React App mounted — useEffect ran ✓');
   }, []);
+
+  React.useEffect(() => {
+    rnLinux.log('info', 'count is now ' + count);
+  }, [count]);
 
   return React.createElement(
     'box',
     {x: 0, y: 0, width: 1024, height: 720, backgroundColor: '#0f172a'},
     React.createElement('label', {
-      x: 80, y: 80, width: 860, height: 48,
-      text: '✨  React is rendering on Linux  ✨',
+      x: 80, y: 64, width: 860, height: 48,
+      text: '✨  React on Linux — interactive  ✨',
     }),
     React.createElement('label', {
-      x: 80, y: 140, width: 860, height: 24,
-      text: 'react-reconciler → rnLinux JSI bridge → GtkLabel / GtkFixed',
+      x: 80, y: 124, width: 860, height: 24,
+      text: 'click a button, watch the count update through useState',
     }),
+
+    // Live count readout
+    React.createElement('box', {
+      x: 80, y: 200, width: 860, height: 96,
+      backgroundColor: '#1e293b',
+    },
+      React.createElement('label', {
+        x: 24, y: 28, width: 820, height: 40,
+        text: 'count: ' + count,
+      }),
+    ),
+
+    // Three buttons that mutate state
+    React.createElement(Button, {
+      x: 80, y: 340, color: '#22c55e', label: '+1',
+      onClick: () => {
+        rnLinux.log('info', 'click +1 — count=' + count +
+            ' typeof setCount=' + typeof setCount);
+        setCount(count + 1);
+      },
+    }),
+    React.createElement(Button, {
+      x: 300, y: 340, color: '#f97316', label: '+10',
+      onClick: () => setCount(count + 10),
+    }),
+    React.createElement(Button, {
+      x: 520, y: 340, color: '#ef4444', label: 'reset',
+      onClick: () => setCount(0),
+    }),
+
     React.createElement('label', {
-      x: 80, y: 180, width: 860, height: 24,
-      text: 'powered by Hermes, GTK4, Lima, virtiofs, and a fistful of -Wno- flags',
+      x: 80, y: 440, width: 860, height: 22,
+      text: 'GtkGestureClick → JSI fn call → setState → reconciler → setText',
     }),
-    React.createElement(Swatch, {x: 80, color: '#22c55e', label: 'green'}),
-    React.createElement(Swatch, {x: 300, color: '#3b82f6', label: 'blue'}),
-    React.createElement(Swatch, {x: 520, color: '#f97316', label: 'orange'}),
-    React.createElement(Swatch, {x: 740, color: '#ef4444', label: 'red'}),
   );
 }
 
