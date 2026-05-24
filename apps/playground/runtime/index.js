@@ -10,6 +10,12 @@
 // stays the same.
 
 require('./shims');
+// Side-effect: installs globalThis.RN$AppRegistry so that
+// SurfaceRegistryBinding::startSurface (fired when our C++ host calls
+// SurfaceHandler::start()) has a runApplication target. Drives a
+// hand-rolled shadow tree through nativeFabricUIManager to exercise
+// the Fabric → MountingManager → GTK widget pipeline.
+require('./fabric');
 
 const Reconciler = require('react-reconciler');
 const {hostConfig} = require('./hostConfig');

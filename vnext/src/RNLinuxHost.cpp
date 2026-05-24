@@ -267,15 +267,14 @@ void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
     return;
   }
   impl_->scheduler->registerSurface(surface);
-  // SurfaceHandler::start() calls into UIManager::startSurface() which
-  // in turn calls into ReactFabric on the JS side. Without our own
-  // AppRegistry/ReactFabric setup in the bundle the call goes through
-  // a noexcept boundary that std::terminate's the process. Until we
-  // wire that JS-side glue (next commit), we register-without-start.
-  // The rnLinux JSI-bridge demo continues to drive the visible UI
-  // alongside the registered-but-unstarted Fabric surface.
-  RNL_LOGI("RNLinuxHost")
-      << "surface registered (start deferred — see ReactFabric TODO)";
+  // SurfaceHandler::start() drives into UIManager::startSurface() ->
+  // SurfaceRegistryBinding::startSurface(rt, surfaceId, moduleName,
+  // ...), which calls `globalThis.RN$AppRegistry.runApplication(...)`.
+  // Our bundle (apps/playground/runtime/fabric.js) installs that hook
+  // and uses nativeFabricUIManager to commit a shadow tree, so the
+  // call no longer std::terminate's.
+  surface.start();
+  RNL_LOGI("RNLinuxHost") << "surface started";
 }
 
 void RNLinuxHost::stopSurface(facebook::react::SurfaceHandler& surface) {

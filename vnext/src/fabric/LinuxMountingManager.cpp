@@ -17,7 +17,7 @@ LinuxMountingManager::~LinuxMountingManager() = default;
 void LinuxMountingManager::performTransaction(
     const facebook::react::MountingTransaction& tx) {
   const auto& mutations = tx.getMutations();
-  RNL_LOGD("MountingManager") << "performTransaction (" << mutations.size()
+  RNL_LOGI("MountingManager") << "performTransaction (" << mutations.size()
                               << " mutations)";
 
   // Mutations come pre-sorted by Fabric: Deletes first, then Creates,
@@ -26,6 +26,9 @@ void LinuxMountingManager::performTransaction(
     using Type = facebook::react::ShadowViewMutation::Type;
     switch (m.type) {
       case Type::Create:
+        RNL_LOGI("MountingManager")
+            << "  Create " << m.newChildShadowView.componentName
+            << " tag=" << m.newChildShadowView.tag;
         handleCreate(m.newChildShadowView.tag,
                      m.newChildShadowView.componentName);
         // Apply initial props + state on create so the widget is ready
@@ -34,10 +37,20 @@ void LinuxMountingManager::performTransaction(
         break;
 
       case Type::Delete:
+        RNL_LOGI("MountingManager")
+            << "  Delete tag=" << m.oldChildShadowView.tag;
         handleDelete(m.oldChildShadowView.tag);
         break;
 
       case Type::Insert:
+        RNL_LOGI("MountingManager")
+            << "  Insert child=" << m.newChildShadowView.tag
+            << " parent=" << m.parentShadowView.tag
+            << " frame=("
+            << m.newChildShadowView.layoutMetrics.frame.origin.x << ","
+            << m.newChildShadowView.layoutMetrics.frame.origin.y << ","
+            << m.newChildShadowView.layoutMetrics.frame.size.width << "x"
+            << m.newChildShadowView.layoutMetrics.frame.size.height << ")";
         handleInsert(m.parentShadowView.tag, m.newChildShadowView.tag,
                      m.index);
         // Layout/position can only be applied once the child is in a
@@ -46,6 +59,9 @@ void LinuxMountingManager::performTransaction(
         break;
 
       case Type::Remove:
+        RNL_LOGI("MountingManager")
+            << "  Remove child=" << m.oldChildShadowView.tag
+            << " parent=" << m.parentShadowView.tag;
         handleRemove(m.parentShadowView.tag, m.oldChildShadowView.tag,
                      m.index);
         break;

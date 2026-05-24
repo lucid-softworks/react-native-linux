@@ -68,4 +68,8 @@ function App() {
   );
 }
 
-render(<App />);
+// Disabled while we exercise the Fabric path — the JSI-bridge React
+// app's dark-nav outer box covers anything Fabric mounts to the same
+// GtkFixed root. Re-enable once the Fabric experiment is captured.
+// render(<App />);
+rnLinux.log('info', 'JSI-bridge React app disabled; Fabric demo only');
