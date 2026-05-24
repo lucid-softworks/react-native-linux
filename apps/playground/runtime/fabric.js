@@ -3,17 +3,42 @@
 // Minimal Fabric driver. RN's SurfaceRegistryBinding::startSurface (the
 // JSI hook our C++ host fires when surface.start() runs) expects
 // `globalThis.RN$AppRegistry.runApplication(moduleName, params,
-// displayMode)` to exist. The real RN ships ReactFabric inside that
-// callback; we hand-roll a tiny tree that exercises Fabric end-to-end
-// (Scheduler diff → SchedulerDelegate → MountingManager → GTK widgets).
+// displayMode)` to exist. We hand-roll a tiny tree that exercises
+// Fabric end-to-end (Scheduler diff → SchedulerDelegate →
+// MountingManager → GTK widgets).
 //
-// Once this works, the same hook becomes the integration point for the
-// real ReactFabric renderer (or our own React-host config that emits
-// nativeFabricUIManager calls).
+// RN's text model:
+//   <Paragraph>             (the layout root; only this one mounts a
+//                            widget, in our case a GtkLabel)
+//     └─ <RawText text="…"> (data-only leaf; contributes to the
+//                            Paragraph's AttributedString during the
+//                            commit, but never mounts a widget)
+// So putting a `text` prop on the Paragraph itself is silently ignored
+// — we have to spell out the RawText child to make the label have any
+// actual content.
 
 let nextTag = 1000;
 function tag() {
   return ++nextTag;
+}
+
+function makeText(fabric, surfaceId, text, layout) {
+  const paragraph = fabric.createNode(
+    tag(), 'Paragraph', surfaceId,
+    {
+      ...layout,
+      position: 'absolute',
+      collapsable: false,
+    },
+    {},
+  );
+  const rawText = fabric.createNode(
+    tag(), 'RawText', surfaceId,
+    {text},
+    {},
+  );
+  fabric.appendChild(paragraph, rawText);
+  return paragraph;
 }
 
 function runApplication(moduleName, parameters, _displayMode) {
@@ -26,65 +51,16 @@ function runApplication(moduleName, parameters, _displayMode) {
 
   const surfaceId = parameters.rootTag;
 
-  // Build a tree of Views + Paragraphs. Notes:
-  //   • `collapsable: false` keeps Fabric from flattening Views that
-  //     have no measured children (otherwise the layout pass merges
-  //     them away and only the inner Paragraphs survive as siblings
-  //     of root).
-  //   • Explicit width/height because our cxx TextLayoutManager is a
-  //     stub that returns zero measurements — Paragraphs would otherwise
-  //     come out 0 tall.
-  const banner = fabric.createNode(
-    tag(), 'View', surfaceId,
-    {
-      backgroundColor: 0xff3b82f6,     // ARGB int — bypass color parser quirks
-      width: 800, height: 80,
-      top: 40, left: 40,
-      position: 'absolute',
-      collapsable: false,
-    },
-    {},
-  );
-  const bannerText = fabric.createNode(
-    tag(), 'Paragraph', surfaceId,
-    {
-      text: 'Hello from Fabric!',
-      width: 760, height: 40,
-      top: 20, left: 20,
-      position: 'absolute',
-      collapsable: false,
-    },
-    {},
-  );
-  fabric.appendChild(banner, bannerText);
-
-  const sub = fabric.createNode(
-    tag(), 'View', surfaceId,
-    {
-      backgroundColor: 0xfff97316,
-      width: 800, height: 80,
-      top: 140, left: 40,
-      position: 'absolute',
-      collapsable: false,
-    },
-    {},
-  );
-  const subText = fabric.createNode(
-    tag(), 'Paragraph', surfaceId,
-    {
-      text: 'Layout via Yoga, mount via LinuxMountingManager',
-      width: 760, height: 40,
-      top: 20, left: 20,
-      position: 'absolute',
-      collapsable: false,
-    },
-    {},
-  );
-  fabric.appendChild(sub, subText);
+  const heading = makeText(fabric, surfaceId,
+    'Hello from Fabric!',
+    {top: 80, left: 80, width: 800, height: 40});
+  const body = makeText(fabric, surfaceId,
+    'This text reaches the screen through the real Fabric pipeline.',
+    {top: 140, left: 80, width: 800, height: 40});
 
   const childSet = fabric.createChildSet(surfaceId);
-  fabric.appendChildToSet(childSet, banner);
-  fabric.appendChildToSet(childSet, sub);
+  fabric.appendChildToSet(childSet, heading);
+  fabric.appendChildToSet(childSet, body);
   fabric.completeRoot(surfaceId, childSet);
   rnLinux.log('info', 'completeRoot called for surfaceId=' + surfaceId);
 }
