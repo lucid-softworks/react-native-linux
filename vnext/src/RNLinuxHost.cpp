@@ -274,6 +274,12 @@ void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
   // and uses nativeFabricUIManager to commit a shadow tree, so the
   // call no longer std::terminate's.
   surface.start();
+  // surface.start() runs JS (RN$AppRegistry.runApplication, which then
+  // does reconciler.updateContainer → completeRoot). React schedules
+  // post-commit passive effects (useEffect) as microtasks; drain them
+  // now so the very first render's effects fire without waiting for
+  // the next JS-from-C++ entry-point.
+  impl_->runtimeHolder->runtime().drainMicrotasks();
   RNL_LOGI("RNLinuxHost") << "surface started";
 }
 

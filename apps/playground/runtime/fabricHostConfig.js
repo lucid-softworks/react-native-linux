@@ -103,8 +103,12 @@ function buildFabricProps(type, props) {
 }
 
 const hostConfig = {
-  supportsMutation: true,
-  supportsPersistence: false,
+  // Persistence is the natural fit for Fabric — every commit clones
+  // the affected nodes via nativeFabricUIManager.cloneNodeWith*, then
+  // hands the new root child-set to completeRoot. No in-place
+  // mutation, no diff payloads.
+  supportsMutation: false,
+  supportsPersistence: true,
   isPrimaryRenderer: true,
   noTimeout: -1,
 
@@ -118,13 +122,7 @@ const hostConfig = {
   getPublicInstance: (instance) => instance,
 
   prepareForCommit: () => null,
-  resetAfterCommit(containerInfo) {
-    if (containerInfo._committed) return;
-    containerInfo._committed = true;
-    currentFabric.completeRoot(currentSurfaceId, containerInfo.childSet);
-    rnLinux.log('info',
-      '[fabric-reconciler] completeRoot surface=' + currentSurfaceId);
-  },
+  resetAfterCommit: noop,
 
   preparePortalMount: noop,
   beforeActiveInstanceBlur: noop,
@@ -176,36 +174,86 @@ const hostConfig = {
   },
   finalizeInitialChildren: () => false,
 
+  // Persistent-mode update path. cloneInstance is called once per
+  // changed (or child-changed) node in the workInProgress tree.
+  // The reconciler tells us whether children are unchanged — when
+  // true we keep the existing child list via cloneNodeWithNewProps;
+  // otherwise the caller reattaches children via appendChild on the
+  // returned (clone) instance.
+  prepareUpdate(_instance, _type, oldProps, newProps) {
+    // Cheap reference check first — children/key are React-only and
+    // are not part of newProps for host instances, so identity is
+    // a safe shortcut.
+    return oldProps === newProps ? null : true;
+  },
+
+  cloneInstance(
+    currentInstance,
+    _updatePayload,
+    type,
+    _oldProps,
+    newProps,
+    _workInProgress,
+    childrenUnchanged,
+    /*recyclableInstance*/
+  ) {
+    const fabricProps = buildFabricProps(type, newProps);
+    const fabricNode = childrenUnchanged
+      ? currentFabric.cloneNodeWithNewProps(currentInstance.fabricNode, fabricProps)
+      : currentFabric.cloneNodeWithNewChildrenAndProps(currentInstance.fabricNode, fabricProps);
+    return {
+      tag: currentInstance.tag,
+      fabricNode,
+      componentName: currentInstance.componentName,
+      type,
+    };
+  },
+
+  // Used inside Fabric's `<hidden>` Offscreen branch — we don't have
+  // a visibility primitive yet, so just return a clone with the same
+  // props (no Pango layer needed to honour `display: none`).
+  cloneHiddenInstance(currentInstance, type, _props /*, internalInstanceHandle */) {
+    return {
+      tag: currentInstance.tag,
+      fabricNode: currentFabric.cloneNode(currentInstance.fabricNode),
+      componentName: currentInstance.componentName,
+      type,
+    };
+  },
+  cloneHiddenTextInstance(currentInstance /*, text, internalInstanceHandle */) {
+    return {
+      tag: currentInstance.tag,
+      fabricNode: currentFabric.cloneNode(currentInstance.fabricNode),
+      componentName: currentInstance.componentName,
+      type: currentInstance.type,
+    };
+  },
+
   appendChild(parent, child) {
     currentFabric.appendChild(parent.fabricNode, child.fabricNode);
   },
-  appendChildToContainer(container, child) {
-    currentFabric.appendChildToSet(container.childSet, child.fabricNode);
-  },
-  insertBefore(parent, child) {
-    currentFabric.appendChild(parent.fabricNode, child.fabricNode);
-  },
-  insertInContainerBefore(container, child) {
-    currentFabric.appendChildToSet(container.childSet, child.fabricNode);
-  },
 
-  // Updates aren't wired through cloneNodeWithNewProps yet — we'd need
-  // to recreate the affected subtree and replaceChild on the parent.
-  // For the MVP, prepareUpdate returning null suppresses commitUpdate.
-  prepareUpdate: () => null,
-  commitMount: noop,
-  commitUpdate: noop,
+  // Container child-set lifecycle. The reconciler builds a fresh
+  // child-set for every commit; we hand it off to completeRoot in
+  // replaceContainerChildren.
+  createContainerChildSet(_container) {
+    return currentFabric.createChildSet(currentSurfaceId);
+  },
+  appendChildToContainerChildSet(childSet, child) {
+    currentFabric.appendChildToSet(childSet, child.fabricNode);
+  },
+  finalizeContainerChildren: noop,
+  replaceContainerChildren(container, newChildSet) {
+    container.childSet = newChildSet;
+    currentFabric.completeRoot(currentSurfaceId, newChildSet);
+  },
 
   // <text>hi</text> must spawn a RawText child, NOT inline the string
   // on the Paragraph's props. Returning false sends React down the
   // createTextInstance path.
   shouldSetTextContent: () => false,
-  resetTextContent: noop,
-  commitTextUpdate: noop,
 
-  removeChild: noop,
-  removeChildFromContainer: noop,
-
+  commitMount: noop,
   hideInstance: noop,
   unhideInstance: noop,
   hideTextInstance: noop,

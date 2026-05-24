@@ -57,8 +57,12 @@ if (typeof globalThis.setTimeout === 'undefined') {
   globalThis.clearTimeout = (id) => _timers.delete(id);
 }
 if (typeof globalThis.setInterval === 'undefined') {
-  globalThis.setInterval = () => 0;
-  globalThis.clearInterval = () => {};
+  // Real GTK-driven interval (g_timeout_add wired up in
+  // RnLinuxBindings.cpp). The C++ side already drainMicrotasks() after
+  // each callback so any setState queued inside fires its commit
+  // before the next interval tick.
+  globalThis.setInterval = (fn, ms) => rnLinux.setInterval(fn, ms | 0);
+  globalThis.clearInterval = (id) => rnLinux.clearInterval(id);
 }
 if (typeof globalThis.setImmediate === 'undefined') {
   globalThis.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);

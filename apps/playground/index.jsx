@@ -13,15 +13,22 @@
 // defaults to 'absolute' in the host config — explicit top/left is
 // the unit of layout for now.
 
+const {useEffect, useState} = require('react');
 const {renderFabric, View, Text} = require('./runtime');
 
 function App() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setCount((c) => c + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <View top={40} left={40} width={920} height={360}
           backgroundColor="#1e293b">
       <Text top={20} left={20} width={880} height={36}
             color="#f8fafc" fontSize={22} fontWeight="700">
-        Hello from JSX → Fabric!
+        Hello from JSX → Fabric!  count = {count}
       </Text>
       <Text top={60} left={20} width={880} height={24}
             color="#94a3b8" fontSize={14} fontStyle="italic">

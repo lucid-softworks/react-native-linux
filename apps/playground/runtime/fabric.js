@@ -32,7 +32,10 @@ function tryMount() {
     return;
   }
   setSurfaceContext(fabric, surfaceId);
-  containerInfo = {childSet: fabric.createChildSet(surfaceId)};
+  // Container is just a sink the reconciler hands back to us in
+  // createContainerChildSet / replaceContainerChildren. The child-set
+  // itself is created per-commit by the host config.
+  containerInfo = {};
   root = reconciler.createContainer(
     containerInfo,
     /* tag */ 0,
