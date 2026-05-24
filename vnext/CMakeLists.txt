@@ -73,10 +73,12 @@ set(RNL_SOURCES
   src/RNLinuxHost.cpp
   src/Logging.cpp
   src/CrashHandler.cpp
+  src/fabric/LinuxComponentDescriptorRegistry.cpp
   src/fabric/LinuxSchedulerDelegate.cpp
   src/fabric/LinuxMountingManager.cpp
   src/fabric/LinuxComponentView.cpp
   src/fabric/LinuxComponentViewRegistry.cpp
+  src/fabric/JSExecutorStubs.cpp
   src/jsi/HermesRuntimeFactory.cpp
   src/jsi/BundleLoader.cpp
   src/jsi/RnLinuxBindings.cpp
@@ -84,15 +86,100 @@ set(RNL_SOURCES
   src/views/ParagraphComponentView.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
-  # Phase 5.3 step 1 — LinuxComponentDescriptorRegistry.cpp + the cxx
-  # TextLayoutManager.cpp are temporarily out of the build. They
-  # compile against the real RN Fabric headers, but instantiating the
-  # descriptor providers drags in references to ShadowNode / Props /
-  # Yoga implementation symbols that RN doesn't ship as a CMake target
-  # on Linux. Re-add once we own those source lists (Phase 5.3 step 2).
-  # src/fabric/LinuxComponentDescriptorRegistry.cpp
-  # ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/TextLayoutManager.cpp
 )
+
+# ------------------------------------------------------------------
+# RN renderer sources — compiled into a separate static library so we
+# can apply per-target flags (no -Wpedantic etc.) without polluting our
+# own warning hygiene. RN doesn't ship a Linux CMake target, but the
+# files build fine with the same toolchain we use for everything else.
+# ------------------------------------------------------------------
+file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/core/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/componentregistry/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/attributedstring/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/graphics/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/graphics/platform/cxx/react/renderer/graphics/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/text/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/legacyviewmanagerinterop/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/root/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/mounting/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/telemetry/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/runtimescheduler/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/debug/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/featureflags/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/utils/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/debug/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/performance/timeline/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/logger/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsi/jsi/JSIDynamic.cpp
+)
+# Exclude any test files swept up by the globs above.
+list(FILTER RNL_RN_RENDERER_SOURCES EXCLUDE REGEX "/tests/")
+list(FILTER RNL_RN_RENDERER_SOURCES EXCLUDE REGEX "Test\\.cpp$")
+
+add_library(react_native_rn_renderer STATIC ${RNL_RN_RENDERER_SOURCES})
+target_include_directories(react_native_rn_renderer
+  PUBLIC
+    ${REACT_NATIVE_ROOT}/ReactCommon
+    ${REACT_NATIVE_ROOT}/ReactCommon/jsi
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/graphics/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx
+    # RN's CallInvoker + RuntimeExecutor live under their own dirs as
+    # <ReactCommon/CallInvoker.h> and <ReactCommon/RuntimeExecutor.h>;
+    # the include base is the sibling `ReactCommon/` subdir.
+    ${REACT_NATIVE_ROOT}/ReactCommon/callinvoker
+    ${REACT_NATIVE_ROOT}/ReactCommon/runtimeexecutor
+    ${REACT_NATIVE_ROOT}/ReactCommon/yoga
+    ${RNL_SHIM_DIR}
+)
+target_link_libraries(react_native_rn_renderer
+  PUBLIC
+    Hermes::Hermes
+    Folly::folly
+    glog::glog
+    fmt::fmt
+    double-conversion::double-conversion
+    Boost::headers
+)
+target_compile_features(react_native_rn_renderer PUBLIC cxx_std_20)
+# Quiet upstream's GCC-flagged patterns and PIC for linking into our .so.
+target_compile_options(react_native_rn_renderer PRIVATE
+  -w                     # disable warnings for upstream sources
+  -Wno-changes-meaning
+  -fPIC
+  # libstdc++ 13 tightened its transitive includes; RN headers assume
+  # <cstdint>/<string>/<memory>/<vector> are pulled in by something
+  # else. Inject them universally for these TUs. SHELL: keeps each
+  # `-include HEADER` as two adjacent args; without it CMake collapses
+  # them into a single "-include cstdint" arg that gcc misreads.
+  "SHELL:-include cstdint"
+  "SHELL:-include cstring"
+  "SHELL:-include string"
+  "SHELL:-include memory"
+  "SHELL:-include vector"
+)
+# `__unused` is a clang/BSD compat macro RN uses (cxxreact/SystraceSection.h).
+# GCC doesn't define it. Treat it as empty — the attribute only annotates
+# parameters as intentionally unused; dropping it is harmless.
+target_compile_definitions(react_native_rn_renderer PRIVATE
+  __unused=
+)
+
+# Yoga lives bundled inside RN as a standalone CMake project; it exposes
+# the `yogacore` static-lib target with the `<yoga/...>` include path.
+add_subdirectory(
+  ${REACT_NATIVE_ROOT}/ReactCommon/yoga
+  ${CMAKE_BINARY_DIR}/yoga-build
+  EXCLUDE_FROM_ALL)
+set_property(TARGET yogacore PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_library(react_native_linux ${RNL_SOURCES})
 add_library(react_native_linux::react_native_linux ALIAS react_native_linux)
@@ -139,6 +226,22 @@ target_link_libraries(react_native_linux
     fmt::fmt
     double-conversion::double-conversion
     Boost::headers
+    # RN renderer .cpp set + bundled Yoga. Both static; link with
+    # whole-archive so registry side-effects (descriptor providers
+    # bootstrapping their statics) actually take.
+    -Wl,--whole-archive
+    react_native_rn_renderer
+    -Wl,--no-whole-archive
+    yogacore
+)
+
+# Fail the .so link if any reference goes unresolved. Without this,
+# missing RN sources hide until a downstream executable (e.g.
+# rn-linux-playground) tries to link and surfaces them — which costs a
+# slow rebuild of everything to find out. Making the lib link strict
+# moves that signal up to the cheap step.
+target_link_options(react_native_linux PRIVATE
+  -Wl,--no-undefined
 )
 
 target_compile_features(react_native_linux PUBLIC cxx_std_20)
