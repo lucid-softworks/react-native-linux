@@ -133,11 +133,11 @@ Decisions locked in (2026-05-21):
 
 ### 5.3 — Fabric integration
 
-- [ ] `LinuxComponentDescriptorRegistry` registering core descriptors:
-  - [ ] `ViewComponentDescriptor` (reused from `react/renderer/components/view`)
-  - [ ] `ParagraphComponentDescriptor` (text)
-  - [ ] `RawTextComponentDescriptor`
-  - [ ] `TextComponentDescriptor`
+- [x] `LinuxComponentDescriptorRegistry` registering core descriptors:
+  - [x] `ViewComponentDescriptor` (reused from `react/renderer/components/view`)
+  - [x] `ParagraphComponentDescriptor` (text)
+  - [x] `RawTextComponentDescriptor`
+  - [x] `TextComponentDescriptor`
   - [ ] (later) `ScrollViewComponentDescriptor`
   - [ ] (later) `ImageComponentDescriptor`
 - [ ] `LinuxSchedulerDelegate` (implements `SchedulerDelegate`):
@@ -146,6 +146,7 @@ Decisions locked in (2026-05-21):
   - [ ] `schedulerDidDispatchCommand`.
 - [ ] `SurfaceHandler` lifecycle (start/stop, layout constraints).
 - [ ] `LayoutContext` (point scale factor from `gdk_monitor_get_scale_factor`).
+- [x] Renderer + Yoga + telemetry + runtime-scheduler + mounting + featureflags sources compiled into a static `react_native_rn_renderer` library, link-included with `-Wl,--whole-archive` so descriptor-provider statics survive dead-strip.
 
 ### 5.4 — Mounting layer (GTK4)
 
