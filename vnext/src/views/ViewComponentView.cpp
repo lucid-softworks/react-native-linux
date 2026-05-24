@@ -34,24 +34,22 @@ ViewComponentView::~ViewComponentView() {
 }
 
 void ViewComponentView::updateProps(
-    facebook::react::Props const& oldProps,
+    facebook::react::Props const& /*oldProps*/,
     facebook::react::Props const& newProps) {
-  const auto& oldVP = static_cast<const facebook::react::ViewProps&>(oldProps);
+  // On Create, the mounting manager calls us with (newProps, newProps)
+  // since there's no real "old" yet — a naive (oldVP != newVP) diff
+  // would skip the very first prop application. Just always apply.
+  // Idempotent at the GTK level (CSS replace, set_opacity).
   const auto& newVP = static_cast<const facebook::react::ViewProps&>(newProps);
 
-  if (oldVP.backgroundColor != newVP.backgroundColor) {
-    if (newVP.backgroundColor) {
-      applyBackgroundColor(static_cast<unsigned int>(*newVP.backgroundColor));
-    } else {
-      // Clear the per-widget CSS so the background resets to GTK default.
-      gtk_css_provider_load_from_string(
-          static_cast<GtkCssProvider*>(cssProvider_), "");
-    }
+  if (newVP.backgroundColor) {
+    applyBackgroundColor(static_cast<unsigned int>(*newVP.backgroundColor));
+  } else {
+    gtk_css_provider_load_from_string(
+        static_cast<GtkCssProvider*>(cssProvider_), "");
   }
-  if (oldVP.opacity != newVP.opacity) {
-    applyOpacity(static_cast<float>(newVP.opacity));
-  }
-  // Border-radius live in BorderRadii — we read the top-level (single
+  applyOpacity(static_cast<float>(newVP.opacity));
+  // Border-radius live in BorderRadii — read the top-level (single
   // value) for the MVP; per-corner support comes once corner-specific
   // CSS templates exist.
   const auto br = newVP.borderRadii.all.value_or(facebook::react::ValueUnit{});

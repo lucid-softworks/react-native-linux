@@ -45,12 +45,52 @@ const TYPE_TO_COMPONENT = {
   text: 'Paragraph',
 };
 
+// Color props that need string-to-rgba normalization. Keep small —
+// covers what View/Text actually accept right now.
+const COLOR_PROPS = new Set(['backgroundColor', 'color', 'borderColor']);
+
+// Convert a CSS-style color string to a normalized [r, g, b, a] float
+// array. The C++ side's fromRawValueShared accepts this shape
+// (value.hasType<std::vector<float>>()) and packs it into a
+// SharedColor. Numbers / arrays are passed through unchanged so apps
+// can still write e.g. backgroundColor={0xff22c55e} or [r,g,b,a].
+function normalizeColor(c) {
+  if (c == null) return c;
+  if (typeof c === 'number') return c;
+  if (Array.isArray(c)) return c;
+  if (typeof c !== 'string') return c;
+
+  let m;
+  if ((m = /^#([0-9a-f]{6})$/i.exec(c))) {
+    const n = parseInt(m[1], 16);
+    return [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255, 1];
+  }
+  if ((m = /^#([0-9a-f]{8})$/i.exec(c))) {
+    // CSS form is #RRGGBBAA.
+    const n = parseInt(m[1], 16);
+    return [((n >>> 24) & 0xff) / 255, ((n >>> 16) & 0xff) / 255,
+            ((n >>> 8) & 0xff) / 255, (n & 0xff) / 255];
+  }
+  if ((m = /^#([0-9a-f]{3})$/i.exec(c))) {
+    const s = m[1];
+    return [parseInt(s[0] + s[0], 16) / 255,
+            parseInt(s[1] + s[1], 16) / 255,
+            parseInt(s[2] + s[2], 16) / 255, 1];
+  }
+  if ((m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(c))) {
+    return [(+m[1]) / 255, (+m[2]) / 255, (+m[3]) / 255,
+            m[4] != null ? +m[4] : 1];
+  }
+  rnLinux.log('warn', '[fabric-reconciler] unrecognized color: ' + c);
+  return c;
+}
+
 function buildFabricProps(type, props) {
   // children/key/ref are React-internal; never forward to Fabric.
   const out = {};
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
-    out[k] = props[k];
+    out[k] = COLOR_PROPS.has(k) ? normalizeColor(props[k]) : props[k];
   }
   if (out.position === undefined) out.position = 'absolute';
   // collapsable:false forces Fabric to materialize this node even if
