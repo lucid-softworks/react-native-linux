@@ -14,6 +14,7 @@
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/renderer/scheduler/SchedulerToolbox.h>
 #include <react/renderer/scheduler/SurfaceHandler.h>
+#include <react/renderer/uimanager/UIManagerBinding.h>
 #include <react/utils/ContextContainer.h>
 
 #include <atomic>
@@ -159,6 +160,18 @@ void RNLinuxHost::start() {
       toolbox, /*animationDelegate=*/nullptr, impl_->schedulerDelegate.get());
   RNL_LOGI("RNLinuxHost") << "scheduler constructed";
 
+  // Install `globalThis.nativeFabricUIManager` and flag the runtime as
+  // bridgeless. ReactFabric on the JS side reaches for these to drive
+  // shadow-tree commits. Without this, surface.start() generates the
+  // "__fbBatchedBridge is undefined" warning we've been seeing.
+  {
+    auto& rt = impl_->runtimeHolder->runtime();
+    rt.global().setProperty(rt, "RN$Bridgeless", true);
+    facebook::react::UIManagerBinding::createAndInstallIfNeeded(
+        rt, impl_->scheduler->getUIManager());
+    RNL_LOGI("RNLinuxHost") << "nativeFabricUIManager installed";
+  }
+
   // 3. Load + evaluate the bundle.
   const auto bundle = loadBundleSync(config_.bundleUrl);
   if (!bundle.ok) {
@@ -254,8 +267,15 @@ void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
     return;
   }
   impl_->scheduler->registerSurface(surface);
-  surface.start();
-  RNL_LOGI("RNLinuxHost") << "surface started";
+  // SurfaceHandler::start() calls into UIManager::startSurface() which
+  // in turn calls into ReactFabric on the JS side. Without our own
+  // AppRegistry/ReactFabric setup in the bundle the call goes through
+  // a noexcept boundary that std::terminate's the process. Until we
+  // wire that JS-side glue (next commit), we register-without-start.
+  // The rnLinux JSI-bridge demo continues to drive the visible UI
+  // alongside the registered-but-unstarted Fabric surface.
+  RNL_LOGI("RNLinuxHost")
+      << "surface registered (start deferred — see ReactFabric TODO)";
 }
 
 void RNLinuxHost::stopSurface(facebook::react::SurfaceHandler& surface) {

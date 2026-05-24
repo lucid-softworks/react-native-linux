@@ -1,12 +1,12 @@
 #include "ParagraphComponentView.h"
 #include "react-native-linux/Logging.h"
 
-#include <gtk/gtk.h>
+#include <react/renderer/attributedstring/AttributedString.h>
+#include <react/renderer/components/text/ParagraphProps.h>
+#include <react/renderer/components/text/ParagraphState.h>
+#include <react/renderer/core/ConcreteState.h>
 
-// When wired:
-// #include <react/renderer/components/text/ParagraphProps.h>
-// #include <react/renderer/components/text/ParagraphState.h>
-// #include <react/renderer/attributedstring/AttributedString.h>
+#include <gtk/gtk.h>
 
 namespace rnlinux {
 
@@ -21,28 +21,26 @@ ParagraphComponentView::ParagraphComponentView(Tag tag)
 void ParagraphComponentView::updateProps(
     facebook::react::Props const& /*oldProps*/,
     facebook::react::Props const& /*newProps*/) {
-  // TODO: pull text alignment, color, etc. from ParagraphProps.
+  // ParagraphProps carries alignment / line-break behaviour. Defer to
+  // when we render multi-fragment Pango attribute lists; for the MVP
+  // the AttributedString in updateState carries everything visible.
 }
 
 void ParagraphComponentView::updateState(
-    facebook::react::State const& /*state*/) {
-  // RN's ParagraphState carries the merged AttributedString + LayoutManager.
-  // The concrete steps:
-  //   const auto& ps = static_cast<react::ParagraphState const&>(state);
-  //   const auto& as = ps.attributedString;
-  //   std::string text;
-  //   PangoAttrList* attrs = pango_attr_list_new();
-  //   size_t offset = 0;
-  //   for (const auto& fragment : as.getFragments()) {
-  //     text += fragment.string;
-  //     applyTextAttributes(attrs, fragment.textAttributes,
-  //                         offset, offset + fragment.string.size());
-  //     offset += fragment.string.size();
-  //   }
-  //   gtk_label_set_text(GTK_LABEL(widget_), text.c_str());
-  //   gtk_label_set_attributes(GTK_LABEL(widget_), attrs);
-  //   pango_attr_list_unref(attrs);
-  RNL_LOGD("Paragraph") << "updateState (stub)";
+    facebook::react::State const& state) {
+  using ConcreteParagraphState =
+      facebook::react::ConcreteState<facebook::react::ParagraphState>;
+  // RN hands us the abstract base; downcast through the typed concrete
+  // wrapper Fabric uses for ParagraphShadowNode.
+  const auto& paragraphState =
+      static_cast<const ConcreteParagraphState&>(state).getData();
+
+  // Flatten every Fragment into one std::string. Once we support inline
+  // colours/weights/fonts this becomes a PangoAttrList alongside the
+  // text — but Pango's parsing of the markup form is enough for plain
+  // mono-styled labels.
+  std::string text = paragraphState.attributedString.getString();
+  gtk_label_set_text(GTK_LABEL(widget_), text.c_str());
 }
 
 }  // namespace rnlinux
