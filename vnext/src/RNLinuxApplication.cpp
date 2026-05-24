@@ -5,9 +5,12 @@
 #include "fabric/LinuxMountingManager.h"
 #include "jsi/RnLinuxBindings.h"
 
+#include <gio/gio.h>
 #include <gtk/gtk.h>
 
+#include <cstring>
 #include <memory>
+#include <string>
 
 namespace rnlinux {
 
@@ -18,7 +21,52 @@ struct RNLinuxApplication::Impl {
   GtkWidget* rootView = nullptr;  // GtkFixed used as the Fabric root container
   std::unique_ptr<RNLinuxHost> host;
   std::shared_ptr<LinuxMountingManager> mountingManager;
+  GFileMonitor* bundleMonitor = nullptr;
+  guint reloadDebounceSource = 0;
 };
+
+namespace {
+
+// Strip the leading "file://" from a bundle URL, returning a (possibly
+// empty) absolute path. Returns empty for any non-file scheme.
+std::string fileSchemePath(const std::string& url) {
+  constexpr const char* kPrefix = "file://";
+  if (url.compare(0, std::strlen(kPrefix), kPrefix) == 0) {
+    return url.substr(std::strlen(kPrefix));
+  }
+  return {};
+}
+
+gboolean fireReload(gpointer userData) {
+  auto* impl = static_cast<RNLinuxApplication::Impl*>(userData);
+  impl->reloadDebounceSource = 0;
+  if (impl->host) {
+    RNL_LOGI("HotReload") << "bundle changed on disk — reloading";
+    impl->host->reload();
+  }
+  return G_SOURCE_REMOVE;
+}
+
+void onBundleChanged(GFileMonitor* /*monitor*/, GFile* /*file*/,
+                     GFile* /*other*/, GFileMonitorEvent event,
+                     gpointer userData) {
+  // Multiple events fire per write (CHANGED, CHANGES_DONE_HINT,
+  // ATTRIBUTE_CHANGED). Coalesce to a single reload by re-arming a
+  // 150ms timer; bundlers write in bursts and we only want the final
+  // settled state.
+  if (event != G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT &&
+      event != G_FILE_MONITOR_EVENT_CREATED &&
+      event != G_FILE_MONITOR_EVENT_MOVED_IN) {
+    return;
+  }
+  auto* impl = static_cast<RNLinuxApplication::Impl*>(userData);
+  if (impl->reloadDebounceSource) {
+    g_source_remove(impl->reloadDebounceSource);
+  }
+  impl->reloadDebounceSource = g_timeout_add(150, fireReload, impl);
+}
+
+}  // namespace
 
 void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
   auto* impl = static_cast<Impl*>(userData);
@@ -77,12 +125,41 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
       impl->host->createSurface(impl->config.applicationId, "{}");
   impl->host->startSurface(surface);
 
+  // Hot reload — watch the bundle file. Only meaningful for file://
+  // bundles; HTTP loaders would need to poll Metro instead.
+  if (!impl->bundleMonitor) {
+    auto bundlePath = fileSchemePath(impl->config.bundleUrl);
+    if (!bundlePath.empty()) {
+      GFile* gf = g_file_new_for_path(bundlePath.c_str());
+      GError* err = nullptr;
+      impl->bundleMonitor = g_file_monitor_file(
+          gf, G_FILE_MONITOR_NONE, nullptr, &err);
+      g_object_unref(gf);
+      if (impl->bundleMonitor) {
+        g_signal_connect(impl->bundleMonitor, "changed",
+                         G_CALLBACK(onBundleChanged), impl);
+        RNL_LOGI("HotReload") << "watching " << bundlePath;
+      } else if (err) {
+        RNL_LOGW("HotReload") << "failed to watch bundle: " << err->message;
+        g_error_free(err);
+      }
+    }
+  }
+
   gtk_window_present(GTK_WINDOW(impl->window));
   RNL_LOGI("RNLinuxApplication") << "window presented";
 }
 
 void RNLinuxApplication::onShutdown(GtkApplication*, void* userData) {
   auto* impl = static_cast<Impl*>(userData);
+  if (impl->reloadDebounceSource) {
+    g_source_remove(impl->reloadDebounceSource);
+    impl->reloadDebounceSource = 0;
+  }
+  if (impl->bundleMonitor) {
+    g_object_unref(impl->bundleMonitor);
+    impl->bundleMonitor = nullptr;
+  }
   if (impl->host) {
     impl->host->stop();
   }

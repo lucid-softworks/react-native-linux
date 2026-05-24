@@ -6,6 +6,7 @@
 #include "fabric/LinuxSchedulerDelegate.h"
 #include "jsi/BundleLoader.h"
 #include "jsi/HermesRuntimeFactory.h"
+#include "jsi/RnLinuxBindings.h"
 
 #include <react/config/ReactNativeConfig.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
@@ -182,8 +183,16 @@ void RNLinuxHost::stop() {
   if (impl_->jsThread.joinable()) {
     impl_->jsThread.join();
   }
+  // Drop any state that still references the runtime (rnLinux JSI
+  // bindings — click handlers in particular) BEFORE the runtime is
+  // destroyed. Otherwise jsi::Function destructors call into a dead
+  // runtime and crash on reload.
+  resetRnLinuxBindings();
   // Inverse-order teardown: surface → scheduler → delegate → registry → runtime.
   if (impl_->rootSurface && impl_->scheduler) {
+    // Unregistering an already-stopped surface is a no-op; unregistering
+    // a *started* one asserts inside setUIManager(nullptr). Stop first.
+    impl_->rootSurface->stop();
     impl_->scheduler->unregisterSurface(*impl_->rootSurface);
   }
   impl_->rootSurface.reset();

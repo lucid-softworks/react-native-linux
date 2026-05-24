@@ -69,6 +69,7 @@ if (typeof globalThis.performance === 'undefined') {
 }
 
 const React = require('react');
+const {useState, useEffect} = React;
 const Reconciler = require('react-reconciler');
 const {DefaultEventPriority} = require('react-reconciler/constants');
 
@@ -197,72 +198,67 @@ function applyBounds(inst) {
 
 const reconciler = Reconciler(hostConfig);
 
+// ---- App ----------------------------------------------------------------
+// JSX from here on. esbuild's automatic JSX runtime handles the lowering;
+// no React.createElement calls in user code.
+
 function Button({x, y, width = 200, height = 60, color = '#3b82f6', label, onClick}) {
-  return React.createElement(
-    'box',
-    {x, y, width, height, backgroundColor: color, onClick},
-    React.createElement('label', {
-      x: 16, y: 16, width: width - 32, height: height - 32, text: label,
-    }),
+  return (
+    <box x={x} y={y} width={width} height={height} backgroundColor={color} onClick={onClick}>
+      <label
+        x={16}
+        y={Math.max(0, (height - 24) / 2)}
+        width={width - 32}
+        height={24}
+        text={label}
+      />
+    </box>
+  );
+}
+
+function Swatch({x, y, label, value}) {
+  return (
+    <box x={x} y={y} width={300} height={64} backgroundColor="#1e293b">
+      <label x={16} y={8}  width={268} height={20} text={label} />
+      <label x={16} y={32} width={268} height={24} text={String(value)} />
+    </box>
   );
 }
 
 function App() {
-  const [count, setCount] = React.useState(0);
+  const [count, setCount] = useState(0);
 
-  React.useEffect(() => {
+  useEffect(() => {
     rnLinux.log('info', 'React App mounted — useEffect ran ✓');
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     rnLinux.log('info', 'count is now ' + count);
   }, [count]);
 
-  return React.createElement(
-    'box',
-    {x: 0, y: 0, width: 1024, height: 720, backgroundColor: '#0f172a'},
-    React.createElement('label', {
-      x: 80, y: 64, width: 860, height: 48,
-      text: '✨  React on Linux — interactive  ✨',
-    }),
-    React.createElement('label', {
-      x: 80, y: 124, width: 860, height: 24,
-      text: 'click a button, watch the count update through useState',
-    }),
+  return (
+    <box x={0} y={0} width={1024} height={720} backgroundColor="#0f172a">
+      <label x={80} y={56} width={860} height={48}
+             text="🔄  reloaded at runtime  🔄" />
+      <label x={80} y={108} width={860} height={22}
+             text="click a button, watch the count update through useState" />
 
-    // Live count readout
-    React.createElement('box', {
-      x: 80, y: 200, width: 860, height: 96,
-      backgroundColor: '#1e293b',
-    },
-      React.createElement('label', {
-        x: 24, y: 28, width: 820, height: 40,
-        text: 'count: ' + count,
-      }),
-    ),
+      <Swatch x={80}  y={160} label="count"           value={count} />
+      <Swatch x={400} y={160} label="count × 2"       value={count * 2} />
+      <Swatch x={720} y={160} label="count is even"   value={count % 2 === 0 ? 'yes' : 'no'} />
 
-    // Three buttons that mutate state
-    React.createElement(Button, {
-      x: 80, y: 340, color: '#22c55e', label: '+1',
-      onClick: () => {
-        rnLinux.log('info', 'click +1 — count=' + count +
-            ' typeof setCount=' + typeof setCount);
-        setCount(count + 1);
-      },
-    }),
-    React.createElement(Button, {
-      x: 300, y: 340, color: '#f97316', label: '+10',
-      onClick: () => setCount(count + 10),
-    }),
-    React.createElement(Button, {
-      x: 520, y: 340, color: '#ef4444', label: 'reset',
-      onClick: () => setCount(0),
-    }),
+      <Button x={80}  y={260} color="#22c55e" label="+1"
+              onClick={() => setCount(c => c + 1)} />
+      <Button x={300} y={260} color="#f97316" label="+10"
+              onClick={() => setCount(c => c + 10)} />
+      <Button x={520} y={260} color="#ef4444" label="reset"
+              onClick={() => setCount(0)} />
 
-    React.createElement('label', {
-      x: 80, y: 440, width: 860, height: 22,
-      text: 'GtkGestureClick → JSI fn call → setState → reconciler → setText',
-    }),
+      <label x={80} y={360} width={860} height={22}
+             text="GtkGestureClick → JSI fn call → setState → reconciler → setText" />
+      <label x={80} y={390} width={860} height={22}
+             text="edit apps/playground/index.jsx, run `pnpm --filter @lucid-softworks/playground watch` — hot reload reboots the runtime." />
+    </box>
   );
 }
 
@@ -280,7 +276,7 @@ const root = reconciler.createContainer(
 );
 
 reconciler.updateContainer(
-  React.createElement(App),
+  <App />,
   root,
   null,
   () => rnLinux.log('info', 'initial render committed'),

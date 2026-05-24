@@ -79,7 +79,25 @@ GtkCssProvider* ensureCssProvider(GtkWidget* w) {
 
 }  // namespace
 
+void resetRnLinuxBindings() {
+  // Drop click handlers FIRST while the runtime is still alive — the
+  // jsi::Function destructors talk to the runtime to release their
+  // shared roots. Doing this in installRnLinuxBindings is too late,
+  // because by then the old runtime has been destroyed.
+  state().clickHandlers.clear();
+  state().nodes.clear();
+  state().nextId = 1;
+  state().runtime = nullptr;
+  state().rootView = nullptr;
+}
+
 void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
+  // Defensive: by the time we get here resetRnLinuxBindings() should
+  // already have run from RNLinuxHost::stop() — but a clean cycle is
+  // cheap if it didn't.
+  state().clickHandlers.clear();
+  state().nodes.clear();
+  state().nextId = 1;
   state().rootView = rootView;
   // Stash the runtime so the GTK-signal trampoline below can call back
   // into JS without going through a captured lambda (which would have

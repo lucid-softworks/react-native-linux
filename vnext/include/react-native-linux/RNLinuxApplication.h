@@ -26,11 +26,14 @@ class RNLinuxApplication {
   // Runs the GTK main loop. Returns the process exit code.
   int run(int argc, char** argv);
 
- private:
-  // PIMPL — full struct lives in RNLinuxApplication.cpp. The static GTK
-  // signal handlers below need access to its members, so they are
-  // members themselves (private — never called outside the class).
+  // PIMPL — Impl is forward-declared in the public section so other
+  // anonymous-namespace helpers in RNLinuxApplication.cpp (e.g. GLib
+  // signal trampolines that take a void* user-data pointer) can name
+  // the type. The full definition is .cpp-private; consumers can't do
+  // anything with the type beyond what we expose here.
   struct Impl;
+
+ private:
   std::unique_ptr<Impl> impl_;
 
   static void onActivate(GtkApplication* app, void* userData);

@@ -7,7 +7,8 @@
   "scripts": {
     "start": "react-native start",
     "linux": "react-native run-linux",
-    "bundle": "react-native bundle-linux",
+    "bundle": "node bundle.mjs",
+    "watch": "node bundle.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "jest --passWithNoTests",
     "build": "echo 'no build step'",

@@ -31,4 +31,11 @@ namespace rnlinux {
 // g_idle_add.
 void installRnLinuxBindings(facebook::jsi::Runtime& rt, GtkWidget* rootView);
 
+// Drop everything we hold onto the current runtime (jsi::Function click
+// handlers, the runtime pointer itself). Must be called by the host on
+// reload() *before* the runtime is destroyed — otherwise the destructors
+// of the stored jsi::Function objects dereference a dead runtime and we
+// crash inside std::unordered_map::clear().
+void resetRnLinuxBindings();
+
 }  // namespace rnlinux
