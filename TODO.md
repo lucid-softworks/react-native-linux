@@ -147,8 +147,9 @@ Decisions locked in (2026-05-21):
   - [x] `schedulerDidDispatchCommand` (logs; routing to component views is Phase 9).
   - [x] `schedulerDidSendAccessibilityEvent` (logs; AT-SPI2 hookup is Phase 9).
   - [x] `schedulerDidSetIsJSResponder` (no-op; GTK gesture controllers own grab state).
-- [ ] `SurfaceHandler` lifecycle (start/stop, layout constraints).
-- [ ] `LayoutContext` (point scale factor from `gdk_monitor_get_scale_factor`).
+- [x] `SurfaceHandler` lifecycle — `RNLinuxHost::{createSurface,startSurface,stopSurface}` build a real `facebook::react::SurfaceHandler(moduleName, surfaceId)`, set props, register with the Scheduler via `registerSurface()` + `SurfaceHandler::start()`.
+- [x] `LayoutContext` — point-scale factor + initial window size threaded into `SurfaceHandler::constraintLayout()`. Live `gdk_monitor_get_scale_factor` lookup lands once we wire the monitor signal.
+- [x] `Scheduler` itself: `RNLinuxHost` owns a `facebook::react::Scheduler` built from a SchedulerToolbox carrying `ContextContainer` (with `EmptyReactNativeConfig`), `ComponentRegistryFactory`, synchronous `RuntimeExecutor`, and a noop `EventBeat` factory.
 - [x] Renderer + Yoga + telemetry + runtime-scheduler + mounting + featureflags sources compiled into a static `react_native_rn_renderer` library, link-included with `-Wl,--whole-archive` so descriptor-provider statics survive dead-strip.
 
 ### 5.4 — Mounting layer (GTK4)
