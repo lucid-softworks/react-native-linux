@@ -217,9 +217,27 @@ void RNLinuxHost::stop() {
 }
 
 void RNLinuxHost::reload() {
-  RNL_LOGI("RNLinuxHost") << "reload requested";
-  stop();
-  start();
+  RNL_LOGI("RNLinuxHost") << "reload requested (smooth)";
+  if (!impl_->runtimeHolder) {
+    // Cold start: nothing to preserve, go through the normal start path.
+    start();
+    return;
+  }
+  // Smooth re-eval: keep the Hermes runtime, Scheduler, Surface,
+  // MountingManager, and GTK window alive. The bundle reruns inside
+  // the same context — Fast Refresh (when wired up JS-side) sees
+  // the new component types and patches the React tree in place
+  // via $RefreshReg$ / performReactRefresh; without it the tree
+  // remounts but the window doesn't blink and Hermes doesn't pay
+  // its startup cost again.
+  const auto bundle = loadBundleSync(config_.bundleUrl);
+  if (!bundle.ok) {
+    RNL_LOGE("RNLinuxHost") << "reload: bundle load failed: " << bundle.error;
+    return;
+  }
+  RNL_LOGI("RNLinuxHost") << "reload: re-evaluating bundle ("
+                          << bundle.source.size() << " bytes)";
+  impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl);
 }
 
 void RNLinuxHost::setMountingManager(std::shared_ptr<LinuxMountingManager> m) {

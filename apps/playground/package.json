@@ -15,14 +15,16 @@
     "clean": "rimraf linux/build"
   },
   "dependencies": {
+    "@lucid-softworks/react-native-linux": "workspace:*",
     "react": "18.3.1",
     "react-native": "^0.76.0",
-    "react-reconciler": "0.29.2",
-    "@lucid-softworks/react-native-linux": "workspace:*"
+    "react-reconciler": "0.29.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.24.0",
-    "@babel/preset-env": "^7.24.0",
+    "@babel/core": "^7.29.0",
+    "@babel/plugin-transform-react-jsx": "^7.28.6",
+    "@babel/preset-env": "^7.29.5",
+    "@babel/preset-react": "^7.28.5",
     "@babel/runtime": "^7.24.0",
     "@lucid-softworks/react-native-linux-cli": "workspace:*",
     "@react-native-community/cli": "^15.0.0",
@@ -32,6 +34,7 @@
     "babel-jest": "^29.7.0",
     "esbuild": "^0.24.0",
     "jest": "^29.7.0",
+    "react-refresh": "^0.18.0",
     "react-test-renderer": "18.3.1",
     "typescript": "^5.4.0"
   },
