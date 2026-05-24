@@ -34,11 +34,16 @@ void log(LogLevel level, std::string_view tag, std::string_view message) {
   const auto ms =
       duration_cast<milliseconds>(now.time_since_epoch()).count() % 1000;
 
-  std::ostream& out = level >= LogLevel::Warn ? std::cerr : std::cout;
+  // Always write to stderr: when the executable is launched from
+  // `nohup ... >file 2>&1` the stdout side is block-buffered, swallowing
+  // INFO/DEBUG lines until 4 KiB accumulate. stderr is unbuffered, so
+  // every log line surfaces immediately — essential for debugging the
+  // bundle-eval path.
   std::lock_guard<std::mutex> _(mu());
-  out << '[' << std::put_time(std::localtime(&t), "%H:%M:%S")
-      << '.' << std::setw(3) << std::setfill('0') << ms << "] "
-      << levelName(level) << " [" << tag << "] " << message << '\n';
+  std::cerr << '[' << std::put_time(std::localtime(&t), "%H:%M:%S")
+            << '.' << std::setw(3) << std::setfill('0') << ms << "] "
+            << levelName(level) << " [" << tag << "] " << message << '\n'
+            << std::flush;
 }
 
 }  // namespace rnlinux

@@ -20,6 +20,7 @@ struct RNLinuxHost::Impl {
   std::shared_ptr<LinuxMountingManager> mountingManager;
   std::unique_ptr<LinuxSchedulerDelegate> schedulerDelegate;
   std::unique_ptr<HermesRuntimeHolder> runtimeHolder;
+  std::function<void(facebook::jsi::Runtime&)> beforeBundleEval;
   std::thread jsThread;
   std::atomic<bool> running{false};
 
@@ -81,6 +82,12 @@ void RNLinuxHost::start() {
   // 1. Create the Hermes runtime.
   impl_->runtimeHolder = makeHermesRuntimeHolder();
 
+  // 1a. Let the host's caller install JSI bindings (rnLinux global, etc.)
+  //     before any bundle code runs.
+  if (impl_->beforeBundleEval) {
+    impl_->beforeBundleEval(impl_->runtimeHolder->runtime());
+  }
+
   // 2. Load the bundle synchronously (Phase 5.2 first pass — see TODO).
   const auto bundle = loadBundleSync(config_.bundleUrl);
   if (!bundle.ok) {
@@ -127,6 +134,11 @@ void RNLinuxHost::reload() {
 
 void RNLinuxHost::setMountingManager(std::shared_ptr<LinuxMountingManager> m) {
   impl_->mountingManager = std::move(m);
+}
+
+void RNLinuxHost::setBeforeBundleEvalHook(
+    std::function<void(facebook::jsi::Runtime&)> hook) {
+  impl_->beforeBundleEval = std::move(hook);
 }
 
 facebook::react::SurfaceHandler& RNLinuxHost::createSurface(

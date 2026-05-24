@@ -3,6 +3,7 @@
 #include "react-native-linux/Logging.h"
 
 #include "fabric/LinuxMountingManager.h"
+#include "jsi/RnLinuxBindings.h"
 
 #include <gtk/gtk.h>
 
@@ -57,6 +58,15 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
       std::make_shared<LinuxMountingManager>(impl->rootView);
   impl->host = std::make_unique<RNLinuxHost>(impl->config);
   impl->host->setMountingManager(impl->mountingManager);
+
+  // Lightning-path bridge: install the rnLinux JSI bindings *before* the
+  // bundle is evaluated so JS sees `globalThis.rnLinux` at top level.
+  GtkWidget* rootForJs = impl->rootView;
+  impl->host->setBeforeBundleEvalHook(
+      [rootForJs](facebook::jsi::Runtime& rt) {
+    installRnLinuxBindings(rt, rootForJs);
+  });
+
   impl->host->start();
 
   // TODO: Once createSurface returns a real SurfaceHandler, set its layout

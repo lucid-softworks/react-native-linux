@@ -4,6 +4,10 @@
 #include <memory>
 #include <string>
 
+namespace facebook::jsi {
+class Runtime;
+}
+
 namespace facebook::react {
 class ReactInstance;
 class Scheduler;
@@ -50,6 +54,13 @@ class RNLinuxHost {
   // Attach a LinuxMountingManager so the Scheduler knows where to send
   // mounting transactions.
   void setMountingManager(std::shared_ptr<LinuxMountingManager> manager);
+
+  // Hook fired by start() *after* the Hermes runtime is constructed but
+  // *before* the bundle is loaded/evaluated. Use it to install JSI host
+  // functions / globals (e.g. our lightning-path rnLinux bridge) so the
+  // bundle sees them at top level.
+  void setBeforeBundleEvalHook(
+      std::function<void(facebook::jsi::Runtime&)> hook);
 
   // Surface management. The returned SurfaceHandler is owned by the host;
   // callers receive a non-owning reference.

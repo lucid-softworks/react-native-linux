@@ -73,21 +73,25 @@ set(RNL_SOURCES
   src/RNLinuxHost.cpp
   src/Logging.cpp
   src/CrashHandler.cpp
-  src/fabric/LinuxComponentDescriptorRegistry.cpp
   src/fabric/LinuxSchedulerDelegate.cpp
   src/fabric/LinuxMountingManager.cpp
   src/fabric/LinuxComponentView.cpp
   src/fabric/LinuxComponentViewRegistry.cpp
   src/jsi/HermesRuntimeFactory.cpp
   src/jsi/BundleLoader.cpp
+  src/jsi/RnLinuxBindings.cpp
   src/views/ViewComponentView.cpp
   src/views/ParagraphComponentView.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
-  # RN's Cxx-platform textlayoutmanager — there's no equivalent
-  # CMake target shipped, so we compile the .cpp directly into our
-  # library. The companion .h has a shim under ${RNL_SHIM_DIR}.
-  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/TextLayoutManager.cpp
+  # Phase 5.3 step 1 — LinuxComponentDescriptorRegistry.cpp + the cxx
+  # TextLayoutManager.cpp are temporarily out of the build. They
+  # compile against the real RN Fabric headers, but instantiating the
+  # descriptor providers drags in references to ShadowNode / Props /
+  # Yoga implementation symbols that RN doesn't ship as a CMake target
+  # on Linux. Re-add once we own those source lists (Phase 5.3 step 2).
+  # src/fabric/LinuxComponentDescriptorRegistry.cpp
+  # ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/TextLayoutManager.cpp
 )
 
 add_library(react_native_linux ${RNL_SOURCES})
