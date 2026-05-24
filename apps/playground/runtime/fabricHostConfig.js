@@ -87,6 +87,9 @@ function normalizeColor(c) {
 
 function buildFabricProps(type, props) {
   // children/key/ref are React-internal; never forward to Fabric.
+  // For <text>, text-style props (color/fontSize/…) ride along as
+  // top-level Paragraph props — BaseTextProps parses them into the
+  // Paragraph's textAttributes.
   const out = {};
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
@@ -133,15 +136,32 @@ const hostConfig = {
   clearContainer: noop,
 
   createInstance(type, props) {
-    const componentName = TYPE_TO_COMPONENT[type];
-    if (!componentName) {
-      throw new Error('Unknown host element: <' + type + '>');
+    if (type === 'view') {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag, 'View', currentSurfaceId, buildFabricProps(type, props), {});
+      return {tag, fabricNode, componentName: 'View', type};
     }
-    const tag = newTag();
-    const fabricProps = buildFabricProps(type, props);
-    const fabricNode = currentFabric.createNode(
-      tag, componentName, currentSurfaceId, fabricProps, {});
-    return {tag, fabricNode, componentName, type};
+
+    if (type === 'text') {
+      // RN's textual flow is Paragraph (carries layout + base
+      // TextAttributes) → RawText children (contribute string content).
+      // ParagraphProps inherits BaseTextProps, so top-level `color`,
+      // `fontSize`, `fontWeight`, … parse into its textAttributes and
+      // propagate to every fragment built from descendants.
+      // (We tried injecting an intermediate Text wrapper to allow
+      // mixed-style runs but Fabric collapsed both nodes into
+      // Paragraph creates in the mutation stream, breaking the
+      // AttributedString builder. Per-fragment styling can come back
+      // later as a real nested-<Text> story.)
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag, 'Paragraph', currentSurfaceId,
+        buildFabricProps('text', props), {});
+      return {tag, fabricNode, componentName: 'Paragraph', type};
+    }
+
+    throw new Error('Unknown host element: <' + type + '>');
   },
 
   createTextInstance(text) {
