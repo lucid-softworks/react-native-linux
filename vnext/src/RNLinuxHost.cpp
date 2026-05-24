@@ -7,12 +7,21 @@
 #include "jsi/BundleLoader.h"
 #include "jsi/HermesRuntimeFactory.h"
 
+#include <react/config/ReactNativeConfig.h>
+#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/core/EventBeat.h>
+#include <react/renderer/scheduler/Scheduler.h>
+#include <react/renderer/scheduler/SchedulerToolbox.h>
+#include <react/renderer/scheduler/SurfaceHandler.h>
+#include <react/utils/ContextContainer.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace rnlinux {
 
@@ -21,11 +30,13 @@ struct RNLinuxHost::Impl {
   std::unique_ptr<LinuxSchedulerDelegate> schedulerDelegate;
   std::unique_ptr<HermesRuntimeHolder> runtimeHolder;
   std::function<void(facebook::jsi::Runtime&)> beforeBundleEval;
+  std::shared_ptr<facebook::react::ContextContainer> contextContainer;
+  std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry>
+      descriptorProviders;
+  std::unique_ptr<facebook::react::Scheduler> scheduler;
+  std::unique_ptr<facebook::react::SurfaceHandler> rootSurface;
   std::thread jsThread;
   std::atomic<bool> running{false};
-
-  // TODO (Phase 5.3): store facebook::react::Scheduler once we can construct
-  // a SchedulerToolbox without crashing on partial RN headers.
 };
 
 RNLinuxHost::RNLinuxHost(Config config)
@@ -37,11 +48,7 @@ RNLinuxHost::~RNLinuxHost() {
 
 namespace {
 
-// Synchronously turn an async BundleLoader call into bytes-or-error. The
-// MVP host calls this on whatever thread invoked start() — typically the
-// UI thread once. Acceptable while bundle loads are O(50ms) for file://
-// and O(seconds) for http://; revisit when we need to keep the UI loop
-// responsive during reload.
+// Synchronously turn an async BundleLoader call into bytes-or-error.
 struct SyncBundleResult {
   bool ok = false;
   std::string source;
@@ -71,6 +78,16 @@ SyncBundleResult loadBundleSync(const std::string& url) {
   return out;
 }
 
+// MVP EventBeat — does nothing. The base class' `request()` flips a flag,
+// `induce()` is a no-op, and we never actually deliver events through it.
+// Good enough to satisfy the Scheduler's "must be non-null" contract while
+// we don't have a JS thread. Real timers + GTK-driven beats land in Phase
+// 5.8.
+class NoopEventBeat final : public facebook::react::EventBeat {
+ public:
+  using EventBeat::EventBeat;
+};
+
 }  // namespace
 
 void RNLinuxHost::start() {
@@ -79,16 +96,69 @@ void RNLinuxHost::start() {
   }
   RNL_LOGI("RNLinuxHost") << "starting (bundle=" << config_.bundleUrl << ")";
 
-  // 1. Create the Hermes runtime.
+  // 1. Hermes runtime.
   impl_->runtimeHolder = makeHermesRuntimeHolder();
 
-  // 1a. Let the host's caller install JSI bindings (rnLinux global, etc.)
-  //     before any bundle code runs.
+  // 1a. Install JSI bindings (rnLinux globals, etc.) before any bundle
+  //     code runs.
   if (impl_->beforeBundleEval) {
     impl_->beforeBundleEval(impl_->runtimeHolder->runtime());
   }
 
-  // 2. Load the bundle synchronously (Phase 5.2 first pass — see TODO).
+  // 2. Fabric Scheduler. Built before bundle eval so commit hooks
+  //    landing during JS bootstrap have a registry to talk to.
+  impl_->schedulerDelegate =
+      std::make_unique<LinuxSchedulerDelegate>(impl_->mountingManager);
+  impl_->contextContainer =
+      std::make_shared<facebook::react::ContextContainer>();
+  // The Scheduler reads runtime feature flags via
+  // ContextContainer::at<ReactNativeConfig>("ReactNativeConfig"); without
+  // an instance present the ctor asserts. Register an empty config —
+  // all features stay at their default values, which is what we want.
+  impl_->contextContainer->insert(
+      "ReactNativeConfig",
+      std::shared_ptr<const facebook::react::ReactNativeConfig>(
+          std::make_shared<facebook::react::EmptyReactNativeConfig>()));
+  impl_->descriptorProviders = makeLinuxComponentDescriptorRegistry();
+
+  facebook::react::SchedulerToolbox toolbox;
+  toolbox.contextContainer = impl_->contextContainer;
+  // ComponentRegistryFactory turns the providers + a per-surface
+  // EventDispatcher into a live ComponentDescriptorRegistry.
+  {
+    auto providers = impl_->descriptorProviders;
+    toolbox.componentRegistryFactory =
+        [providers](
+            const facebook::react::EventDispatcher::Weak& eventDispatcher,
+            const facebook::react::ContextContainer::Shared& cc) {
+          return providers->createComponentDescriptorRegistry(
+              {eventDispatcher, cc});
+        };
+  }
+
+  // RuntimeExecutor: hand the callback our jsi::Runtime synchronously.
+  // Works only because JS evaluation runs on this same thread today;
+  // when we add the JS thread (Phase 5.8) this becomes a real queue.
+  {
+    auto* runtime = &impl_->runtimeHolder->runtime();
+    toolbox.runtimeExecutor =
+        [runtime](std::function<void(facebook::jsi::Runtime&)>&& fn) {
+          if (runtime) fn(*runtime);
+        };
+  }
+
+  // EventBeat factory: produce a noop beat. Sufficient to satisfy the
+  // Scheduler's non-null requirement; real event flow lands later.
+  toolbox.asynchronousEventBeatFactory =
+      [](const facebook::react::EventBeat::SharedOwnerBox& ownerBox) {
+        return std::make_unique<NoopEventBeat>(ownerBox);
+      };
+
+  impl_->scheduler = std::make_unique<facebook::react::Scheduler>(
+      toolbox, /*animationDelegate=*/nullptr, impl_->schedulerDelegate.get());
+  RNL_LOGI("RNLinuxHost") << "scheduler constructed";
+
+  // 3. Load + evaluate the bundle.
   const auto bundle = loadBundleSync(config_.bundleUrl);
   if (!bundle.ok) {
     RNL_LOGE("RNLinuxHost") << "bundle load failed: " << bundle.error;
@@ -98,17 +168,9 @@ void RNLinuxHost::start() {
   RNL_LOGI("RNLinuxHost") << "bundle loaded (" << bundle.source.size()
                           << " bytes from " << bundle.sourceUrl << ")";
 
-  // 3. Evaluate the bundle on the calling thread. Single-threaded for the
-  //    first cut; a dedicated JS thread + folly RuntimeExecutor lands in
-  //    the next Phase 5.2 commit.
   if (!impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl)) {
     RNL_LOGE("RNLinuxHost") << "bundle evaluation failed; runtime still alive";
-    // Leave running=true so callers can inspect; reload() can replace.
   }
-
-  // 4. Fabric Scheduler — still stubbed. Phase 5.3.
-  impl_->schedulerDelegate =
-      std::make_unique<LinuxSchedulerDelegate>(impl_->mountingManager);
 }
 
 void RNLinuxHost::stop() {
@@ -120,9 +182,15 @@ void RNLinuxHost::stop() {
   if (impl_->jsThread.joinable()) {
     impl_->jsThread.join();
   }
-  // Tear down in the inverse order of construction: scheduler bits first
-  // (they hold JSI references), then the runtime.
+  // Inverse-order teardown: surface → scheduler → delegate → registry → runtime.
+  if (impl_->rootSurface && impl_->scheduler) {
+    impl_->scheduler->unregisterSurface(*impl_->rootSurface);
+  }
+  impl_->rootSurface.reset();
+  impl_->scheduler.reset();
   impl_->schedulerDelegate.reset();
+  impl_->descriptorProviders.reset();
+  impl_->contextContainer.reset();
   impl_->runtimeHolder.reset();
 }
 
@@ -146,19 +214,47 @@ facebook::react::SurfaceHandler& RNLinuxHost::createSurface(
     std::string initialPropsJson) {
   RNL_LOGI("RNLinuxHost") << "createSurface module=" << moduleName
                           << " props=" << initialPropsJson;
-  // TODO (Phase 5.3): construct SurfaceHandler, register with Scheduler,
-  // set layout constraints. Until then the caller cannot meaningfully
-  // use the return value.
-  static facebook::react::SurfaceHandler* placeholder = nullptr;
-  return *placeholder;
+
+  if (!impl_->scheduler) {
+    RNL_LOGE("RNLinuxHost")
+        << "createSurface called before scheduler was constructed";
+    static facebook::react::SurfaceHandler* placeholder = nullptr;
+    return *placeholder;
+  }
+
+  // SurfaceHandler is constructed with a stable surface id (1 for the
+  // single-root MVP) and a module name. We default LayoutConstraints to
+  // the configured window size; the Scheduler runs Yoga against that
+  // when JS commits a tree.
+  impl_->rootSurface = std::make_unique<facebook::react::SurfaceHandler>(
+      moduleName, /*surfaceId=*/1);
+  impl_->rootSurface->setProps(folly::dynamic::object());
+  impl_->rootSurface->constraintLayout(
+      {{0, 0},
+       {static_cast<facebook::react::Float>(config_.initialWidth),
+        static_cast<facebook::react::Float>(config_.initialHeight)},
+       facebook::react::LayoutDirection::LeftToRight},
+      {.pointScaleFactor =
+           static_cast<facebook::react::Float>(config_.pointScaleFactor)});
+  return *impl_->rootSurface;
 }
 
-void RNLinuxHost::startSurface(facebook::react::SurfaceHandler&) {
-  // TODO (Phase 5.3): scheduler_->registerSurface(s); s.start();
+void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
+  if (!impl_->scheduler) {
+    RNL_LOGE("RNLinuxHost") << "startSurface called without a scheduler";
+    return;
+  }
+  impl_->scheduler->registerSurface(surface);
+  surface.start();
+  RNL_LOGI("RNLinuxHost") << "surface started";
 }
 
-void RNLinuxHost::stopSurface(facebook::react::SurfaceHandler&) {
-  // TODO (Phase 5.3): s.stop(); scheduler_->unregisterSurface(s);
+void RNLinuxHost::stopSurface(facebook::react::SurfaceHandler& surface) {
+  if (!impl_->scheduler) {
+    return;
+  }
+  surface.stop();
+  impl_->scheduler->unregisterSurface(surface);
 }
 
 }  // namespace rnlinux

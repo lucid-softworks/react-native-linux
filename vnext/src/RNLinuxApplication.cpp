@@ -69,10 +69,13 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
 
   impl->host->start();
 
-  // TODO: Once createSurface returns a real SurfaceHandler, set its layout
-  // constraints to (initialWidth, initialHeight) and attach the surface ID to
-  // the mounting manager so it knows which root to mount under.
-  impl->host->createSurface(impl->config.applicationId, "{}");
+  // Phase 5.3: register a real Fabric SurfaceHandler with the Scheduler.
+  // The JS-side `AppRegistry.registerComponent(name, ...)` must use the
+  // same module name we pass here for the renderer to find the component
+  // to mount.
+  auto& surface =
+      impl->host->createSurface(impl->config.applicationId, "{}");
+  impl->host->startSurface(surface);
 
   gtk_window_present(GTK_WINDOW(impl->window));
   RNL_LOGI("RNLinuxApplication") << "window presented";

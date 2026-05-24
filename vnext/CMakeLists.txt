@@ -110,8 +110,15 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/mounting/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/telemetry/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/runtimescheduler/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/scheduler/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/uimanager/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/uimanager/consistency/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/leakchecker/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/dom/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/observers/events/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/debug/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/featureflags/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/config/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/utils/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/debug/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/performance/timeline/*.cpp
