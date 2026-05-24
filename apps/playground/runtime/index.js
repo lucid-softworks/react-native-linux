@@ -10,12 +10,12 @@
 // stays the same.
 
 require('./shims');
-// Side-effect: installs globalThis.RN$AppRegistry so that
-// SurfaceRegistryBinding::startSurface (fired when our C++ host calls
-// SurfaceHandler::start()) has a runApplication target. Drives a
-// hand-rolled shadow tree through nativeFabricUIManager to exercise
-// the Fabric → MountingManager → GTK widget pipeline.
-require('./fabric');
+// Installs globalThis.RN$AppRegistry so SurfaceRegistryBinding::startSurface
+// (fired when our C++ host calls SurfaceHandler::start()) has a
+// runApplication target. The export `renderFabric` drives a real
+// react-reconciler tree through nativeFabricUIManager — the Fabric
+// equivalent of the JSI-bridge `render` below.
+const {renderFabric} = require('./fabric');
 
 const Reconciler = require('react-reconciler');
 const {hostConfig} = require('./hostConfig');
@@ -42,4 +42,6 @@ function render(element, onCommit) {
   return root;
 }
 
-module.exports = {render};
+const {View, Text} = require('./components');
+
+module.exports = {render, renderFabric, View, Text};

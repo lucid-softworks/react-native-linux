@@ -1,69 +1,71 @@
 'use strict';
 
-// Minimal Fabric driver. RN's SurfaceRegistryBinding::startSurface (the
-// JSI hook our C++ host fires when surface.start() runs) expects
-// `globalThis.RN$AppRegistry.runApplication(moduleName, params,
-// displayMode)` to exist. We hand-roll a tiny tree that exercises
-// Fabric end-to-end (Scheduler diff → SchedulerDelegate →
-// MountingManager → GTK widgets).
+// Fabric render entrypoint.
 //
-// RN's text model:
-//   <Paragraph>             (the layout root; only this one mounts a
-//                            widget, in our case a GtkLabel)
-//     └─ <RawText text="…"> (data-only leaf; contributes to the
-//                            Paragraph's AttributedString during the
-//                            commit, but never mounts a widget)
-// So putting a `text` prop on the Paragraph itself is silently ignored
-// — we have to spell out the RawText child to make the label have any
-// actual content.
+// RN's SurfaceRegistryBinding::startSurface (fired when our C++ host
+// calls SurfaceHandler::start()) invokes
+// `globalThis.RN$AppRegistry.runApplication(moduleName, params,
+// displayMode)`. We use that callback to capture the live surfaceId,
+// then mount the React tree the app handed us via `renderFabric(...)`.
+//
+// Why deferred: the app calls `renderFabric(<App/>)` at bundle load
+// time, but the surfaceId only exists once C++ has registered the
+// surface with the Scheduler. We stash the pending element and mount
+// once both halves are present.
 
-let nextTag = 1000;
-function tag() {
-  return ++nextTag;
+const Reconciler = require('react-reconciler');
+const {hostConfig, setSurfaceContext} = require('./fabricHostConfig');
+
+const reconciler = Reconciler(hostConfig);
+
+let pendingElement = null;
+let surfaceReady = false;
+let containerInfo = null;
+let root = null;
+
+function tryMount() {
+  if (!surfaceReady || pendingElement === null) return;
+  const fabric = globalThis.nativeFabricUIManager;
+  const surfaceId = globalThis.__rnFabricSurfaceId;
+  if (!fabric || !surfaceId) {
+    rnLinux.log('warn', '[fabric-render] tryMount missing fabric/surfaceId');
+    return;
+  }
+  setSurfaceContext(fabric, surfaceId);
+  containerInfo = {childSet: fabric.createChildSet(surfaceId)};
+  root = reconciler.createContainer(
+    containerInfo,
+    /* tag */ 0,
+    /* hydrationCallbacks */ null,
+    /* isStrictMode */ false,
+    /* concurrentUpdatesByDefault */ null,
+    /* identifierPrefix */ '',
+    /* onUncaughtError */ (err) => rnLinux.log('error', String(err)),
+    /* onCaughtError */ (err) => rnLinux.log('error', String(err)),
+    /* onRecoverableError */ (err) => rnLinux.log('warn', String(err)),
+    /* transitionCallbacks */ null,
+  );
+  reconciler.updateContainer(pendingElement, root, null, () => {
+    rnLinux.log('info', '[fabric-render] initial JSX commit done');
+  });
+  pendingElement = null;
 }
 
-function makeText(fabric, surfaceId, text, layout) {
-  const paragraph = fabric.createNode(
-    tag(), 'Paragraph', surfaceId,
-    {
-      ...layout,
-      position: 'absolute',
-      collapsable: false,
-    },
-    {},
-  );
-  const rawText = fabric.createNode(
-    tag(), 'RawText', surfaceId,
-    {text},
-    {},
-  );
-  fabric.appendChild(paragraph, rawText);
-  return paragraph;
+function renderFabric(element) {
+  pendingElement = element;
+  tryMount();
 }
 
 function runApplication(moduleName, parameters, _displayMode) {
-  const fabric = globalThis.nativeFabricUIManager;
-  if (!fabric) {
-    rnLinux.log('error', 'RN$AppRegistry.runApplication: no nativeFabricUIManager');
-    return;
-  }
-  rnLinux.log('info', 'RN$AppRegistry.runApplication called for ' + moduleName);
-
-  const surfaceId = parameters.rootTag;
-
-  const heading = makeText(fabric, surfaceId,
-    'Hello from Fabric!',
-    {top: 80, left: 80, width: 800, height: 40});
-  const body = makeText(fabric, surfaceId,
-    'This text reaches the screen through the real Fabric pipeline.',
-    {top: 140, left: 80, width: 800, height: 40});
-
-  const childSet = fabric.createChildSet(surfaceId);
-  fabric.appendChildToSet(childSet, heading);
-  fabric.appendChildToSet(childSet, body);
-  fabric.completeRoot(surfaceId, childSet);
-  rnLinux.log('info', 'completeRoot called for surfaceId=' + surfaceId);
+  globalThis.__rnFabricSurfaceId = parameters.rootTag;
+  surfaceReady = true;
+  rnLinux.log('info',
+    '[fabric-render] runApplication module=' + moduleName +
+    ' surface=' + parameters.rootTag);
+  tryMount();
 }
 
 globalThis.RN$AppRegistry = {runApplication};
-rnLinux.log('info', 'RN$AppRegistry installed');
+rnLinux.log('info', '[fabric-render] RN$AppRegistry installed');
+
+module.exports = {renderFabric};
