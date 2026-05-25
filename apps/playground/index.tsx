@@ -1,17 +1,13 @@
-// react-native-linux playground — write it like any other RN app.
+// react-native-linux playground. Imports come from 'react-native'
+// the same way an iOS/Android app does.
 
 import {useEffect, useState} from 'react';
-// Standard react-native imports — the playground's vendor bundle
-// aliases 'react-native' to ./runtime/react-native.js so existing RN
-// code drops in unchanged.
 import {
   StyleSheet,
   View, ScrollView, Image, Text, TextInput, Pressable, Button,
+  FlatList, Modal,
   Platform,
 } from 'react-native';
-// renderFabric is the playground host entry — apps that target
-// react-native-linux call this once instead of AppRegistry.register
-// + the auto-launch dance.
 import {renderFabric} from './runtime';
 
 const palette = {
@@ -41,58 +37,57 @@ const styles = StyleSheet.create({
   card:   {padding: 14, backgroundColor: palette.panel,
            borderRadius: 12, borderWidth: 1, borderColor: palette.border},
   cardLabel: {fontSize: 13, fontWeight: '500', color: palette.muted},
-  cardValue: {fontSize: 36, fontWeight: '700', color: palette.text},
+  cardValue: {fontSize: 32, fontWeight: '700', color: palette.text},
 
   buttonRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
 
-  // Image gallery
-  galleryCard: {padding: 12, backgroundColor: palette.panel,
-                borderRadius: 12, borderWidth: 1, borderColor: palette.border,
-                gap: 10},
-  galleryHeader: {fontSize: 13, fontWeight: '600', color: palette.subtle},
-  galleryRow: {flexDirection: 'row', gap: 10},
-  thumb: {width: 100, height: 70, borderRadius: 8, backgroundColor: palette.panelAlt},
-  hero:  {width: '100%' as any, height: 160, borderRadius: 10,
-          backgroundColor: palette.panelAlt},
+  input:  {height: 36, paddingHorizontal: 10, fontSize: 14,
+           color: palette.text, backgroundColor: palette.panelAlt,
+           borderRadius: 8, borderWidth: 1, borderColor: palette.border},
+  echo:   {fontSize: 13, color: palette.muted, fontStyle: 'italic',
+           marginTop: 4},
 
-  input: {height: 36, paddingHorizontal: 10, fontSize: 14,
-          color: palette.text, backgroundColor: palette.panelAlt,
-          borderRadius: 8, borderWidth: 1, borderColor: palette.border},
-  echo:  {fontSize: 13, color: palette.muted, fontStyle: 'italic',
-          marginTop: 4},
-
-  scrollPanel: {flex: 1, backgroundColor: palette.panel,
-                borderRadius: 12, borderWidth: 1,
-                borderColor: palette.border, padding: 4},
-  scrollHeader: {fontSize: 13, fontWeight: '600', color: palette.subtle,
-                 marginBottom: 4},
-  scrollContent: {padding: 8, gap: 6},
-
-  row:    {padding: 10, borderRadius: 6},
+  listPanel: {flex: 1, backgroundColor: palette.panel,
+              borderRadius: 12, borderWidth: 1,
+              borderColor: palette.border, padding: 4},
+  listHeader: {fontSize: 13, fontWeight: '600', color: palette.subtle,
+               padding: 8},
+  listFooter: {fontSize: 12, color: palette.muted, padding: 10,
+               fontStyle: 'italic'},
+  row:    {padding: 10, borderRadius: 6, marginBottom: 4},
   rowEven: {backgroundColor: palette.bg},
   rowOdd:  {backgroundColor: palette.panelAlt},
   rowText: {fontSize: 14, color: palette.text},
+  separator: {height: 1, backgroundColor: palette.border, marginVertical: 2},
+
+  modalPanel: {width: 360, padding: 20, backgroundColor: palette.panel,
+               borderRadius: 16, borderWidth: 1, borderColor: palette.border,
+               gap: 12},
+  modalTitle: {fontSize: 18, fontWeight: '700', color: palette.text},
+  modalText:  {fontSize: 14, color: palette.subtle, lineHeight: 20},
 });
 
-const wallpapers = [
-  'file:///usr/share/backgrounds/xfce/xfce-blue.jpg',
-  'file:///usr/share/backgrounds/xfce/xfce-teal.jpg',
-  'file:///usr/share/backgrounds/xfce/xfce-stripes.png',
-  'file:///usr/share/backgrounds/xfce/xfce-verticals.png',
-];
+interface Item { id: string; label: string; subtitle: string }
+
+const data: Item[] = Array.from({length: 80}, (_, i) => ({
+  id: `i${i}`,
+  label: `item ${i}`,
+  subtitle:
+    i % 3 === 0 ? 'tap to set the counter' :
+    i % 3 === 1 ? 'rendered via FlatList' :
+                  'styled with StyleSheet.create',
+}));
 
 function App(): JSX.Element {
   const [count, setCount] = useState(0);
   const [tick, setTick] = useState(0);
-  const [hero, setHero] = useState(0);
   const [name, setName] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, []);
-
-  const items = Array.from({length: 40}, (_, i) => i);
 
   return (
     <View style={styles.app}>
@@ -100,12 +95,12 @@ function App(): JSX.Element {
         react-native-linux  •  Platform.OS = {Platform.OS}
       </Text>
       <Text style={styles.hint}>
-        Imports come from 'react-native' — same as iOS/Android.
+        FlatList + Modal + View + Text + Image + ScrollView + TextInput.
       </Text>
 
-      {/* TextInput row — typing reaches setState via onChangeText */}
+      {/* TextInput row */}
       <View style={[styles.card, {marginBottom: 12}]}>
-        <Text style={styles.cardLabel}>type your name — typing fires onChangeText</Text>
+        <Text style={styles.cardLabel}>type your name — flows through onChangeText</Text>
         <TextInput style={styles.input}
                    placeholder="your name…"
                    value={name}
@@ -116,7 +111,7 @@ function App(): JSX.Element {
       </View>
 
       <View style={styles.body}>
-        {/* Left column */}
+        {/* Left column — counter, buttons, modal trigger */}
         <View style={styles.column}>
           <View style={styles.card}>
             <Text style={styles.cardLabel}>counter</Text>
@@ -134,49 +129,60 @@ function App(): JSX.Element {
                     backgroundColor={palette.red} />
           </View>
 
-          {/* Image gallery: hero + thumbnails */}
-          <View style={styles.galleryCard}>
-            <Text style={styles.galleryHeader}>
-              &lt;Image&gt; · GdkTexture · tap a thumb
-            </Text>
-            <Image source={{uri: wallpapers[hero]}}
-                   resizeMode="cover" style={styles.hero} />
-            <View style={styles.galleryRow}>
-              {wallpapers.map((uri, i) => (
-                <Pressable key={uri} onPress={() => setHero(i)}>
-                  <Image source={{uri}} resizeMode="cover" style={styles.thumb} />
-                </Pressable>
-              ))}
-            </View>
-          </View>
+          <Button title="open modal" onPress={() => setModalOpen(true)}
+                  backgroundColor={palette.blue} />
 
           <View style={styles.card}>
             <Text style={styles.cardLabel}>useEffect ticker</Text>
             <Text style={[styles.cardValue, {color: palette.accent}]}>{tick}</Text>
           </View>
-
         </View>
 
-        {/* Right column — scrolling list */}
-        <View style={styles.scrollPanel}>
-          <ScrollView style={{flex: 1}}>
-            <View style={styles.scrollContent}>
-              <Text style={styles.scrollHeader}>
-                scrolling list — 40 rows
+        {/* Right column — FlatList */}
+        <View style={styles.listPanel}>
+          <FlatList
+            data={data}
+            keyExtractor={(item) => item.id}
+            ListHeaderComponent={
+              <Text style={styles.listHeader}>
+                FlatList  ·  {data.length} items  ·  separators
               </Text>
-              {items.map((i) => (
-                <Pressable key={i}
-                           style={[styles.row, i % 2 === 0 ? styles.rowEven : styles.rowOdd]}
-                           onPress={() => setCount(i)}>
-                  <Text style={styles.rowText}>
-                    row {i}  ·  tap to set counter
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
+            }
+            ListFooterComponent={
+              <Text style={styles.listFooter}>
+                — end of list —
+              </Text>
+            }
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            renderItem={({item, index}) => (
+              <Pressable
+                style={[styles.row, index % 2 === 0 ? styles.rowEven : styles.rowOdd]}
+                onPress={() => setCount(index)}>
+                <Text style={styles.rowText}>
+                  {item.label}  ·  {item.subtitle}
+                </Text>
+              </Pressable>
+            )}
+          />
         </View>
       </View>
+
+      {/* Modal */}
+      <Modal visible={modalOpen} onRequestClose={() => setModalOpen(false)}>
+        <View style={styles.modalPanel}>
+          <Text style={styles.modalTitle}>Modal — overlay layer</Text>
+          <Text style={styles.modalText}>
+            Modal renders as an absolutely-positioned overlay inside the
+            same window. Tap the backdrop or press the button below to
+            dismiss.
+          </Text>
+          <Text style={styles.modalText}>
+            counter is {count}; ticker is {tick}; name is {name || '(empty)'}.
+          </Text>
+          <Button title="dismiss" onPress={() => setModalOpen(false)}
+                  backgroundColor={palette.green} />
+        </View>
+      </Modal>
     </View>
   );
 }

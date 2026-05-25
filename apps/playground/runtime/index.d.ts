@@ -156,6 +156,32 @@ export const StyleSheet: {
   absoluteFillObject: ViewStyle;
 };
 
+export interface FlatListProps<T> {
+  data: readonly T[];
+  renderItem: (info: {item: T; index: number}) => JSX.Element | null;
+  keyExtractor?: (item: T, index: number) => string;
+  ItemSeparatorComponent?: (() => JSX.Element) | JSX.Element;
+  ListHeaderComponent?: (() => JSX.Element) | JSX.Element;
+  ListFooterComponent?: (() => JSX.Element) | JSX.Element;
+  ListEmptyComponent?: (() => JSX.Element) | JSX.Element;
+  horizontal?: boolean;
+  numColumns?: number;
+  contentContainerStyle?: StyleProp<ViewStyle>;
+  style?: StyleProp<ViewStyle>;
+  extraData?: unknown;
+}
+export const FlatList: <T>(props: FlatListProps<T>) => JSX.Element;
+
+export interface ModalProps {
+  visible?: boolean;
+  transparent?: boolean;
+  animationType?: 'none' | 'slide' | 'fade';
+  onRequestClose?: () => void;
+  onShow?: () => void;
+  children?: ReactNode;
+}
+export const Modal: (props: ModalProps) => JSX.Element | null;
+
 // renderFabric mounts a React element into the Fabric surface that
 // C++ opens. Subsequent calls (from re-eval'd app bundles) feed
 // Fast Refresh — see runtime/fabric.js.
