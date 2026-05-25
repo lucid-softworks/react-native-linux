@@ -154,6 +154,25 @@ void resetRnLinuxBindings() {
   state().rootView = nullptr;
 }
 
+// Forward a caught JSError into JS's ErrorUtils.reportError so the
+// LogBox ErrorBoundary can render. Without this every uncaught throw
+// from an event handler died at the C++ log line and the user got no
+// in-window feedback.
+void reportJsErrorToErrorUtils(jsi::Runtime& rt, const jsi::JSError& e) {
+  try {
+    auto errorUtils = rt.global().getProperty(rt, "ErrorUtils");
+    if (!errorUtils.isObject())
+      return;
+    auto reportError = errorUtils.asObject(rt).getProperty(rt, "reportError");
+    if (!reportError.isObject())
+      return;
+    reportError.asObject(rt).asFunction(rt).call(rt, e.value());
+    rt.drainMicrotasks();
+  } catch (const std::exception&) {
+    // ErrorUtils path itself blew up — silent fallback so we don't loop.
+  }
+}
+
 void dispatchFabricClick(int tag) {
   auto& s = state();
   if (!s.runtime)
@@ -168,6 +187,7 @@ void dispatchFabricClick(int tag) {
     s.runtime->drainMicrotasks();
   } catch (const jsi::JSError& e) {
     RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.getMessage();
+    reportJsErrorToErrorUtils(*s.runtime, e);
   } catch (const std::exception& e) {
     RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.what();
   }
