@@ -18,7 +18,7 @@ import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {mkdirSync, readFileSync, writeFileSync, readFile} from 'node:fs';
 import {createConnection} from 'node:net';
-import babel from '@babel/core';
+import {transform as swcTransform} from '@swc/core';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, 'linux/build/assets');
@@ -29,34 +29,41 @@ const appOut = resolve(outDir, 'index.linux.bundle');
 
 const watch = process.argv.includes('--watch');
 
-// react-refresh babel transform — only on user files (apps/playground),
-// never on the vendor side (which would inject $RefreshReg$ into
-// react-reconciler internals). esbuild filters use Go RE2 (no lookahead)
-// so we screen paths inside the handler.
+// react-refresh transform via @swc/core — about an order of magnitude
+// faster than babel on a per-file basis, and refresh ships built-in
+// (jsc.transform.react.refresh = true), no extra plugin install.
+//
+// We only run swc on user files (apps/playground), never on vendor
+// (which would inject $RefreshReg$ into react-reconciler internals).
+// esbuild filters use Go RE2 (no lookahead) so path screening happens
+// inside the handler.
 const refreshTransformPlugin = {
-  name: 'react-refresh-babel',
+  name: 'react-refresh-swc',
   setup(b) {
-    b.onLoad({filter: /\.(jsx?|tsx?)$/}, (args) => {
+    b.onLoad({filter: /\.(jsx?|tsx?)$/}, async (args) => {
       if (args.path.includes('/node_modules/')) return null;
       if (!args.path.includes('/apps/playground/')) return null;
-      // The runtime/* files are vendor and shouldn't be transformed.
       if (args.path.includes('/apps/playground/runtime/')) return null;
       const source = readFileSync(args.path, 'utf8');
-      const result = babel.transformSync(source, {
+      const isTs = args.path.endsWith('.ts') || args.path.endsWith('.tsx');
+      const result = await swcTransform(source, {
         filename: args.path,
-        babelrc: false,
-        configFile: false,
-        presets: [['@babel/preset-react', {runtime: 'automatic'}]],
-        plugins: [
-          // Address $RefreshReg$/$RefreshSig$ via globalThis so the
-          // bare-identifier lookup doesn't ReferenceError inside the
-          // strict IIFE esbuild emits.
-          ['react-refresh/babel', {
-            skipEnvCheck: true,
-            refreshReg: 'globalThis.$RefreshReg$',
-            refreshSig: 'globalThis.$RefreshSig$',
-          }],
-        ],
+        sourceMaps: 'inline',
+        jsc: {
+          parser: isTs
+            ? {syntax: 'typescript', tsx: args.path.endsWith('.tsx')}
+            : {syntax: 'ecmascript', jsx: true},
+          transform: {
+            react: {
+              runtime: 'automatic',
+              // refresh is gated on development=true — swc only emits
+              // $RefreshReg$/$RefreshSig$ calls when in dev mode.
+              development: true,
+              refresh: true,
+            },
+          },
+          target: 'es2020',
+        },
       });
       return {contents: result.code, loader: 'js'};
     });
@@ -79,8 +86,12 @@ const baseOpts = {
     // bare-identifier lookup, so react-reconciler's
     // `typeof __REACT_DEVTOOLS_GLOBAL_HOOK__` returns 'undefined' and
     // skips Fast Refresh registration. Rewrite every bare reference
-    // to its globalThis-qualified form.
+    // to its globalThis-qualified form. Same rewrite applies to the
+    // $RefreshReg$/$RefreshSig$ globals that swc's refresh transform
+    // emits in user code.
     '__REACT_DEVTOOLS_GLOBAL_HOOK__': 'globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__',
+    '$RefreshReg$': 'globalThis.$RefreshReg$',
+    '$RefreshSig$': 'globalThis.$RefreshSig$',
   },
   loader: {'.js': 'jsx', '.jsx': 'jsx'},
   jsx: 'automatic',
@@ -110,7 +121,8 @@ const appOpts = {
       '  var rnv = globalThis.__rnv;\n' +
       '  if (!rnv) throw new Error("vendor bundle not loaded");\n' +
       '  if (id === "react") return rnv.react;\n' +
-      '  if (id === "react/jsx-runtime" || id === "react/jsx-dev-runtime") return rnv.reactJsxRuntime;\n' +
+      '  if (id === "react/jsx-runtime") return rnv.reactJsxRuntime;\n' +
+      '  if (id === "react/jsx-dev-runtime") return rnv.reactJsxDevRuntime;\n' +
       '  if (id === "react-reconciler") return rnv.reactReconciler;\n' +
       '  if (id === "react-refresh/runtime") return rnv.reactRefreshRuntime;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +

@@ -21,15 +21,12 @@
     "react-reconciler": "0.29.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.0",
-    "@babel/plugin-transform-react-jsx": "^7.28.6",
-    "@babel/preset-env": "^7.29.5",
-    "@babel/preset-react": "^7.28.5",
     "@babel/runtime": "^7.24.0",
     "@lucid-softworks/react-native-linux-cli": "workspace:*",
     "@react-native-community/cli": "^15.0.0",
     "@react-native/babel-preset": "^0.76.0",
     "@react-native/metro-config": "^0.76.0",
+    "@swc/core": "^1.15.40",
     "@types/react": "^18.2.0",
     "babel-jest": "^29.7.0",
     "esbuild": "^0.24.0",

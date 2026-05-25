@@ -39,10 +39,12 @@ const componentsMod = require('./components');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
+const reactJsxDevRuntime = require('react/jsx-dev-runtime');
 
 globalThis.__rnv = {
   react: React,
   reactJsxRuntime,
+  reactJsxDevRuntime,
   reactReconciler: Reconciler,
   reactRefreshRuntime: RefreshRuntime,
   runtime: {
