@@ -6,6 +6,14 @@
 
 #include <gtk/gtk.h>
 
+// libsoup-3 is optional at build time (HAVE_LIBSOUP3 is defined by
+// the CMake config when pkg-config found it). When absent we still
+// accept http(s) URIs but warn and render nothing.
+#if __has_include(<libsoup/soup.h>)
+  #include <libsoup/soup.h>
+  #define RNL_HAVE_LIBSOUP3 1
+#endif
+
 #include <cstring>
 
 namespace rnlinux {
@@ -22,6 +30,75 @@ std::string fileSchemePath(const std::string& uri) {
   }
   return {};
 }
+
+bool isHttpScheme(const std::string& uri) {
+  return uri.rfind("http://", 0) == 0 || uri.rfind("https://", 0) == 0;
+}
+
+#ifdef RNL_HAVE_LIBSOUP3
+// One process-wide SoupSession — sessions are thread-safe and reusing
+// one gets HTTP keep-alive across image loads.
+SoupSession* sharedSession() {
+  static SoupSession* s = soup_session_new();
+  return s;
+}
+
+struct ImageFetch {
+  GtkPicture* picture;
+  std::string uri;
+};
+
+void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
+  auto* fetch = static_cast<ImageFetch*>(user);
+  GError* err = nullptr;
+  GBytes* bytes = soup_session_send_and_read_finish(
+      SOUP_SESSION(source), result, &err);
+  if (!bytes) {
+    RNL_LOGW("Image") << "http fetch failed for " << fetch->uri << ": "
+                       << (err ? err->message : "(unknown)");
+    if (err) g_error_free(err);
+    delete fetch;
+    return;
+  }
+  // Skip if the widget moved on to a different uri while we waited.
+  const char* current = static_cast<const char*>(
+      g_object_get_data(G_OBJECT(fetch->picture), "rnl-current-uri"));
+  if (!current || fetch->uri != current) {
+    g_bytes_unref(bytes);
+    delete fetch;
+    return;
+  }
+  GError* texErr = nullptr;
+  GdkTexture* tex = gdk_texture_new_from_bytes(bytes, &texErr);
+  g_bytes_unref(bytes);
+  if (!tex) {
+    RNL_LOGW("Image") << "decode failed for " << fetch->uri << ": "
+                       << (texErr ? texErr->message : "(unknown)");
+    if (texErr) g_error_free(texErr);
+    delete fetch;
+    return;
+  }
+  gtk_picture_set_paintable(fetch->picture, GDK_PAINTABLE(tex));
+  g_object_unref(tex);
+  delete fetch;
+}
+
+void startHttpFetch(GtkPicture* picture, const std::string& uri) {
+  // Stash the in-flight uri so the callback can detect supersession.
+  g_object_set_data_full(G_OBJECT(picture), "rnl-current-uri",
+                         g_strdup(uri.c_str()), g_free);
+  SoupMessage* msg = soup_message_new(SOUP_METHOD_GET, uri.c_str());
+  if (!msg) {
+    RNL_LOGW("Image") << "bad uri: " << uri;
+    return;
+  }
+  auto* fetch = new ImageFetch{picture, uri};
+  soup_session_send_and_read_async(
+      sharedSession(), msg, G_PRIORITY_DEFAULT, nullptr,
+      onImageBytes, fetch);
+  g_object_unref(msg);
+}
+#endif  // RNL_HAVE_LIBSOUP3
 
 GtkContentFit toContentFit(facebook::react::ImageResizeMode mode) {
   switch (mode) {
@@ -71,9 +148,21 @@ void ImageComponentView::updateProps(
   }
   currentUri_ = uri;
 
-  // file:// is the only scheme we load synchronously for now. http(s)
-  // would need an async fetch + texture decode pass; punt with a
-  // warning so apps don't fail silently.
+  // file:// loads synchronously via GdkTexture; http(s) goes through
+  // libsoup's async fetch (when the build linked it).
+  if (isHttpScheme(uri)) {
+#ifdef RNL_HAVE_LIBSOUP3
+    // Clear the current paintable so the box stays empty until the
+    // async load lands. The fetch callback drops in the texture.
+    gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
+    startHttpFetch(GTK_PICTURE(widget_), uri);
+#else
+    RNL_LOGW("Image") << "http uri but libsoup3 wasn't linked: " << uri;
+    gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
+#endif
+    return;
+  }
+
   const auto path = fileSchemePath(uri);
   if (path.empty()) {
     RNL_LOGW("Image") << "unsupported uri scheme (tag=" << tag_

@@ -98,16 +98,26 @@ function App(): JSX.Element {
         FlatList + Modal + View + Text + Image + ScrollView + TextInput.
       </Text>
 
-      {/* TextInput row */}
-      <View style={[styles.card, {marginBottom: 12}]}>
-        <Text style={styles.cardLabel}>type your name — flows through onChangeText</Text>
-        <TextInput style={styles.input}
-                   placeholder="your name…"
-                   value={name}
-                   onChangeText={setName} />
-        <Text style={styles.echo}>
-          {name ? `hello, ${name}!` : '(state is empty)'}
-        </Text>
+      {/* TextInput + remote Image row */}
+      <View style={{flexDirection: 'row', gap: 12, marginBottom: 12}}>
+        <View style={[styles.card, {flex: 2}]}>
+          <Text style={styles.cardLabel}>type your name — flows through onChangeText</Text>
+          <TextInput style={styles.input}
+                     placeholder="your name…"
+                     value={name}
+                     onChangeText={setName} />
+          <Text style={styles.echo}>
+            {name ? `hello, ${name}!` : '(state is empty)'}
+          </Text>
+        </View>
+        <View style={[styles.card, {flex: 1, gap: 6}]}>
+          <Text style={styles.cardLabel}>remote image (libsoup-3)</Text>
+          <Image
+            source={{uri: 'https://picsum.photos/240/120'}}
+            resizeMode="cover"
+            style={{width: 160, height: 80, alignSelf: 'center',
+                    backgroundColor: palette.panelAlt, borderRadius: 6}} />
+        </View>
       </View>
 
       <View style={styles.body}>

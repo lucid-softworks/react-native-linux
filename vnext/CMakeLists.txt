@@ -40,6 +40,11 @@ include(FindGTK4)         # GTK4 via pkg-config
 # these, but rn_renderer is a sibling static library that compiles
 # first, so it needs its own pkg-config path.
 pkg_check_modules(Pango REQUIRED IMPORTED_TARGET pangocairo)
+
+# libsoup3 — async HTTP fetcher used by the Image component to load
+# remote `source.uri` values. Optional: when not present, http(s)
+# URIs log a warning and fall back to a placeholder.
+pkg_check_modules(Soup IMPORTED_TARGET libsoup-3.0)
 include(ReactNativeHeaders)  # locate node_modules/react-native
 include(FetchHermes)      # Hermes runtime
 include(FetchFolly)       # Folly (subset)
@@ -263,6 +268,7 @@ endif()
 target_link_libraries(react_native_linux
   PUBLIC
     GTK4::GTK4
+    $<TARGET_NAME_IF_EXISTS:PkgConfig::Soup>
   PRIVATE
     Threads::Threads
     Hermes::Hermes
