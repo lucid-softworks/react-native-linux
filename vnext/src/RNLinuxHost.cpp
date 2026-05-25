@@ -258,6 +258,16 @@ void RNLinuxHost::reload() {
   impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl);
 }
 
+void RNLinuxHost::reloadFromSource(std::string source, std::string sourceUrl) {
+  if (!impl_->runtimeHolder) {
+    RNL_LOGW("RNLinuxHost") << "reloadFromSource: runtime not yet up";
+    return;
+  }
+  RNL_LOGI("RNLinuxHost") << "reload (socket-push): "
+                          << source.size() << " bytes from " << sourceUrl;
+  impl_->runtimeHolder->evaluate(source, sourceUrl);
+}
+
 void RNLinuxHost::setMountingManager(std::shared_ptr<LinuxMountingManager> m) {
   impl_->mountingManager = std::move(m);
 }

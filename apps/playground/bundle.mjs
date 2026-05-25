@@ -16,7 +16,8 @@
 import {build, context} from 'esbuild';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {mkdirSync, readFileSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync, readFile} from 'node:fs';
+import {createConnection} from 'node:net';
 import babel from '@babel/core';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -127,13 +128,81 @@ async function once() {
   console.log(`✓ app    → ${appOut}`);
 }
 
+// Discover the playground's HMR socket. Same default the C++ side
+// uses: $XDG_RUNTIME_DIR (fallback /tmp) + per-app filename.
+function hmrSocketPath() {
+  if (process.env.RN_HMR_SOCKET) return process.env.RN_HMR_SOCKET;
+  const appId = 'works.lucidsoft.RNLinuxPlayground';
+  const dir = process.env.XDG_RUNTIME_DIR || '/tmp';
+  return `${dir}/rn-linux.${appId}.sock`;
+}
+
+// Push a bundle directly to the running playground over the Unix
+// socket the C++ side opened in startHmrSocket(). Fire-and-forget; if
+// the socket isn't there yet (cold start) we silently skip — the
+// file-monitor reload path will still pick up the disk write as a
+// fallback.
+function pushBundleOverSocket(bytes) {
+  return new Promise((resolveP) => {
+    const sock = hmrSocketPath();
+    const c = createConnection(sock);
+    let done = false;
+    const finish = (msg) => {
+      if (done) return;
+      done = true;
+      try { c.destroy(); } catch {}
+      resolveP(msg);
+    };
+    c.once('error', (err) => finish(`socket error: ${err.code || err.message}`));
+    c.once('connect', () => {
+      const len = Buffer.alloc(4);
+      len.writeUInt32LE(bytes.length, 0);
+      c.write(len);
+      c.write(bytes);
+      c.end();
+    });
+    c.once('close', () => finish('pushed'));
+  });
+}
+
 async function watchMode() {
   // Vendor is built once — it doesn't depend on user code.
   await build(vendorOpts);
   console.log(`✓ vendor → ${vendorOut} (one-shot)`);
-  const ctx = await context(appOpts);
+  // Wrap with timing + HMR-push hooks so we can both report rebuild
+  // duration and shove the new bundle into the live playground over
+  // a Unix socket (the C++ side listens; see startHmrSocket).
+  const hmrPlugin = {
+    name: 'hmr-push',
+    setup(b) {
+      let start = 0;
+      b.onStart(() => { start = performance.now(); });
+      b.onEnd(async (result) => {
+        if (result.errors && result.errors.length) {
+          console.log(`[watch] rebuild failed in ${(performance.now() - start).toFixed(1)}ms`);
+          return;
+        }
+        const buildMs = (performance.now() - start).toFixed(1);
+        const t1 = performance.now();
+        // esbuild already wrote the bundle to disk (write: true by
+        // default). Read it back as bytes; in a future iteration we
+        // could keep it in-memory via write: false + outputFiles.
+        readFile(appOut, async (err, bytes) => {
+          if (err) {
+            console.log(`[watch] rebuild ${buildMs}ms (push skipped: ${err.code})`);
+            return;
+          }
+          const pushResult = await pushBundleOverSocket(bytes);
+          const pushMs = (performance.now() - t1).toFixed(1);
+          console.log(`[watch] rebuild ${buildMs}ms · push ${pushMs}ms (${pushResult})`);
+        });
+      });
+    },
+  };
+  const ctx = await context({...appOpts, plugins: [...appOpts.plugins, hmrPlugin]});
   await ctx.watch();
   console.log(`👀 watching ${resolve(here, 'index.jsx')} → ${appOut}`);
+  console.log(`📡 HMR push: ${hmrSocketPath()}`);
 }
 
 if (watch) {

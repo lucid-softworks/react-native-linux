@@ -54,6 +54,10 @@ class RNLinuxHost {
   void start();
   void stop();
   void reload();
+  // Hot-reload variant: re-evaluate the given source on the existing
+  // Hermes runtime. Used by the HMR socket so esbuild can push bundles
+  // directly to the live process — no file IO, no GFileMonitor.
+  void reloadFromSource(std::string source, std::string sourceUrl);
 
   // Attach a LinuxMountingManager so the Scheduler knows where to send
   // mounting transactions.
