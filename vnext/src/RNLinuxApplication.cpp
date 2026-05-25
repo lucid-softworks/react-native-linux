@@ -350,6 +350,37 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
       impl,
       /*notify=*/nullptr);
 
+  // Cmd/Ctrl+R → host->reload(). GtkShortcutController routes the
+  // keypress without needing focus on a specific widget. The callback
+  // re-evaluates the app bundle in the same Hermes runtime so Fast
+  // Refresh keeps state across the reload (same path the
+  // file-monitor / HMR socket hit).
+  {
+    GtkEventController* sc = gtk_shortcut_controller_new();
+    gtk_event_controller_set_propagation_phase(sc, GTK_PHASE_CAPTURE);
+    gtk_shortcut_controller_set_scope(GTK_SHORTCUT_CONTROLLER(sc), GTK_SHORTCUT_SCOPE_GLOBAL);
+
+    auto reloadCb = +[](GtkWidget* /*widget*/, GVariant* /*args*/, gpointer userData) -> gboolean {
+      auto* impl = static_cast<Impl*>(userData);
+      if (impl->host) {
+        RNL_LOGI("RNLinuxApplication") << "reload (Ctrl+R)";
+        impl->host->reload();
+      }
+      return TRUE;
+    };
+    // Bind both Ctrl+R and Cmd+R (META modifier) so Mac VNC users
+    // hitting Cmd+R get the same behavior as Linux users hitting Ctrl+R.
+    GtkShortcut* sCtrl =
+        gtk_shortcut_new(gtk_keyval_trigger_new(GDK_KEY_r, GDK_CONTROL_MASK),
+                         gtk_callback_action_new(reloadCb, impl, /*destroy=*/nullptr));
+    GtkShortcut* sMeta =
+        gtk_shortcut_new(gtk_keyval_trigger_new(GDK_KEY_r, GDK_META_MASK),
+                         gtk_callback_action_new(reloadCb, impl, /*destroy=*/nullptr));
+    gtk_shortcut_controller_add_shortcut(GTK_SHORTCUT_CONTROLLER(sc), sCtrl);
+    gtk_shortcut_controller_add_shortcut(GTK_SHORTCUT_CONTROLLER(sc), sMeta);
+    gtk_widget_add_controller(impl->window, sc);
+  }
+
   gtk_window_present(GTK_WINDOW(impl->window));
   RNL_LOGI("RNLinuxApplication") << "window presented";
 }
