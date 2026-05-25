@@ -35,7 +35,8 @@ globalThis.__refreshRuntime = RefreshRuntime;
 // versions we've already loaded above. Stash them so the app
 // bundle's require shim can fetch them.
 const fabricMod = require('./fabric');
-const componentsMod = require('./components');
+const {View, Text, Pressable, Button} = require('./components');
+const componentsMod = {View, Text, Pressable, Button};
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');

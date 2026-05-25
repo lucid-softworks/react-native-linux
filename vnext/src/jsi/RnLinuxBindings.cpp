@@ -35,6 +35,11 @@ struct State {
   jsi::Runtime* runtime = nullptr;
   std::unordered_map<int, std::shared_ptr<jsi::Function>> clickHandlers;
 
+  // Fabric-tag-keyed click handlers — registered by JS via
+  // `rnLinux.fabricOnClick(tag, fn)`. Looked up by tag from the
+  // C++ component-view layer when its gesture fires.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricClickHandlers;
+
   // Active intervals/timers. `handlerId → (sourceId, fn)`. We keep the
   // jsi::Function alive here so the GTK source can call back into JS
   // safely; resetRnLinuxBindings drops these on reload so dangling
@@ -97,11 +102,29 @@ void resetRnLinuxBindings() {
   }
   state().timerHandlers.clear();
   state().clickHandlers.clear();
+  state().fabricClickHandlers.clear();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
   state().runtime = nullptr;
   state().rootView = nullptr;
+}
+
+void dispatchFabricClick(int tag) {
+  auto& s = state();
+  if (!s.runtime) return;
+  auto it = s.fabricClickHandlers.find(tag);
+  if (it == s.fabricClickHandlers.end()) return;
+  try {
+    it->second->call(*s.runtime);
+    // React schedules state-update work on a microtask; drain so the
+    // resulting commit happens before this turn yields.
+    s.runtime->drainMicrotasks();
+  } catch (const jsi::JSError& e) {
+    RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.getMessage();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.what();
+  }
 }
 
 void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
@@ -342,6 +365,25 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         GINT_TO_POINTER(handlerId));
     state().timerHandlers[handlerId] = {sourceId, std::move(fn)};
     return jsi::Value{handlerId};
+  });
+
+  // Fabric click registry. The Fabric host config (apps/playground/runtime/
+  // fabricHostConfig.js) calls this whenever a <View onClick={fn}> shadow
+  // node is created or its handler changes. We key by the Fabric tag —
+  // ViewComponentView's gesture controller looks the function up via
+  // dispatchFabricClick(tag) when GtkGestureClick fires.
+  bindMethod(rt, rnLinux, "fabricOnClick", 2,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 2) return jsi::Value::undefined();
+    int tag = static_cast<int>(args[0].asNumber());
+    if (args[1].isNull() || args[1].isUndefined()) {
+      state().fabricClickHandlers.erase(tag);
+      return jsi::Value::undefined();
+    }
+    state().fabricClickHandlers[tag] = std::make_shared<jsi::Function>(
+        args[1].asObject(rt).asFunction(rt));
+    return jsi::Value::undefined();
   });
 
   bindMethod(rt, rnLinux, "clearInterval", 1,

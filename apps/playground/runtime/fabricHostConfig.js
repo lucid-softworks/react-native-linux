@@ -87,12 +87,16 @@ function normalizeColor(c) {
 
 function buildFabricProps(type, props) {
   // children/key/ref are React-internal; never forward to Fabric.
+  // onClick is a JS function — it can't survive serialization into
+  // ViewProps. We register it separately against the Fabric tag (see
+  // syncClickHandler) and strip it from the prop bag here.
   // For <text>, text-style props (color/fontSize/…) ride along as
   // top-level Paragraph props — BaseTextProps parses them into the
   // Paragraph's textAttributes.
   const out = {};
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
+    if (k === 'onClick') continue;
     out[k] = COLOR_PROPS.has(k) ? normalizeColor(props[k]) : props[k];
   }
   if (out.position === undefined) out.position = 'absolute';
@@ -100,6 +104,14 @@ function buildFabricProps(type, props) {
   // its only role is layout — otherwise it gets folded into the parent.
   if (out.collapsable === undefined) out.collapsable = false;
   return out;
+}
+
+// Push (or remove) a click handler for a Fabric tag into the JSI
+// registry the C++ ViewComponentView gesture controller consults.
+function syncClickHandler(tag, props) {
+  const handler = props && typeof props.onClick === 'function'
+    ? props.onClick : null;
+  rnLinux.fabricOnClick(tag, handler);
 }
 
 const hostConfig = {
@@ -138,6 +150,7 @@ const hostConfig = {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
         tag, 'View', currentSurfaceId, buildFabricProps(type, props), {});
+      syncClickHandler(tag, props);
       return {tag, fabricNode, componentName: 'View', type};
     }
 
@@ -201,6 +214,10 @@ const hostConfig = {
     const fabricNode = childrenUnchanged
       ? currentFabric.cloneNodeWithNewProps(currentInstance.fabricNode, fabricProps)
       : currentFabric.cloneNodeWithNewChildrenAndProps(currentInstance.fabricNode, fabricProps);
+    // Re-bind the click handler — JS function identity changes across
+    // renders, so we keep the C++ registry pointing at the freshest
+    // closure.
+    if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
     return {
       tag: currentInstance.tag,
       fabricNode,

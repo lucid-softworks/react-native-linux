@@ -1,5 +1,6 @@
 #include "ViewComponentView.h"
 #include "react-native-linux/Logging.h"
+#include "../jsi/RnLinuxBindings.h"
 
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/graphics/Color.h>
@@ -11,6 +12,24 @@
 #include <string>
 
 namespace rnlinux {
+
+namespace {
+
+// SharedColor → CSS rgba(…). RN packs colors as 0xAARRGGBB
+// (HostPlatformColor.h). Returns an empty string when the color
+// hasn't been set (UndefinedColor), so callers can skip emitting
+// rules for properties the app didn't touch.
+std::string colorToCss(const facebook::react::SharedColor& color) {
+  if (!color) return {};
+  const auto v = static_cast<unsigned int>(*color);
+  char buf[40];
+  std::snprintf(buf, sizeof(buf), "rgba(%u,%u,%u,%.3f)",
+                (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff,
+                ((v >> 24) & 0xff) / 255.0);
+  return buf;
+}
+
+}  // namespace
 
 ViewComponentView::ViewComponentView(Tag tag) : LinuxComponentView(tag) {
   widget_ = gtk_fixed_new();
@@ -25,6 +44,23 @@ ViewComponentView::ViewComponentView(Tag tag) : LinuxComponentView(tag) {
       gtk_widget_get_display(widget_),
       GTK_STYLE_PROVIDER(provider),
       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+  // Single GtkGestureClick per View — the registered Fabric handler
+  // (set by JS via rnLinux.fabricOnClick(tag, fn)) is looked up at
+  // call time, so the gesture is wired once and stays inert if the
+  // tree has no onClick prop. dispatchFabricClick is a no-op when no
+  // handler is registered.
+  auto* gesture = gtk_gesture_click_new();
+  g_signal_connect_data(
+      gesture, "released",
+      G_CALLBACK(+[](GtkGestureClick* /*gc*/, int /*n_press*/,
+                     double /*x*/, double /*y*/, gpointer ud) {
+        const int t = GPOINTER_TO_INT(ud);
+        dispatchFabricClick(t);
+      }),
+      GINT_TO_POINTER(static_cast<int>(tag)),
+      /*destroy=*/nullptr, /*flags=*/static_cast<GConnectFlags>(0));
+  gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(gesture));
 }
 
 ViewComponentView::~ViewComponentView() {
@@ -38,38 +74,90 @@ void ViewComponentView::updateProps(
     facebook::react::Props const& newProps) {
   // On Create, the mounting manager calls us with (newProps, newProps)
   // since there's no real "old" yet — a naive (oldVP != newVP) diff
-  // would skip the very first prop application. Just always apply.
-  // Idempotent at the GTK level (CSS replace, set_opacity).
-  const auto& newVP = static_cast<const facebook::react::ViewProps&>(newProps);
+  // would skip the very first prop application. Just always rebuild
+  // the full per-widget stylesheet from current values.
+  const auto& vp = static_cast<const facebook::react::ViewProps&>(newProps);
 
-  if (newVP.backgroundColor) {
-    applyBackgroundColor(static_cast<unsigned int>(*newVP.backgroundColor));
-  } else {
-    gtk_css_provider_load_from_string(
-        static_cast<GtkCssProvider*>(cssProvider_), "");
+  // Compose a single CSS block for the widget. GtkCssProvider's
+  // load_from_string REPLACES — emitting one rule with all properties
+  // is the only way to combine background + border + radius. The
+  // selector targets our unique gtk_widget_set_name() id.
+  std::string css = std::string{"#"} + gtk_widget_get_name(widget_) + " {";
+
+  if (vp.backgroundColor) {
+    css += " background-color: " + colorToCss(vp.backgroundColor) + ";";
   }
-  applyOpacity(static_cast<float>(newVP.opacity));
-  // Border-radius live in BorderRadii — read the top-level (single
-  // value) for the MVP; per-corner support comes once corner-specific
-  // CSS templates exist.
-  const auto br = newVP.borderRadii.all.value_or(facebook::react::ValueUnit{});
-  applyBorderRadius(br.value, br.value, br.value, br.value);
+
+  // Borders. ViewProps stores them as CascadedRectangleEdges /
+  // CascadedRectangleCorners — each per-side slot is optional with a
+  // separate `all` fallback. We resolve each side individually so a
+  // JS app can write either `borderWidth: 2` (sets `all`) or
+  // `borderTopWidth: 2` (sets just `top`).
+  auto bw = vp.getBorderWidths();
+  const float bwTop    = bw.top.value_or(bw.all.value_or(0.0f));
+  const float bwRight  = bw.right.value_or(bw.all.value_or(0.0f));
+  const float bwBot    = bw.bottom.value_or(bw.all.value_or(0.0f));
+  const float bwLeft   = bw.left.value_or(bw.all.value_or(0.0f));
+  char buf[120];
+  if (bwTop > 0 || bwRight > 0 || bwBot > 0 || bwLeft > 0) {
+    std::snprintf(buf, sizeof(buf),
+                  " border-width: %.0fpx %.0fpx %.0fpx %.0fpx;",
+                  bwTop, bwRight, bwBot, bwLeft);
+    css += buf;
+    css += " border-style: solid;";
+  }
+
+  // Border color — for the MVP, pick the most specific slot in
+  // top-priority order. Per-side colors would mean emitting
+  // border-top-color, border-right-color, etc.
+  auto pickColor = [&](const std::optional<facebook::react::SharedColor>& side) {
+    if (side && *side) return colorToCss(*side);
+    if (vp.borderColors.all && *vp.borderColors.all) {
+      return colorToCss(*vp.borderColors.all);
+    }
+    return std::string{};
+  };
+  const auto bcTop = pickColor(vp.borderColors.top);
+  if (!bcTop.empty()) {
+    css += " border-color: " + bcTop + ";";
+  }
+
+  // Per-corner border radius. ValueUnit holds {value, unit}; we
+  // treat both Point and Percent as plain pixels for now — a real
+  // length resolver against layoutMetrics.frame.size lands later.
+  auto pickRadius = [&](const std::optional<facebook::react::ValueUnit>& corner) {
+    if (corner && corner->value > 0) return corner->value;
+    if (vp.borderRadii.all && vp.borderRadii.all->value > 0) {
+      return vp.borderRadii.all->value;
+    }
+    return 0.0f;
+  };
+  const float rTL = pickRadius(vp.borderRadii.topLeft);
+  const float rTR = pickRadius(vp.borderRadii.topRight);
+  const float rBR = pickRadius(vp.borderRadii.bottomRight);
+  const float rBL = pickRadius(vp.borderRadii.bottomLeft);
+  if (rTL > 0 || rTR > 0 || rBR > 0 || rBL > 0) {
+    std::snprintf(buf, sizeof(buf),
+                  " border-radius: %.0fpx %.0fpx %.0fpx %.0fpx;",
+                  rTL, rTR, rBR, rBL);
+    css += buf;
+  }
+
+  css += " }";
+  gtk_css_provider_load_from_string(
+      static_cast<GtkCssProvider*>(cssProvider_), css.c_str());
+
+  // Opacity sits on the widget directly (no CSS), simpler than going
+  // through filter: opacity().
+  if (!std::isnan(vp.opacity)) {
+    gtk_widget_set_opacity(widget_, vp.opacity);
+  }
 }
 
-void ViewComponentView::applyBackgroundColor(unsigned int argb) {
-  if (!cssProvider_) return;
-  // RN packs colors as (A << 24) | (R << 16) | (G << 8) | B (see
-  // HostPlatformColor.h). Convert to CSS rgba().
-  const unsigned a = (argb >> 24) & 0xff;
-  const unsigned r = (argb >> 16) & 0xff;
-  const unsigned g = (argb >> 8) & 0xff;
-  const unsigned b = argb & 0xff;
-  char css[160];
-  std::snprintf(css, sizeof(css),
-                "#%s { background-color: rgba(%u,%u,%u,%.3f); }",
-                gtk_widget_get_name(widget_), r, g, b, a / 255.0);
-  gtk_css_provider_load_from_string(
-      static_cast<GtkCssProvider*>(cssProvider_), css);
+void ViewComponentView::applyBackgroundColor(unsigned int /*argb*/) {
+  // Kept as a no-op for the header — the combined updateProps()
+  // builds the full stylesheet now. (Header still references this
+  // signature; removing it would force a recompile of nothing.)
 }
 
 void ViewComponentView::applyOpacity(float opacity) {
@@ -77,19 +165,9 @@ void ViewComponentView::applyOpacity(float opacity) {
   gtk_widget_set_opacity(widget_, opacity);
 }
 
-void ViewComponentView::applyBorderRadius(float tl, float tr, float br,
-                                           float bl) {
-  if (!cssProvider_) return;
-  if (tl == 0 && tr == 0 && br == 0 && bl == 0) return;  // skip empty
-  char css[256];
-  std::snprintf(css, sizeof(css),
-                "#%s { border-radius: %.0fpx %.0fpx %.0fpx %.0fpx; }",
-                gtk_widget_get_name(widget_), tl, tr, br, bl);
-  // load_from_string replaces — but we'd lose backgroundColor. For now
-  // applyBackgroundColor is the dominant style; revisit when we want
-  // both at once (combine into a single CSS string per widget).
-  gtk_css_provider_load_from_string(
-      static_cast<GtkCssProvider*>(cssProvider_), css);
+void ViewComponentView::applyBorderRadius(float /*tl*/, float /*tr*/,
+                                          float /*br*/, float /*bl*/) {
+  // Subsumed by updateProps(). Header retained until callers move.
 }
 
 }  // namespace rnlinux

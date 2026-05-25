@@ -26,7 +26,17 @@ interface BaseStyleProps {
 export interface ViewProps extends BaseStyleProps {
   backgroundColor?: Color;
   borderColor?: Color;
+  borderWidth?: number;
+  borderTopWidth?: number;
+  borderRightWidth?: number;
+  borderBottomWidth?: number;
+  borderLeftWidth?: number;
   borderRadius?: number;
+  borderTopLeftRadius?: number;
+  borderTopRightRadius?: number;
+  borderBottomRightRadius?: number;
+  borderBottomLeftRadius?: number;
+  onClick?: () => void;
   children?: ReactNode;
 }
 
@@ -46,8 +56,21 @@ export interface TextProps extends BaseStyleProps {
   children?: ReactNode;
 }
 
+export interface PressableProps extends Omit<ViewProps, 'onClick'> {
+  onPress?: () => void;
+}
+
+export interface ButtonProps extends Omit<PressableProps, 'children'> {
+  title: string;
+  color?: Color;
+  fontSize?: number;
+  fontWeight?: TextProps['fontWeight'];
+}
+
 export const View: (props: ViewProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
+export const Pressable: (props: PressableProps) => JSX.Element;
+export const Button: (props: ButtonProps) => JSX.Element;
 
 // renderFabric mounts a React element into the Fabric surface that
 // C++ opens. Subsequent calls (from re-eval'd app bundles) feed

@@ -145,6 +145,31 @@ void ParagraphComponentView::updateState(
   // (escaped) text.
   std::string markup = buildMarkup(paragraphState.attributedString);
   gtk_label_set_markup(GTK_LABEL(widget_), markup.c_str());
+
+  // Horizontal alignment lives in the AttributedString's first
+  // fragment's TextAttributes (RN funnels Text-style props there).
+  // gtk_label_set_xalign maps to 0.0 / 0.5 / 1.0 for left/center/right.
+  const auto& fragments = paragraphState.attributedString.getFragments();
+  if (!fragments.empty() && fragments.front().textAttributes.alignment) {
+    switch (*fragments.front().textAttributes.alignment) {
+      case facebook::react::TextAlignment::Center:
+        gtk_label_set_xalign(GTK_LABEL(widget_), 0.5f);
+        break;
+      case facebook::react::TextAlignment::Right:
+        gtk_label_set_xalign(GTK_LABEL(widget_), 1.0f);
+        break;
+      case facebook::react::TextAlignment::Justified:
+        gtk_label_set_justify(GTK_LABEL(widget_), GTK_JUSTIFY_FILL);
+        // Pango still needs an xalign for the unfilled tail line.
+        gtk_label_set_xalign(GTK_LABEL(widget_), 0.0f);
+        break;
+      case facebook::react::TextAlignment::Natural:
+      case facebook::react::TextAlignment::Left:
+      default:
+        gtk_label_set_xalign(GTK_LABEL(widget_), 0.0f);
+        break;
+    }
+  }
 }
 
 }  // namespace rnlinux

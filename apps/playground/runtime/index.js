@@ -42,6 +42,6 @@ function render(element, onCommit) {
   return root;
 }
 
-const {View, Text} = require('./components');
+const {View, Text, Pressable, Button} = require('./components');
 
-module.exports = {render, renderFabric, View, Text};
+module.exports = {render, renderFabric, View, Text, Pressable, Button};

@@ -38,4 +38,12 @@ void installRnLinuxBindings(facebook::jsi::Runtime& rt, GtkWidget* rootView);
 // crash inside std::unordered_map::clear().
 void resetRnLinuxBindings();
 
+// Dispatch a "click" event to a Fabric-tag handler the app registered
+// via `rnLinux.fabricOnClick(tag, fn)`. Called by the Linux component-
+// view layer (e.g. ViewComponentView's gesture controller). Safe to
+// call from the GTK main thread; the call into the runtime drains
+// microtasks so any setState scheduled inside fires its commit before
+// returning.
+void dispatchFabricClick(int tag);
+
 }  // namespace rnlinux
