@@ -297,11 +297,16 @@ facebook::react::SurfaceHandler& RNLinuxHost::createSurface(
   impl_->rootSurface = std::make_unique<facebook::react::SurfaceHandler>(
       moduleName, /*surfaceId=*/1);
   impl_->rootSurface->setProps(folly::dynamic::object());
+  // Pin the surface to the configured window size in BOTH dimensions
+  // (min == max). Without this, Yoga is free to shrink-wrap the root
+  // to content size and flex:1 on the outermost View only fills as
+  // far as the content reaches, leaving empty stripes on the right /
+  // bottom. Setting min=max forces the root to fill the window so
+  // child flex distributes against a known viewport.
+  const auto W = static_cast<facebook::react::Float>(config_.initialWidth);
+  const auto H = static_cast<facebook::react::Float>(config_.initialHeight);
   impl_->rootSurface->constraintLayout(
-      {{0, 0},
-       {static_cast<facebook::react::Float>(config_.initialWidth),
-        static_cast<facebook::react::Float>(config_.initialHeight)},
-       facebook::react::LayoutDirection::LeftToRight},
+      {{W, H}, {W, H}, facebook::react::LayoutDirection::LeftToRight},
       {.pointScaleFactor =
            static_cast<facebook::react::Float>(config_.pointScaleFactor)});
   return *impl_->rootSurface;

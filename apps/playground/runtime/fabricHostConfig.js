@@ -93,15 +93,22 @@ function buildFabricProps(type, props) {
   // For <text>, text-style props (color/fontSize/…) ride along as
   // top-level Paragraph props — BaseTextProps parses them into the
   // Paragraph's textAttributes.
+  //
+  // Yoga handles layout for everything inside Fabric — flex,
+  // flexDirection, justifyContent, alignItems, padding, margin, gap,
+  // etc. flow through unchanged. We leave `position` unset by
+  // default so RN's normal `position:'relative'` + flex layout
+  // applies; set `position:'absolute'` (with top/left/width/height)
+  // explicitly for free-floating elements.
   const out = {};
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
     if (k === 'onClick') continue;
     out[k] = COLOR_PROPS.has(k) ? normalizeColor(props[k]) : props[k];
   }
-  if (out.position === undefined) out.position = 'absolute';
   // collapsable:false forces Fabric to materialize this node even if
-  // its only role is layout — otherwise it gets folded into the parent.
+  // its only role is layout — otherwise it gets folded into the parent
+  // and Yoga's per-node frame disappears.
   if (out.collapsable === undefined) out.collapsable = false;
   return out;
 }
