@@ -20,12 +20,8 @@ const {View, Text, Pressable, ScrollView} = require('./components');
 
 const styles = {
   scrim: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    flex: 1,
+    backgroundColor: '#1f1f23',
     padding: 24,
     justifyContent: 'flex-start',
   },
@@ -41,7 +37,8 @@ const styles = {
   title: {color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 4},
   msg: {color: '#fee2e2', fontSize: 14, fontFamily: 'monospace', marginBottom: 12},
   stack: {
-    backgroundColor: '#1f1f23',
+    flex: 1,
+    backgroundColor: '#0f0f12',
     borderLeftWidth: 3,
     borderLeftColor: '#dc2626',
     padding: 12,
