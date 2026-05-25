@@ -1134,6 +1134,104 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return obj;
       });
 
+  // Alert backing. JS calls rnLinux.showAlert(title, message, buttons, cb).
+  // We build a GtkAlertDialog, set its message/detail, attach the button
+  // labels, and async-choose against the toplevel window. The callback
+  // receives the chosen button index (or -1 on cancel).
+  //
+  // GtkAlertDialog was introduced in GTK 4.10. The shared_ptr keeps the
+  // JS callback alive until choose_async resolves; the dialog itself is
+  // refcounted by GTK.
+  bindMethod(
+      rt,
+      rnLinux,
+      "showAlert",
+      4,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        const auto title = args[0].isString() ? args[0].asString(rt).utf8(rt) : std::string();
+        const auto detail =
+            count > 1 && args[1].isString() ? args[1].asString(rt).utf8(rt) : std::string();
+
+        // Collect button labels into a NULL-terminated GStrv. If the
+        // caller passed no buttons, default to a single "OK".
+        std::vector<std::string> labels;
+        if (count > 2 && args[2].isObject()) {
+          auto arr = args[2].asObject(rt);
+          if (arr.isArray(rt)) {
+            auto a = arr.asArray(rt);
+            for (size_t i = 0, n = a.size(rt); i < n; ++i) {
+              auto el = a.getValueAtIndex(rt, i);
+              labels.push_back(el.isString() ? el.asString(rt).utf8(rt)
+                                             : std::string("Button " + std::to_string(i)));
+            }
+          }
+        }
+        if (labels.empty())
+          labels.emplace_back("OK");
+
+        std::vector<const char*> rawLabels;
+        rawLabels.reserve(labels.size() + 1);
+        for (auto& s : labels)
+          rawLabels.push_back(s.c_str());
+        rawLabels.push_back(nullptr);
+
+        GtkAlertDialog* dialog = gtk_alert_dialog_new("%s", title.c_str());
+        if (!detail.empty()) {
+          gtk_alert_dialog_set_detail(dialog, detail.c_str());
+        }
+        gtk_alert_dialog_set_buttons(dialog, rawLabels.data());
+
+        // Wrap the JS callback in a shared_ptr so the C-style choose_async
+        // userdata can hold it through the async hop and the destructor
+        // runs cleanly. We capture by value into a heap struct so GTK
+        // can pass it to the callback.
+        struct Userdata {
+          std::shared_ptr<jsi::Function> cb;
+        };
+        Userdata* ud = nullptr;
+        if (count > 3 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)) {
+          ud = new Userdata{std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))};
+        }
+
+        GtkWindow* parent = nullptr;
+        if (rootView) {
+          GtkRoot* root = gtk_widget_get_root(rootView);
+          if (GTK_IS_WINDOW(root))
+            parent = GTK_WINDOW(root);
+        }
+
+        gtk_alert_dialog_choose(
+            dialog,
+            parent,
+            /*cancellable=*/nullptr,
+            +[](GObject* source, GAsyncResult* result, gpointer userData) {
+              auto* d = GTK_ALERT_DIALOG(source);
+              GError* err = nullptr;
+              const int picked = gtk_alert_dialog_choose_finish(d, result, &err);
+              auto* ud = static_cast<Userdata*>(userData);
+              if (ud) {
+                auto& s = state();
+                if (s.runtime) {
+                  try {
+                    ud->cb->call(*s.runtime, jsi::Value(picked));
+                    s.runtime->drainMicrotasks();
+                  } catch (const std::exception& e) {
+                    RNL_LOGE("rnLinux") << "alert callback threw: " << e.what();
+                  }
+                }
+                delete ud;
+              }
+              if (err)
+                g_error_free(err);
+            },
+            ud);
+        g_object_unref(dialog);
+        return jsi::Value::undefined();
+      });
+
   rt.global().setProperty(rt, "rnLinux", rnLinux);
   RNL_LOGI("rnLinux") << "JSI bindings installed";
 }

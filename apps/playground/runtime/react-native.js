@@ -160,6 +160,38 @@ const Clipboard = {
   },
 };
 
+// Alert.alert(title, message?, buttons?, options?) → GtkAlertDialog
+// via rnLinux.showAlert. We pass the button labels through; the C++
+// callback returns the index of the pressed button so we can fire
+// the right onPress. iOS/Android styles ('cancel' / 'destructive')
+// are accepted but ignored — GtkAlertDialog handles its own styling.
+const Alert = {
+  alert(title, message, buttons, _options) {
+    const list = Array.isArray(buttons) && buttons.length > 0 ? buttons : [{text: 'OK'}];
+    const labels = list.map((b, i) => (b && b.text) || 'Button ' + i);
+    const onPicked = idx => {
+      if (idx < 0 || idx >= list.length) return;
+      const b = list[idx];
+      if (b && typeof b.onPress === 'function') {
+        try {
+          b.onPress();
+        } catch (e) {
+          rnLinux.log('error', 'Alert.onPress threw: ' + String(e));
+        }
+      }
+    };
+    if (typeof rnLinux !== 'undefined' && rnLinux.showAlert) {
+      rnLinux.showAlert(String(title ?? ''), String(message ?? ''), labels, onPicked);
+    }
+  },
+  prompt(title, message, _cbOrButtons, _type, _defaultValue, _keyboardType, _options) {
+    // Real prompt() needs a TextInput inside the dialog — GtkAlertDialog
+    // doesn't expose one, so this would need a hand-rolled GtkDialog +
+    // GtkEntry. Stub for now so apps don't crash on import.
+    Alert.alert(title, message, [{text: 'OK'}]);
+  },
+};
+
 // SafeAreaView from 'react-native' itself (vs. react-native-safe-area-context).
 // RN deprecated it on iOS in favour of the community module, but apps still
 // import it. Desktop GTK windows have no notch/inset, so the whole client
@@ -194,5 +226,6 @@ module.exports = {
   useColorScheme,
   Linking,
   Clipboard,
+  Alert,
   AppRegistry,
 };

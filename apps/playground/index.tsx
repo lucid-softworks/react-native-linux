@@ -11,6 +11,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Appearance,
   Clipboard,
   Dimensions,
@@ -149,6 +150,7 @@ function ModulesScreen(): JSX.Element {
         </Pressable>
       </View>
       <ClipboardDemo />
+      <AlertDemo />
 
       <Text style={styles.h1}>Refs &amp; measure</Text>
       <View ref={measuredRef as React.Ref<View>} style={styles.row}>
@@ -261,6 +263,25 @@ function ClipboardDemo() {
         <Text style={styles.btnText}>getString</Text>
       </Pressable>
       <Text style={styles.rowVal}>{last}</Text>
+    </View>
+  );
+}
+
+function AlertDemo() {
+  const [last, setLast] = useState('—');
+  return (
+    <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>
+      <Pressable
+        style={styles.linkBtn}
+        onPress={() =>
+          Alert.alert('Delete file?', 'This cannot be undone.', [
+            {text: 'Cancel', onPress: () => setLast('cancel'), style: 'cancel'},
+            {text: 'Delete', onPress: () => setLast('delete'), style: 'destructive'},
+          ])
+        }>
+        <Text style={styles.linkBtnText}>Alert.alert with 2 buttons</Text>
+      </Pressable>
+      <Text style={styles.rowVal}>picked: {last}</Text>
     </View>
   );
 }
