@@ -37,13 +37,26 @@ function AnimatedValue(initial) {
   this._value = initial == null ? 0 : initial;
   this._listeners = new Map();
   this._id = ++nextValueId;
+  // Set to >0 while a useNativeDriver:true animation is driving this
+  // value. setValue checks it and skips React-side listeners, leaving
+  // only the C++ setNativeProp path to fire — that's the per-frame
+  // saving (no fiber reconciliation, no Fabric mount transaction).
+  this._nativeOnly = 0;
 }
 
 AnimatedValue.prototype.setValue = function (v) {
   if (v === this._value) return;
   this._value = v;
+  // When a timing call honours useNativeDriver:true, _nativeOnly>0 for
+  // the lifetime of the animation. Skip non-native listeners so React
+  // doesn't re-render every frame — only the setNativeProp listeners
+  // (which are tagged `cb._native = true`) fire.
+  const nativeOnly = this._nativeOnly > 0;
   const cbs = this._listeners.values();
-  for (const cb of cbs) cb({value: v});
+  for (const cb of cbs) {
+    if (nativeOnly && !cb._native) continue;
+    cb({value: v});
+  }
 };
 
 AnimatedValue.prototype.__getValue = function () {
@@ -145,14 +158,34 @@ function timing(value, config) {
   const toValue = config.toValue;
   const duration = config.duration ?? 250;
   const easing = config.easing ?? Easing.linear;
+  // RN-compat: when useNativeDriver:true the per-frame setValue should
+  // bypass React listeners (only the setNativeProp listener fires).
+  // Honour it for AnimatedValues only — InterpolatedValues don't have
+  // their own _nativeOnly; the upstream source's flag governs.
+  const useNative = config.useNativeDriver === true && typeof value._nativeOnly === 'number';
   let from = 0;
   let start = 0;
   let raf = 0;
   let onDone = null;
   let cancelled = false;
+  let entered = false;
+
+  function enter() {
+    if (entered || !useNative) return;
+    entered = true;
+    value._nativeOnly += 1;
+  }
+  function exit() {
+    if (!entered) return;
+    entered = false;
+    value._nativeOnly = Math.max(0, value._nativeOnly - 1);
+  }
 
   function step(t) {
-    if (cancelled) return;
+    if (cancelled) {
+      exit();
+      return;
+    }
     if (!start) {
       start = t;
       from = value.__getValue();
@@ -160,6 +193,7 @@ function timing(value, config) {
     const elapsed = t - start;
     if (elapsed >= duration) {
       value.setValue(toValue);
+      exit();
       if (onDone) onDone({finished: true});
       return;
     }
@@ -171,10 +205,12 @@ function timing(value, config) {
   return {
     start(cb) {
       onDone = cb;
+      enter();
       raf = globalThis.requestAnimationFrame(step);
     },
     stop() {
       cancelled = true;
+      exit();
       if (raf) globalThis.cancelAnimationFrame(raf);
       if (onDone) onDone({finished: false});
     },
@@ -368,9 +404,14 @@ function createAnimatedComponent(Inner) {
         if (hasSetter) {
           rnLinux.setNativeProp(animId, prop, value.__getValue());
         }
-        const id = value.addListener(({value: v}) => {
+        // Mark the listener as `_native` so AnimatedValue.setValue keeps
+        // firing it even when a useNativeDriver:true timing has set
+        // _nativeOnly > 0 (which suppresses React-side listeners).
+        const nativeCb = ({value: v}) => {
           if (hasSetter) rnLinux.setNativeProp(animId, prop, v);
-        });
+        };
+        nativeCb._native = true;
+        const id = value.addListener(nativeCb);
         subs.push({value, id});
       }
       for (const value of react) {
