@@ -108,8 +108,16 @@ function ErrorPanel({error, info, onReload, onDismiss}) {
 // expression entirely while still producing a React class component
 // (React only requires Component-prototype lineage + the right
 // instance methods).
-function ErrorBoundary(props) {
-  React.Component.call(this, props);
+//
+// CRITICAL: forward `context` AND `updater` to React.Component.call.
+// The reconciler constructs class components as
+// `new Component(props, context, updater)` and the updater is what
+// setState routes through. If we drop it, React.Component's
+// constructor leaves this.updater = ReactNoopUpdateQueue, and
+// setState becomes a silent no-op — Dismiss / Reload buttons did
+// nothing because their setState never reached the renderer.
+function ErrorBoundary(props, context, updater) {
+  React.Component.call(this, props, context, updater);
   this.state = {error: null, info: null};
   this._reload = this._reload.bind(this);
   this._dismiss = this._dismiss.bind(this);
@@ -145,6 +153,12 @@ ErrorBoundary.prototype.componentDidCatch = function (error, info) {
   }
 };
 ErrorBoundary.prototype._reload = function () {
+  // Clear our state first so the post-reload render starts clean —
+  // the new bundle still uses the same React root + boundary instance
+  // (host->reload re-evaluates the app bundle but doesn't recreate
+  // the React tree), so a left-over error state would re-render the
+  // panel immediately.
+  this.setState({error: null, info: null});
   if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
     rnLinux.reloadApp();
   }
