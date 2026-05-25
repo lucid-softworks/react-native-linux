@@ -40,6 +40,11 @@ struct State {
   // C++ component-view layer when its gesture fires.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricClickHandlers;
 
+  // Text-change handlers for TextInput. Keyed by Fabric tag; the
+  // C++ view (TextInputComponentView) dispatches with the new text.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>>
+      fabricChangeTextHandlers;
+
   // Active intervals/timers. `handlerId → (sourceId, fn)`. We keep the
   // jsi::Function alive here so the GTK source can call back into JS
   // safely; resetRnLinuxBindings drops these on reload so dangling
@@ -103,6 +108,7 @@ void resetRnLinuxBindings() {
   state().timerHandlers.clear();
   state().clickHandlers.clear();
   state().fabricClickHandlers.clear();
+  state().fabricChangeTextHandlers.clear();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -124,6 +130,22 @@ void dispatchFabricClick(int tag) {
     RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.getMessage();
   } catch (const std::exception& e) {
     RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricChangeText(int tag, const std::string& text) {
+  auto& s = state();
+  if (!s.runtime) return;
+  auto it = s.fabricChangeTextHandlers.find(tag);
+  if (it == s.fabricChangeTextHandlers.end()) return;
+  try {
+    it->second->call(*s.runtime,
+                      jsi::String::createFromUtf8(*s.runtime, text));
+    s.runtime->drainMicrotasks();
+  } catch (const jsi::JSError& e) {
+    RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.getMessage();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.what();
   }
 }
 
@@ -382,6 +404,22 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
       return jsi::Value::undefined();
     }
     state().fabricClickHandlers[tag] = std::make_shared<jsi::Function>(
+        args[1].asObject(rt).asFunction(rt));
+    return jsi::Value::undefined();
+  });
+
+  // Sibling of fabricOnClick — registers the JS function invoked
+  // whenever a TextInput's GtkText "changed" signal fires.
+  bindMethod(rt, rnLinux, "fabricOnChangeText", 2,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 2) return jsi::Value::undefined();
+    int tag = static_cast<int>(args[0].asNumber());
+    if (args[1].isNull() || args[1].isUndefined()) {
+      state().fabricChangeTextHandlers.erase(tag);
+      return jsi::Value::undefined();
+    }
+    state().fabricChangeTextHandlers[tag] = std::make_shared<jsi::Function>(
         args[1].asObject(rt).asFunction(rt));
     return jsi::Value::undefined();
   });

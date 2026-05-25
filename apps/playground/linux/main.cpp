@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
   cfg.vendorBundleUrl = resolveVendorBundleUrl(cfg.bundleUrl);
   cfg.windowTitle = "RN-Linux Playground";
   cfg.initialWidth = 1024;
-  cfg.initialHeight = 720;
+  cfg.initialHeight = 860;
 
   std::cout << "[playground] vendor: " << cfg.vendorBundleUrl << '\n';
   std::cout << "[playground] app:    " << cfg.bundleUrl << '\n';

@@ -36,6 +36,20 @@ function Image(props) {
   return React.createElement('image', props);
 }
 
+// <TextInput value="..." onChangeText={fn} placeholder="..."> — RN's
+// value prop maps to BaseTextInputProps.text (we rename here). The
+// onChangeText callback is stripped and registered via
+// rnLinux.fabricOnChangeText in the host config; the C++ component
+// view dispatches into it on every GtkText "changed" signal.
+function TextInput(props) {
+  const {value, onChangeText, ...rest} = props;
+  return React.createElement('textinput', {
+    ...rest,
+    text: value,
+    onChangeText,
+  });
+}
+
 function Text(props) {
   return React.createElement('text', props, props.children);
 }
@@ -92,4 +106,4 @@ function Button(props) {
   );
 }
 
-module.exports = {View, ScrollView, Image, Text, Pressable, Button};
+module.exports = {View, ScrollView, Image, Text, TextInput, Pressable, Button};

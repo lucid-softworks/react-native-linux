@@ -92,6 +92,8 @@ set(RNL_SOURCES
   src/views/ParagraphComponentView.cpp
   src/views/ScrollViewComponentView.cpp
   src/views/ImageComponentView.cpp
+  src/views/TextInputComponentView.cpp
+  src/components/TextInput.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -113,6 +115,7 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/text/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/scrollview/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/image/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/textinput/BaseTextInputProps.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/legacyviewmanagerinterop/*.cpp

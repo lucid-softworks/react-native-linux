@@ -126,6 +126,7 @@ function buildFabricProps(type, props) {
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
     if (k === 'onClick' || k === 'style') continue;
+    if (k === 'onChangeText') continue;
     out[k] = props[k];
   }
   // Style merges in after direct props so it wins (RN precedence).
@@ -148,6 +149,12 @@ function syncClickHandler(tag, props) {
   const handler = props && typeof props.onClick === 'function'
     ? props.onClick : null;
   rnLinux.fabricOnClick(tag, handler);
+}
+
+function syncChangeTextHandler(tag, props) {
+  const handler = props && typeof props.onChangeText === 'function'
+    ? props.onChangeText : null;
+  rnLinux.fabricOnChangeText(tag, handler);
 }
 
 const hostConfig = {
@@ -204,6 +211,15 @@ const hostConfig = {
         tag, 'Image', currentSurfaceId,
         buildFabricProps(type, props), {});
       return {tag, fabricNode, componentName: 'Image', type};
+    }
+
+    if (type === 'textinput') {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag, 'TextInput', currentSurfaceId,
+        buildFabricProps(type, props), {});
+      syncChangeTextHandler(tag, props);
+      return {tag, fabricNode, componentName: 'TextInput', type};
     }
 
     if (type === 'text') {
@@ -270,6 +286,7 @@ const hostConfig = {
     // renders, so we keep the C++ registry pointing at the freshest
     // closure.
     if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
+    if (type === 'textinput') syncChangeTextHandler(currentInstance.tag, newProps);
     return {
       tag: currentInstance.tag,
       fabricNode,

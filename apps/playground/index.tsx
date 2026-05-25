@@ -3,7 +3,7 @@
 import {useEffect, useState} from 'react';
 import {
   renderFabric, StyleSheet,
-  View, ScrollView, Image, Text, Pressable, Button,
+  View, ScrollView, Image, Text, TextInput, Pressable, Button,
 } from './runtime';
 
 const palette = {
@@ -47,6 +47,12 @@ const styles = StyleSheet.create({
   hero:  {width: '100%' as any, height: 160, borderRadius: 10,
           backgroundColor: palette.panelAlt},
 
+  input: {height: 36, paddingHorizontal: 10, fontSize: 14,
+          color: palette.text, backgroundColor: palette.panelAlt,
+          borderRadius: 8, borderWidth: 1, borderColor: palette.border},
+  echo:  {fontSize: 13, color: palette.muted, fontStyle: 'italic',
+          marginTop: 4},
+
   scrollPanel: {flex: 1, backgroundColor: palette.panel,
                 borderRadius: 12, borderWidth: 1,
                 borderColor: palette.border, padding: 4},
@@ -71,6 +77,7 @@ function App(): JSX.Element {
   const [count, setCount] = useState(0);
   const [tick, setTick] = useState(0);
   const [hero, setHero] = useState(0);
+  const [name, setName] = useState('');
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -87,6 +94,18 @@ function App(): JSX.Element {
       <Text style={styles.hint}>
         StyleSheet.create + style props + Yoga flex + Pango text + GTK images.
       </Text>
+
+      {/* TextInput row — typing reaches setState via onChangeText */}
+      <View style={[styles.card, {marginBottom: 12}]}>
+        <Text style={styles.cardLabel}>type your name — typing fires onChangeText</Text>
+        <TextInput style={styles.input}
+                   placeholder="your name…"
+                   value={name}
+                   onChangeText={setName} />
+        <Text style={styles.echo}>
+          {name ? `hello, ${name}!` : '(state is empty)'}
+        </Text>
+      </View>
 
       <View style={styles.body}>
         {/* Left column */}
@@ -127,6 +146,7 @@ function App(): JSX.Element {
             <Text style={styles.cardLabel}>useEffect ticker</Text>
             <Text style={[styles.cardValue, {color: palette.accent}]}>{tick}</Text>
           </View>
+
         </View>
 
         {/* Right column — scrolling list */}

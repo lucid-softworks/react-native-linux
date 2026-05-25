@@ -10,6 +10,8 @@
 #include <react/renderer/components/text/TextComponentDescriptor.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 
+#include "../components/TextInput.h"
+
 namespace rnlinux {
 
 namespace {
@@ -29,7 +31,7 @@ makeLinuxComponentDescriptorRegistry() {
   auto registry = std::make_shared<ComponentDescriptorProviderRegistry>();
   registerCoreDescriptors(*registry);
   RNL_LOGI("ComponentDescriptorRegistry")
-      << "registered core descriptors (View, Paragraph, RawText, Text, ScrollView, Image)";
+      << "registered core descriptors (View, Paragraph, RawText, Text, ScrollView, Image, TextInput)";
   return registry;
 }
 
@@ -48,6 +50,11 @@ void registerCoreDescriptors(ComponentDescriptorProviderRegistry& registry) {
   registry.add(
       concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
   registry.add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
+  // Our cross-platform TextInput shadow node (vnext/src/components/
+  // TextInput.h) — uses BaseTextInputProps so placeholder, value,
+  // maxLength, etc. all parse without any custom converter.
+  registry.add(facebook::react::concreteComponentDescriptorProvider<
+               TextInputComponentDescriptor>());
 }
 
 }  // namespace rnlinux

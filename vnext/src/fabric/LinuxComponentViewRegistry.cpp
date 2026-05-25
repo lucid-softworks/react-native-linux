@@ -4,6 +4,7 @@
 #include "../views/ImageComponentView.h"
 #include "../views/ParagraphComponentView.h"
 #include "../views/ScrollViewComponentView.h"
+#include "../views/TextInputComponentView.h"
 #include "../views/ViewComponentView.h"
 
 namespace rnlinux {
@@ -25,6 +26,9 @@ LinuxComponentViewRegistry::LinuxComponentViewRegistry() {
   });
   registerComponent("Image", [](Tag t) {
     return std::make_unique<ImageComponentView>(t);
+  });
+  registerComponent("TextInput", [](Tag t) {
+    return std::make_unique<TextInputComponentView>(t);
   });
 }
 

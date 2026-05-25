@@ -127,9 +127,20 @@ export interface ImageProps extends Omit<ViewProps, 'children' | 'onClick'> {
   tintColor?: Color;
 }
 
+export interface TextInputProps extends Omit<ViewProps, 'children' | 'onClick'> {
+  value?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  placeholderTextColor?: Color;
+  maxLength?: number;
+  autoFocus?: boolean;
+  onChangeText?: (text: string) => void;
+}
+
 export const View: (props: ViewProps) => JSX.Element;
 export const ScrollView: (props: ScrollViewProps) => JSX.Element;
 export const Image: (props: ImageProps) => JSX.Element;
+export const TextInput: (props: TextInputProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
 export const Pressable: (props: PressableProps) => JSX.Element;
 export const Button: (props: ButtonProps) => JSX.Element;

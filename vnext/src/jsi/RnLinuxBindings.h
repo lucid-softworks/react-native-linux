@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 typedef struct _GtkWidget GtkWidget;
 
 namespace facebook::jsi {
@@ -45,5 +47,10 @@ void resetRnLinuxBindings();
 // microtasks so any setState scheduled inside fires its commit before
 // returning.
 void dispatchFabricClick(int tag);
+
+// Same shape, for text-input "changed" events. The string is passed
+// as the first argument to the JS handler registered via
+// `rnLinux.fabricOnChangeText(tag, fn)`.
+void dispatchFabricChangeText(int tag, const std::string& text);
 
 }  // namespace rnlinux
