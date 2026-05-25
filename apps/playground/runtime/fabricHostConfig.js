@@ -85,6 +85,23 @@ function normalizeColor(c) {
   return c;
 }
 
+// Flatten the React Native `style` prop into a single object. Accepts
+// any of: null/undefined, a single style object, or a (possibly
+// nested) array of those. Later entries override earlier ones —
+// matches RN's StyleSheet.flatten semantics. Falsy entries are
+// skipped so `style={[base, condition && override]}` Just Works.
+function flattenStyle(style, out) {
+  if (style == null || style === false) return;
+  if (Array.isArray(style)) {
+    for (const s of style) flattenStyle(s, out);
+    return;
+  }
+  if (typeof style !== 'object') return;
+  for (const k in style) {
+    out[k] = style[k];
+  }
+}
+
 function buildFabricProps(type, props) {
   // children/key/ref are React-internal; never forward to Fabric.
   // onClick is a JS function — it can't survive serialization into
@@ -93,6 +110,11 @@ function buildFabricProps(type, props) {
   // For <text>, text-style props (color/fontSize/…) ride along as
   // top-level Paragraph props — BaseTextProps parses them into the
   // Paragraph's textAttributes.
+  //
+  // The `style` prop is RN's idiomatic way to bundle layout + visual
+  // properties — we accept it as an object, a (possibly nested)
+  // array of objects, or null. Style entries override direct
+  // top-level props, matching the precedence RN uses on iOS/Android.
   //
   // Yoga handles layout for everything inside Fabric — flex,
   // flexDirection, justifyContent, alignItems, padding, margin, gap,
@@ -103,8 +125,15 @@ function buildFabricProps(type, props) {
   const out = {};
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
-    if (k === 'onClick') continue;
-    out[k] = COLOR_PROPS.has(k) ? normalizeColor(props[k]) : props[k];
+    if (k === 'onClick' || k === 'style') continue;
+    out[k] = props[k];
+  }
+  // Style merges in after direct props so it wins (RN precedence).
+  flattenStyle(props.style, out);
+  // Color normalization runs AFTER merge so styles get the same
+  // hex-string → [r,g,b,a] conversion direct props do.
+  for (const k of Object.keys(out)) {
+    if (COLOR_PROPS.has(k)) out[k] = normalizeColor(out[k]);
   }
   // collapsable:false forces Fabric to materialize this node even if
   // its only role is layout — otherwise it gets folded into the parent

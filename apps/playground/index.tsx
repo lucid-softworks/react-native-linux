@@ -1,7 +1,56 @@
-// react-native-linux playground app — Fabric + Yoga + ScrollView.
+// react-native-linux playground — written the way you'd write any
+// other RN app: StyleSheet.create + style={...} / style={[a, b]}.
 
 import {useEffect, useState} from 'react';
-import {renderFabric, View, ScrollView, Text, Pressable, Button} from './runtime';
+import {
+  renderFabric, StyleSheet,
+  View, ScrollView, Text, Pressable, Button,
+} from './runtime';
+
+const palette = {
+  bg:        '#0f172a',
+  panel:     '#1e293b',
+  panelAlt:  '#111827',
+  border:    '#334155',
+  text:      '#f8fafc',
+  muted:     '#94a3b8',
+  subtle:    '#cbd5e1',
+  accent:    '#fde047',
+  green:     '#22c55e',
+  blue:      '#3b82f6',
+  orange:    '#f97316',
+  red:       '#ef4444',
+};
+
+const styles = StyleSheet.create({
+  app:    {flex: 1, padding: 20, backgroundColor: palette.bg},
+  title:  {fontSize: 24, fontWeight: '700', color: palette.text},
+  hint:   {fontSize: 13, color: palette.muted, fontStyle: 'italic',
+           marginBottom: 16},
+
+  body:   {flexDirection: 'row', gap: 16, flex: 1},
+  column: {flex: 1, gap: 12},
+
+  card:   {padding: 14, backgroundColor: palette.panel,
+           borderRadius: 12, borderWidth: 1, borderColor: palette.border},
+  cardLabel: {fontSize: 13, fontWeight: '500', color: palette.muted},
+  cardValue: {fontSize: 36, fontWeight: '700', color: palette.text},
+  cardValueAccent: {fontSize: 36, fontWeight: '700', color: palette.accent},
+
+  buttonRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
+
+  scrollPanel: {flex: 1, backgroundColor: palette.panel,
+                borderRadius: 12, borderWidth: 1,
+                borderColor: palette.border, padding: 4},
+  scrollHeader: {fontSize: 13, fontWeight: '600', color: palette.subtle,
+                 marginBottom: 4},
+  scrollContent: {padding: 8, gap: 6},
+
+  row:    {padding: 10, borderRadius: 6},
+  rowEven: {backgroundColor: palette.bg},
+  rowOdd:  {backgroundColor: palette.panelAlt},
+  rowText: {fontSize: 14, color: palette.text},
+});
 
 function App(): JSX.Element {
   const [count, setCount] = useState(0);
@@ -12,71 +61,54 @@ function App(): JSX.Element {
     return () => clearInterval(id);
   }, []);
 
-  // A scrollable list of items to prove the ScrollView wrapper
-  // actually overflows its viewport.
   const items = Array.from({length: 40}, (_, i) => i);
 
   return (
-    <View flex={1} padding={20} backgroundColor="#0f172a">
-
-      {/* Header */}
-      <Text fontSize={24} fontWeight="700" color="#f8fafc">
+    <View style={styles.app}>
+      <Text style={styles.title}>
         react-native-linux  •  Fabric + Yoga + Pango
       </Text>
-      <Text fontSize={13} color="#94a3b8" fontStyle="italic" marginBottom={16}>
-        ScrollView in the right column scrolls when content overflows.
+      <Text style={styles.hint}>
+        Using style=&#123;styles.x&#125; / StyleSheet.create like a normal RN app.
       </Text>
 
-      {/* Left: counter / buttons / ticker. Right: scrolling list. */}
-      <View flexDirection="row" gap={16} flex={1}>
-
-        {/* Left column (fixed width with flex bottoms) */}
-        <View flex={1} gap={12}>
-          <View padding={14} backgroundColor="#1e293b"
-                borderRadius={12} borderWidth={1} borderColor="#334155">
-            <Text fontSize={13} fontWeight="500" color="#94a3b8">counter</Text>
-            <Text fontSize={36} fontWeight="700" color="#f8fafc">
-              {String(count)}
-            </Text>
+      <View style={styles.body}>
+        {/* Left column */}
+        <View style={styles.column}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>counter</Text>
+            <Text style={styles.cardValue}>{count}</Text>
           </View>
 
-          <View flexDirection="row" flexWrap="wrap" gap={8}>
+          <View style={styles.buttonRow}>
             <Button title="+1"    width={84} onPress={() => setCount((c) => c + 1)}
-                    backgroundColor="#22c55e" />
+                    backgroundColor={palette.green} />
             <Button title="+10"   width={84} onPress={() => setCount((c) => c + 10)}
-                    backgroundColor="#3b82f6" />
+                    backgroundColor={palette.blue} />
             <Button title="−1"    width={84} onPress={() => setCount((c) => c - 1)}
-                    backgroundColor="#f97316" />
+                    backgroundColor={palette.orange} />
             <Button title="reset" width={84} onPress={() => setCount(0)}
-                    backgroundColor="#ef4444" />
+                    backgroundColor={palette.red} />
           </View>
 
-          <View padding={14} backgroundColor="#1e293b"
-                borderRadius={12} borderWidth={1} borderColor="#334155">
-            <Text fontSize={13} fontWeight="500" color="#94a3b8">useEffect ticker</Text>
-            <Text fontSize={36} fontWeight="700" color="#fde047">
-              {String(tick)}
-            </Text>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>useEffect ticker</Text>
+            <Text style={styles.cardValueAccent}>{tick}</Text>
           </View>
         </View>
 
-        {/* Right column: long ScrollView. flex:1 on BOTH the wrapping
-            View and the ScrollView so the scrollview gets a bounded
-            height — Yoga would otherwise shrink-wrap it to content
-            and there'd be nothing to scroll. */}
-        <View flex={1} backgroundColor="#1e293b" borderRadius={12}
-              borderWidth={1} borderColor="#334155" padding={4}>
-          <ScrollView flex={1}>
-            <View padding={8} gap={6}>
-              <Text fontSize={13} fontWeight="600" color="#cbd5e1" marginBottom={4}>
+        {/* Right column — scrolling list */}
+        <View style={styles.scrollPanel}>
+          <ScrollView style={{flex: 1}}>
+            <View style={styles.scrollContent}>
+              <Text style={styles.scrollHeader}>
                 scrolling list — 40 rows
               </Text>
               {items.map((i) => (
                 <Pressable key={i}
-                           backgroundColor={i % 2 === 0 ? '#0f172a' : '#111827'}
-                           padding={10} borderRadius={6}
+                           style={[styles.row, i % 2 === 0 ? styles.rowEven : styles.rowOdd]}
                            onPress={() => setCount(i)}>
-                  <Text fontSize={14} color="#e2e8f0">
+                  <Text style={styles.rowText}>
                     row {i}  ·  tap to set counter
                   </Text>
                 </Pressable>
@@ -84,7 +116,6 @@ function App(): JSX.Element {
             </View>
           </ScrollView>
         </View>
-
       </View>
     </View>
   );

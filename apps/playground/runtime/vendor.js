@@ -36,7 +36,8 @@ globalThis.__refreshRuntime = RefreshRuntime;
 // bundle's require shim can fetch them.
 const fabricMod = require('./fabric');
 const {View, ScrollView, Text, Pressable, Button} = require('./components');
-const componentsMod = {View, ScrollView, Text, Pressable, Button};
+const StyleSheet = require('./stylesheet');
+const componentsMod = {View, ScrollView, Text, Pressable, Button, StyleSheet};
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');

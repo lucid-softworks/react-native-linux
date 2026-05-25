@@ -21,9 +21,34 @@ interface BaseStyleProps {
   position?: 'absolute' | 'relative';
   opacity?: number;
   collapsable?: boolean;
+  // Yoga flexbox
+  flex?: number;
+  flexDirection?: 'row' | 'column' | 'row-reverse' | 'column-reverse';
+  flexWrap?: 'nowrap' | 'wrap' | 'wrap-reverse';
+  justifyContent?:
+    | 'flex-start' | 'center' | 'flex-end'
+    | 'space-between' | 'space-around' | 'space-evenly';
+  alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline';
+  alignSelf?: 'auto' | 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline';
+  alignContent?:
+    | 'flex-start' | 'center' | 'flex-end'
+    | 'space-between' | 'space-around' | 'stretch';
+  gap?: number;
+  rowGap?: number;
+  columnGap?: number;
+  padding?: number;
+  paddingTop?: number; paddingRight?: number;
+  paddingBottom?: number; paddingLeft?: number;
+  paddingHorizontal?: number; paddingVertical?: number;
+  margin?: number;
+  marginTop?: number; marginRight?: number;
+  marginBottom?: number; marginLeft?: number;
+  marginHorizontal?: number; marginVertical?: number;
 }
 
-export interface ViewProps extends BaseStyleProps {
+// Anything you'd put in `<View style={...}>`. Equivalent to a
+// ViewProps row sans event-y / non-style fields like onClick.
+export type ViewStyle = BaseStyleProps & {
   backgroundColor?: Color;
   borderColor?: Color;
   borderWidth?: number;
@@ -36,11 +61,9 @@ export interface ViewProps extends BaseStyleProps {
   borderTopRightRadius?: number;
   borderBottomRightRadius?: number;
   borderBottomLeftRadius?: number;
-  onClick?: () => void;
-  children?: ReactNode;
-}
+};
 
-export interface TextProps extends BaseStyleProps {
+export type TextStyle = BaseStyleProps & {
   color?: Color;
   backgroundColor?: Color;
   fontSize?: number;
@@ -53,6 +76,24 @@ export interface TextProps extends BaseStyleProps {
   lineHeight?: number;
   letterSpacing?: number;
   textAlign?: 'left' | 'right' | 'center' | 'justify';
+};
+
+// Accepts the same shapes RN's StyleSheet flattening does — a single
+// object, an array of objects (nullable / falsy entries permitted
+// for conditional styling), or null.
+export type StyleProp<T> = T | null | false | undefined | readonly StyleProp<T>[];
+
+// Direct ViewStyle keys can be passed as top-level props on <View>
+// (legacy / inline shortcut) OR bundled in `style`. The style prop
+// wins when both are set.
+export interface ViewProps extends ViewStyle {
+  style?: StyleProp<ViewStyle>;
+  onClick?: () => void;
+  children?: ReactNode;
+}
+
+export interface TextProps extends TextStyle {
+  style?: StyleProp<TextStyle>;
   children?: ReactNode;
 }
 
@@ -78,6 +119,17 @@ export const ScrollView: (props: ScrollViewProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
 export const Pressable: (props: PressableProps) => JSX.Element;
 export const Button: (props: ButtonProps) => JSX.Element;
+
+// RN-style StyleSheet helper. `create` is essentially identity at
+// runtime; the value-add is the TypeScript inference on the keys.
+export const StyleSheet: {
+  create<T extends {[k: string]: ViewStyle | TextStyle}>(styles: T): T;
+  flatten<T>(style: StyleProp<T>): T;
+  compose<T>(a: StyleProp<T>, b: StyleProp<T>): StyleProp<T>;
+  hairlineWidth: number;
+  absoluteFill: ViewStyle;
+  absoluteFillObject: ViewStyle;
+};
 
 // renderFabric mounts a React element into the Fabric surface that
 // C++ opens. Subsequent calls (from re-eval'd app bundles) feed
