@@ -1,10 +1,18 @@
 // react-native-linux playground — write it like any other RN app.
 
 import {useEffect, useState} from 'react';
+// Standard react-native imports — the playground's vendor bundle
+// aliases 'react-native' to ./runtime/react-native.js so existing RN
+// code drops in unchanged.
 import {
-  renderFabric, StyleSheet,
+  StyleSheet,
   View, ScrollView, Image, Text, TextInput, Pressable, Button,
-} from './runtime';
+  Platform,
+} from 'react-native';
+// renderFabric is the playground host entry — apps that target
+// react-native-linux call this once instead of AppRegistry.register
+// + the auto-launch dance.
+import {renderFabric} from './runtime';
 
 const palette = {
   bg:        '#0f172a',
@@ -89,10 +97,10 @@ function App(): JSX.Element {
   return (
     <View style={styles.app}>
       <Text style={styles.title}>
-        react-native-linux  •  View / Text / Image / ScrollView
+        react-native-linux  •  Platform.OS = {Platform.OS}
       </Text>
       <Text style={styles.hint}>
-        StyleSheet.create + style props + Yoga flex + Pango text + GTK images.
+        Imports come from 'react-native' — same as iOS/Android.
       </Text>
 
       {/* TextInput row — typing reaches setState via onChangeText */}

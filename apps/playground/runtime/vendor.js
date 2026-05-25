@@ -38,6 +38,11 @@ const fabricMod = require('./fabric');
 const {View, ScrollView, Image, Text, TextInput, Pressable, Button} = require('./components');
 const StyleSheet = require('./stylesheet');
 const componentsMod = {View, ScrollView, Image, Text, TextInput, Pressable, Button, StyleSheet};
+// react-native module shim — apps that import {View, Text} from
+// 'react-native' work without changes. Must be required AFTER the
+// runtime is wired so its `require('./')` resolves to a populated
+// componentsMod (via the same vendor table below).
+const reactNativeMod = require('./react-native');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -49,6 +54,7 @@ globalThis.__rnv = {
   reactJsxDevRuntime,
   reactReconciler: Reconciler,
   reactRefreshRuntime: RefreshRuntime,
+  reactNative: reactNativeMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,

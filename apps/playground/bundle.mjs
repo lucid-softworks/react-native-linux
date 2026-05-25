@@ -115,6 +115,7 @@ const appOpts = {
   // These resolve at runtime from globalThis.__rnv (see banner).
   external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime',
              'react-reconciler', 'react-refresh/runtime',
+             'react-native',
              './runtime'],
   banner: {
     js:
@@ -126,6 +127,7 @@ const appOpts = {
       '  if (id === "react/jsx-dev-runtime") return rnv.reactJsxDevRuntime;\n' +
       '  if (id === "react-reconciler") return rnv.reactReconciler;\n' +
       '  if (id === "react-refresh/runtime") return rnv.reactRefreshRuntime;\n' +
+      '  if (id === "react-native") return rnv.reactNative;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +
