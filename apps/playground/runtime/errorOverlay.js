@@ -101,70 +101,74 @@ function ErrorPanel({error, info, onReload, onDismiss}) {
   );
 }
 
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = {error: null, info: null};
-    this._reload = this._reload.bind(this);
-    this._dismiss = this._dismiss.bind(this);
-    this._onAsyncError = this._onAsyncError.bind(this);
+// ES5 function-constructor form because Hermes' optimizer chokes on
+// `var X = class extends MemberExpression { ... }` — the shape esbuild
+// emits when it wraps module-level `class X extends React.Component`
+// in CJS. The function-constructor pattern bypasses the class
+// expression entirely while still producing a React class component
+// (React only requires Component-prototype lineage + the right
+// instance methods).
+function ErrorBoundary(props) {
+  React.Component.call(this, props);
+  this.state = {error: null, info: null};
+  this._reload = this._reload.bind(this);
+  this._dismiss = this._dismiss.bind(this);
+  this._onAsyncError = this._onAsyncError.bind(this);
+}
+ErrorBoundary.prototype = Object.create(React.Component.prototype);
+ErrorBoundary.prototype.constructor = ErrorBoundary;
+ErrorBoundary.getDerivedStateFromError = function (error) {
+  return {error};
+};
+ErrorBoundary.prototype.componentDidMount = function () {
+  if (typeof globalThis.ErrorUtils !== 'undefined') {
+    this._prevHandler = globalThis.ErrorUtils.getGlobalHandler();
+    globalThis.ErrorUtils.setGlobalHandler(this._onAsyncError);
   }
-  static getDerivedStateFromError(error) {
-    return {error};
+};
+ErrorBoundary.prototype.componentWillUnmount = function () {
+  if (typeof globalThis.ErrorUtils !== 'undefined' && this._prevHandler) {
+    globalThis.ErrorUtils.setGlobalHandler(this._prevHandler);
   }
-  componentDidMount() {
-    // Subscribe to ErrorUtils so async errors (microtask / setTimeout
-    // throws) surface in the same overlay as render-phase errors.
-    if (typeof globalThis.ErrorUtils !== 'undefined') {
-      this._prevHandler = globalThis.ErrorUtils.getGlobalHandler();
-      globalThis.ErrorUtils.setGlobalHandler(this._onAsyncError);
-    }
+};
+ErrorBoundary.prototype._onAsyncError = function (error, _isFatal) {
+  if (this.state.error) return;
+  this.setState({error: error instanceof Error ? error : new Error(String(error)), info: null});
+};
+ErrorBoundary.prototype.componentDidCatch = function (error, info) {
+  this.setState({error, info});
+  if (typeof rnLinux !== 'undefined') {
+    rnLinux.log(
+      'error',
+      'ErrorBoundary caught: ' + (error && error.stack ? error.stack : String(error)),
+    );
   }
-  componentWillUnmount() {
-    if (typeof globalThis.ErrorUtils !== 'undefined' && this._prevHandler) {
-      globalThis.ErrorUtils.setGlobalHandler(this._prevHandler);
-    }
+};
+ErrorBoundary.prototype._reload = function () {
+  if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
+    rnLinux.reloadApp();
   }
-  _onAsyncError(error, _isFatal) {
-    // Avoid clobbering an already-displayed render error.
-    if (this.state.error) return;
-    this.setState({error: error instanceof Error ? error : new Error(String(error)), info: null});
-  }
-  componentDidCatch(error, info) {
-    this.setState({error, info});
+};
+ErrorBoundary.prototype._dismiss = function () {
+  this.setState({error: null, info: null});
+};
+ErrorBoundary.prototype.render = function () {
+  if (this.state.error) {
     if (typeof rnLinux !== 'undefined') {
       rnLinux.log(
-        'error',
-        'ErrorBoundary caught: ' + (error && error.stack ? error.stack : String(error)),
+        'info',
+        '[ErrorBoundary] rendering ErrorPanel for: ' +
+          (this.state.error.message || String(this.state.error)),
       );
     }
+    return React.createElement(ErrorPanel, {
+      error: this.state.error,
+      info: this.state.info,
+      onReload: this._reload,
+      onDismiss: this._dismiss,
+    });
   }
-  _reload() {
-    if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
-      rnLinux.reloadApp();
-    }
-  }
-  _dismiss() {
-    this.setState({error: null, info: null});
-  }
-  render() {
-    if (this.state.error) {
-      if (typeof rnLinux !== 'undefined') {
-        rnLinux.log(
-          'info',
-          '[ErrorBoundary] rendering ErrorPanel for: ' +
-            (this.state.error.message || String(this.state.error)),
-        );
-      }
-      return React.createElement(ErrorPanel, {
-        error: this.state.error,
-        info: this.state.info,
-        onReload: this._reload,
-        onDismiss: this._dismiss,
-      });
-    }
-    return this.props.children;
-  }
-}
+  return this.props.children;
+};
 
 module.exports = {ErrorBoundary};
