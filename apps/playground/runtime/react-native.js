@@ -13,7 +13,17 @@
 // gap.
 
 const React = require('react');
-const {View, ScrollView, Image, Text, TextInput, Pressable, Button} = require('./components');
+const {
+  View,
+  ScrollView,
+  Image,
+  Text,
+  TextInput,
+  Pressable,
+  Button,
+  Switch,
+  ActivityIndicator,
+} = require('./components');
 const StyleSheet = require('./stylesheet');
 const {FlatList} = require('./flatlist');
 const {Modal} = require('./modal');
@@ -110,6 +120,8 @@ module.exports = {
   TextInput,
   Pressable,
   Button,
+  Switch,
+  ActivityIndicator,
   FlatList,
   Modal,
   SafeAreaView,

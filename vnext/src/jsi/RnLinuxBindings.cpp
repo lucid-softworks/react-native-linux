@@ -57,6 +57,10 @@ struct State {
   // Keyed by Fabric tag.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricScrollHandlers;
 
+  // Switch onValueChange handlers. The C++ view subscribes to GtkSwitch
+  // notify::active and routes through dispatchFabricSwitchChange.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricSwitchHandlers;
+
   // Active intervals/timers. `handlerId → (sourceId, fn)`. We keep the
   // jsi::Function alive here so the GTK source can call back into JS
   // safely; resetRnLinuxBindings drops these on reload so dangling
@@ -128,6 +132,7 @@ void resetRnLinuxBindings() {
   state().clickHandlers.clear();
   state().fabricClickHandlers.clear();
   state().fabricChangeTextHandlers.clear();
+  state().fabricSwitchHandlers.clear();
   state().fabricScrollHandlers.clear();
   state().nodes.clear();
   state().nextId = 1;
@@ -185,6 +190,23 @@ void dispatchFabricChangeText(int tag, const std::string& text) {
     RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.getMessage();
   } catch (const std::exception& e) {
     RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricSwitchChange(int tag, bool value) {
+  auto& s = state();
+  if (!s.runtime)
+    return;
+  auto it = s.fabricSwitchHandlers.find(tag);
+  if (it == s.fabricSwitchHandlers.end())
+    return;
+  try {
+    it->second->call(*s.runtime, jsi::Value(value));
+    s.runtime->drainMicrotasks();
+  } catch (const jsi::JSError& e) {
+    RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.getMessage();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.what();
   }
 }
 
@@ -838,6 +860,27 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           return jsi::Value::undefined();
         }
         state().fabricChangeTextHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // Sibling of fabricOnClick — registers the JS function invoked
+  // whenever a GtkSwitch's active state flips. The callback receives
+  // the new boolean value as its only argument.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnSwitchChange",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricSwitchHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricSwitchHandlers[tag] =
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });

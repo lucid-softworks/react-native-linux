@@ -72,6 +72,11 @@ void dispatchFabricClick(int tag);
 // `rnLinux.fabricOnChangeText(tag, fn)`.
 void dispatchFabricChangeText(int tag, const std::string& text);
 
+// Same shape, for GtkSwitch active-state changes. The bool is passed
+// as the first argument to the JS handler registered via
+// `rnLinux.fabricOnSwitchChange(tag, fn)`.
+void dispatchFabricSwitchChange(int tag, bool value);
+
 // Dispatch a scroll event for the given tag. Args mirror RN's
 // nativeEvent.contentOffset + layoutMeasurement so JS can pluck the
 // values it needs. Called by ScrollViewComponentView from the

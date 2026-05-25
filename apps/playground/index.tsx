@@ -9,7 +9,15 @@
 // resolveRequest (template). End-user apps see the same surface.
 
 import React, {useEffect, useRef, useState} from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import {StatusBar} from 'expo-status-bar';
 import {registerRootComponent} from 'expo';
 import {SymbolView} from 'expo-symbols';
@@ -130,6 +138,20 @@ function ModulesScreen(): JSX.Element {
         <Text style={styles.rowVal}>{measured}</Text>
       </View>
 
+      <Text style={styles.h1}>Switch</Text>
+      <SwitchDemo />
+      <SwitchDemo initial disabled label="disabled (initially on)" />
+
+      <Text style={styles.h1}>ActivityIndicator</Text>
+      <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 12}]}>
+        <ActivityIndicator />
+        <Text style={styles.rowVal}>animating (default)</Text>
+      </View>
+      <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 12}]}>
+        <ActivityIndicator animating={false} hidesWhenStopped={false} />
+        <Text style={styles.rowVal}>animating=false hidesWhenStopped=false</Text>
+      </View>
+
       <Text style={styles.h1}>Text overflow</Text>
       <View style={styles.row}>
         <Text style={styles.rowKey}>numberOfLines=1 ellipsizeMode=tail</Text>
@@ -182,6 +204,26 @@ function RouterScreen(): JSX.Element {
         </Pressable>
       </View>
     </ScrollView>
+  );
+}
+
+function SwitchDemo({
+  initial = false,
+  disabled = false,
+  label = 'tap to toggle',
+}: {
+  initial?: boolean;
+  disabled?: boolean;
+  label?: string;
+}) {
+  const [v, setV] = useState(initial);
+  return (
+    <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 12}]}>
+      <Switch value={v} onValueChange={setV} disabled={disabled} />
+      <Text style={styles.rowVal}>
+        {label}: {String(v)}
+      </Text>
+    </View>
   );
 }
 

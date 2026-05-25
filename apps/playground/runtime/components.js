@@ -69,6 +69,23 @@ const Pressable = React.forwardRef(function Pressable(props, ref) {
   return React.createElement('view', {...rest, ref, onClick: onPress}, props.children);
 });
 
+// <Switch value={bool} onValueChange={fn} disabled={bool} /> — backed
+// by GtkSwitch on the C++ side (SwitchComponentView). RN-idiomatic
+// onValueChange callback receives the new boolean.
+const Switch = React.forwardRef(function Switch(props, ref) {
+  return React.createElement('switch', {...props, ref});
+});
+
+// <ActivityIndicator animating size color /> — backed by GtkSpinner.
+// GTK's spinner is always one size; RN's "small" / "large" / number
+// hints don't map cleanly so they get accepted but ignored at the
+// widget level. `color` is similarly a no-op pending custom theme
+// tinting (CSS provider work).
+const ActivityIndicator = React.forwardRef(function ActivityIndicator(props, ref) {
+  const {animating = true, hidesWhenStopped = true, size: _s, color: _c, ...rest} = props;
+  return React.createElement('spinner', {...rest, ref, animating, hidesWhenStopped});
+});
+
 // <Button title="..." onPress={fn}> — a Pressable with a centered
 // Text label. Convenience for the common "tap target with words"
 // case; for richer content use <Pressable> directly.
@@ -112,4 +129,14 @@ function Button(props) {
   );
 }
 
-module.exports = {View, ScrollView, Image, Text, TextInput, Pressable, Button};
+module.exports = {
+  View,
+  ScrollView,
+  Image,
+  Text,
+  TextInput,
+  Pressable,
+  Button,
+  Switch,
+  ActivityIndicator,
+};

@@ -167,6 +167,11 @@ function syncScrollHandler(tag, props) {
   rnLinux.fabricOnScroll(tag, handler);
 }
 
+function syncSwitchHandler(tag, props) {
+  const handler = props && typeof props.onValueChange === 'function' ? props.onValueChange : null;
+  rnLinux.fabricOnSwitchChange(tag, handler);
+}
+
 // Build the object react-reconciler sees as a host instance. Apps get
 // this back via ref.current; library code (paper, gesture-handler,
 // navigation, …) expects measure / measureInWindow / focus / blur to
@@ -325,6 +330,31 @@ const hostConfig = {
       return makeInstance(tag, fabricNode, 'TextInput', type);
     }
 
+    if (type === 'switch') {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'Switch',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        internalInstanceHandle,
+      );
+      syncSwitchHandler(tag, props);
+      return makeInstance(tag, fabricNode, 'Switch', type);
+    }
+
+    if (type === 'spinner') {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'ActivityIndicator',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        internalInstanceHandle,
+      );
+      return makeInstance(tag, fabricNode, 'ActivityIndicator', type);
+    }
+
     if (type === 'text') {
       // RN's textual flow is Paragraph (carries layout + base
       // TextAttributes) → RawText children (contribute string content).
@@ -395,6 +425,7 @@ const hostConfig = {
     if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
     if (type === 'textinput') syncChangeTextHandler(currentInstance.tag, newProps);
     if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
+    if (type === 'switch') syncSwitchHandler(currentInstance.tag, newProps);
     return makeInstance(currentInstance.tag, fabricNode, currentInstance.componentName, type);
   },
 
