@@ -268,9 +268,14 @@ function ClipboardDemo() {
   );
 }
 
+// Module-level flag so a one-shot crash doesn't survive an
+// unmount/remount cycle through the LogBox dismiss path. Each
+// successful re-render that gets past the throw flips it back to
+// false, so a second click re-arms the demo.
+let _crashOnce = false;
 function CrashDemo() {
-  const [boom, setBoom] = useState(false);
-  if (boom) {
+  if (_crashOnce) {
+    _crashOnce = false;
     throw new Error(
       'Demo crash: the ErrorBoundary wraps the app at the runtime layer (runtime/errorOverlay.js) so JS exceptions during render land here instead of a blank window.',
     );
@@ -280,7 +285,18 @@ function CrashDemo() {
       style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap'}]}>
       <Pressable
         style={[styles.linkBtn, {backgroundColor: '#dc2626'}]}
-        onPress={() => setBoom(true)}>
+        onPress={() => {
+          // Set the module flag then force a re-render via a noop
+          // setState elsewhere — actually simplest: throw directly
+          // here. The boundary catches event-handler errors via
+          // ErrorUtils (our wrapper) the same way it catches render
+          // errors. Module flag keeps the throw one-shot so Dismiss
+          // actually recovers.
+          _crashOnce = true;
+          throw new Error(
+            'Demo crash: the ErrorBoundary wraps the app at the runtime layer (runtime/errorOverlay.js) so JS exceptions during render land here instead of a blank window.',
+          );
+        }}>
         <Text style={styles.linkBtnText}>Throw render error</Text>
       </Pressable>
       <Pressable
