@@ -157,11 +157,14 @@ ErrorBoundary.prototype._reload = function () {
   // the new bundle still uses the same React root + boundary instance
   // (host->reload re-evaluates the app bundle but doesn't recreate
   // the React tree), so a left-over error state would re-render the
-  // panel immediately.
-  this.setState({error: null, info: null});
-  if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
-    rnLinux.reloadApp();
-  }
+  // panel immediately. setState is async, so the actual reload must
+  // wait on the setState callback — otherwise reloadApp races ahead
+  // and the cleared-state render never commits.
+  this.setState({error: null, info: null}, function () {
+    if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
+      rnLinux.reloadApp();
+    }
+  });
 };
 ErrorBoundary.prototype._dismiss = function () {
   this.setState({error: null, info: null});
