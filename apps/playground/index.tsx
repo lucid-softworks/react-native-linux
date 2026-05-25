@@ -21,6 +21,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TurboModuleRegistry,
   View,
 } from 'react-native';
 import {StatusBar} from 'expo-status-bar';
@@ -131,6 +132,7 @@ function ModulesScreen(): JSX.Element {
       </Text>
 
       <Row k="Constants.deviceName" v={String(Constants.deviceName ?? '—')} />
+      <TurboModuleDemo />
       <Row
         k="Constants.platform.linux.userAgent"
         v={String(Constants.platform?.linux?.userAgent ?? '—')}
@@ -236,6 +238,23 @@ function RouterScreen(): JSX.Element {
       </View>
     </ScrollView>
   );
+}
+
+// Demonstrates the new TurboModule path: same data as the legacy
+// rnLinux.* bindings, but obtained via the JS-facing RN API every
+// real third-party native module uses. The C++ side registers
+// "PlatformConstants" in vnext/src/modules/PlatformConstants.cpp;
+// the JS-side __turboModuleProxy returns it as a HostObject.
+function TurboModuleDemo() {
+  let line = '—';
+  try {
+    const mod = TurboModuleRegistry.getEnforcing('PlatformConstants');
+    const c = mod.getConstants();
+    line = `OS=${c.OS} dist=${c.distribution} kernel=${c.osVersion}`;
+  } catch (e) {
+    line = 'error: ' + String((e as Error).message ?? e);
+  }
+  return <Row k="TurboModuleRegistry.get('PlatformConstants').getConstants()" v={line} />;
 }
 
 function DimensionsRow() {

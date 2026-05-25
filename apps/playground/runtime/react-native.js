@@ -160,6 +160,31 @@ const Clipboard = {
   },
 };
 
+// TurboModuleRegistry — the canonical RN entry point for getting a
+// native module instance. C++ side installs `globalThis.__turboModuleProxy`
+// (see vnext/src/jsi/TurboModuleRegistry.cpp). Apps doing:
+//   const PC = TurboModuleRegistry.getEnforcing('PlatformConstants');
+//   const c  = PC.getConstants();
+// hit the registered factory, get a HostObject back, and call through
+// it like any RN-side native module.
+const TurboModuleRegistry = {
+  get(name) {
+    if (typeof globalThis.__turboModuleProxy !== 'function') return null;
+    return globalThis.__turboModuleProxy(String(name));
+  },
+  getEnforcing(name) {
+    const m = this.get(name);
+    if (m == null) {
+      throw new Error(
+        "TurboModuleRegistry.getEnforcing(...): '" +
+          name +
+          "' could not be found. Verify that the native binary registered it.",
+      );
+    }
+    return m;
+  },
+};
+
 // Alert.alert(title, message?, buttons?, options?) → GtkAlertDialog
 // via rnLinux.showAlert. We pass the button labels through; the C++
 // callback returns the index of the pressed button so we can fire
@@ -256,4 +281,5 @@ module.exports = {
   Clipboard,
   Alert,
   AppRegistry,
+  TurboModuleRegistry,
 };

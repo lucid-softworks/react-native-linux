@@ -4,6 +4,7 @@
 #include "jsi/RnLinuxBindings.h"
 #include "react-native-linux/CrashHandler.h"
 #include "react-native-linux/Logging.h"
+#include "react-native-linux/TurboModuleRegistry.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -271,8 +272,10 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
   // Lightning-path bridge: install the rnLinux JSI bindings *before* the
   // bundle is evaluated so JS sees `globalThis.rnLinux` at top level.
   GtkWidget* rootForJs = impl->rootView;
-  impl->host->setBeforeBundleEvalHook(
-      [rootForJs](facebook::jsi::Runtime& rt) { installRnLinuxBindings(rt, rootForJs); });
+  impl->host->setBeforeBundleEvalHook([rootForJs](facebook::jsi::Runtime& rt) {
+    installRnLinuxBindings(rt, rootForJs);
+    installTurboModuleBinding(rt);
+  });
 
   // Let JS trigger a host reload (LogBox overlay → rnLinux.reloadApp).
   {

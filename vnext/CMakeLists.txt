@@ -93,6 +93,7 @@ set(RNL_SOURCES
   src/jsi/HermesRuntimeFactory.cpp
   src/jsi/BundleLoader.cpp
   src/jsi/RnLinuxBindings.cpp
+  src/jsi/TurboModuleRegistry.cpp
   src/views/ViewComponentView.cpp
   src/views/ParagraphComponentView.cpp
   src/views/ScrollViewComponentView.cpp
