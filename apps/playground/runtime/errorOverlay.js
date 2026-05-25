@@ -110,9 +110,28 @@ class ErrorBoundary extends React.Component {
     this.state = {error: null, info: null};
     this._reload = this._reload.bind(this);
     this._dismiss = this._dismiss.bind(this);
+    this._onAsyncError = this._onAsyncError.bind(this);
   }
   static getDerivedStateFromError(error) {
     return {error};
+  }
+  componentDidMount() {
+    // Subscribe to ErrorUtils so async errors (microtask / setTimeout
+    // throws) surface in the same overlay as render-phase errors.
+    if (typeof globalThis.ErrorUtils !== 'undefined') {
+      this._prevHandler = globalThis.ErrorUtils.getGlobalHandler();
+      globalThis.ErrorUtils.setGlobalHandler(this._onAsyncError);
+    }
+  }
+  componentWillUnmount() {
+    if (typeof globalThis.ErrorUtils !== 'undefined' && this._prevHandler) {
+      globalThis.ErrorUtils.setGlobalHandler(this._prevHandler);
+    }
+  }
+  _onAsyncError(error, _isFatal) {
+    // Avoid clobbering an already-displayed render error.
+    if (this.state.error) return;
+    this.setState({error: error instanceof Error ? error : new Error(String(error)), info: null});
   }
   componentDidCatch(error, info) {
     this.setState({error, info});

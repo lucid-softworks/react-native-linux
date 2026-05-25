@@ -131,3 +131,79 @@ if (typeof globalThis.setImmediate === 'undefined') {
 if (typeof globalThis.performance === 'undefined') {
   globalThis.performance = {now: () => Date.now()};
 }
+
+// RN-style global error reporter. Apps and the LogBox boundary use
+// ErrorUtils.setGlobalHandler(fn) to subscribe to async / uncaught
+// errors. Our microtask + setTimeout shims already swallow throws (so
+// the runtime doesn't die) and previously just logged to stderr; now
+// they also fan out to the registered handler so the in-window LogBox
+// can render them.
+//
+// Mirrors the iOS/Android global.ErrorUtils surface:
+//   * setGlobalHandler(fn) — replaces the current handler
+//   * getGlobalHandler() — current handler (may be a no-op)
+//   * reportFatalError(err) — host code uses this to surface errors
+//   * reportError(err) — non-fatal variant; fires the same handler
+let _globalErrorHandler = (err, _isFatal) => {
+  rnLinux.log('error', 'unhandled: ' + (err && err.stack ? err.stack : String(err)));
+};
+function _reportError(err, isFatal) {
+  try {
+    _globalErrorHandler(err, !!isFatal);
+  } catch (innerErr) {
+    rnLinux.log('error', 'global error handler threw: ' + String(innerErr));
+  }
+}
+globalThis.ErrorUtils = {
+  setGlobalHandler(fn) {
+    if (typeof fn === 'function') _globalErrorHandler = fn;
+  },
+  getGlobalHandler() {
+    return _globalErrorHandler;
+  },
+  reportFatalError(err) {
+    _reportError(err, true);
+  },
+  reportError(err) {
+    _reportError(err, false);
+  },
+};
+
+// Re-route the shim's swallowed throws through ErrorUtils too. The
+// previous rnLinux.log calls stay so the stderr trail is unchanged,
+// but the handler now ALSO sees them and can show the LogBox.
+const _origMicro = globalThis.queueMicrotask;
+globalThis.queueMicrotask = fn => {
+  _origMicro(() => {
+    try {
+      fn();
+    } catch (e) {
+      rnLinux.log('error', 'microtask threw: ' + String(e));
+      _reportError(e, false);
+    }
+  });
+};
+// _enqueue is the inner setTimeout/setImmediate driver — wrap its
+// task invocation the same way without reaching in.
+const _origEnqueue = _enqueue;
+function _enqueueWithReport(fn) {
+  _origEnqueue(() => {
+    try {
+      fn();
+    } catch (e) {
+      rnLinux.log('error', 'task threw: ' + String(e));
+      _reportError(e, false);
+    }
+  });
+}
+// Re-bind the shim setTimeout to use the reporting wrapper.
+if (globalThis.setTimeout && _timers) {
+  globalThis.setTimeout = (fn, _ms, ...args) => {
+    const id = _timerSeq++;
+    _timers.set(id, true);
+    _enqueueWithReport(() => {
+      if (_timers.delete(id)) fn(...args);
+    });
+    return id;
+  };
+}

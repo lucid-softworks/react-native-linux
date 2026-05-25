@@ -276,11 +276,21 @@ function CrashDemo() {
     );
   }
   return (
-    <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>
+    <View
+      style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap'}]}>
       <Pressable
         style={[styles.linkBtn, {backgroundColor: '#dc2626'}]}
         onPress={() => setBoom(true)}>
-        <Text style={styles.linkBtnText}>Throw a render error (LogBox)</Text>
+        <Text style={styles.linkBtnText}>Throw render error</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.linkBtn, {backgroundColor: '#ea580c'}]}
+        onPress={() =>
+          setTimeout(() => {
+            throw new Error('Demo async crash from setTimeout — caught via ErrorUtils.');
+          }, 0)
+        }>
+        <Text style={styles.linkBtnText}>Throw async error</Text>
       </Pressable>
       <Text style={styles.rowVal}>Reload (Ctrl+R) recovers</Text>
     </View>
