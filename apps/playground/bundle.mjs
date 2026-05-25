@@ -16,8 +16,9 @@
 import {build, context} from 'esbuild';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {mkdirSync, readFileSync, writeFileSync, readFile} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync, readFile, existsSync} from 'node:fs';
 import {createConnection} from 'node:net';
+import {spawnSync} from 'node:child_process';
 import {transform as swcTransform} from '@swc/core';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -133,9 +134,38 @@ const appOpts = {
   plugins: [refreshTransformPlugin],
 };
 
+// Pre-compile the vendor bundle to Hermes bytecode. Hermes can execute
+// .hbc directly (it auto-detects the magic header), skipping the
+// parse/AST/codegen pass. For the 2.5 MB vendor that means cold-start
+// JS init lands tens of milliseconds faster. We tolerate a missing
+// hermesc — the C++ side falls back to evaluating the JS bundle.
+function compileVendorBytecode() {
+  const hermescCandidates = [
+    resolve(here, '../../vnext/build/bin/hermesc'),
+    resolve(here, '../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc'),
+    resolve(here, '../../node_modules/react-native/sdks/hermesc/osx-bin/hermesc'),
+  ];
+  const hermesc = hermescCandidates.find(existsSync);
+  if (!hermesc) {
+    console.log('[hermesc] not found — vendor stays as JS source');
+    return;
+  }
+  const vendorHbc = vendorOut + '.hbc';
+  const t0 = performance.now();
+  const r = spawnSync(hermesc, ['-emit-binary', '-O', '-out', vendorHbc, vendorOut],
+                      {stdio: ['ignore', 'pipe', 'pipe']});
+  if (r.status !== 0) {
+    console.log(`[hermesc] failed (status ${r.status}): ${r.stderr?.toString().slice(0, 200)}`);
+    return;
+  }
+  const ms = (performance.now() - t0).toFixed(0);
+  console.log(`✓ hermesc → ${vendorHbc} (${ms}ms)`);
+}
+
 async function once() {
   await build(vendorOpts);
   console.log(`✓ vendor → ${vendorOut}`);
+  compileVendorBytecode();
   await build(appOpts);
   console.log(`✓ app    → ${appOut}`);
 }
@@ -181,6 +211,7 @@ async function watchMode() {
   // Vendor is built once — it doesn't depend on user code.
   await build(vendorOpts);
   console.log(`✓ vendor → ${vendorOut} (one-shot)`);
+  compileVendorBytecode();
   // Wrap with timing + HMR-push hooks so we can both report rebuild
   // duration and shove the new bundle into the live playground over
   // a Unix socket (the C++ side listens; see startHmrSocket).

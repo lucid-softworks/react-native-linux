@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <sys/stat.h>
 
 #include <react-native-linux/RNLinuxApplication.h>
 #include <react-native-linux/RNLinuxHost.h>
@@ -26,15 +27,23 @@ std::string resolveVendorBundleUrl(const std::string& appBundleUrl) {
   if (const char* override = std::getenv("RN_VENDOR_BUNDLE_URL")) {
     return override;
   }
-  // For file:// URLs the convention is: vendor.bundle sits in the same
-  // directory as the app bundle. For http:// (Metro), no vendor split —
-  // Metro serves a single bundle.
+  // For file:// URLs the convention is: vendor.bundle / vendor.bundle.hbc
+  // sit in the same directory as the app bundle. Prefer the .hbc
+  // (Hermes bytecode) version when it exists — Hermes auto-detects the
+  // bytecode magic header and skips parse/codegen, cutting cold-start
+  // JS init time. For http:// (Metro) we don't do the split.
   const std::string fileScheme = "file://";
   if (appBundleUrl.rfind(fileScheme, 0) != 0) return {};
   auto path = appBundleUrl.substr(fileScheme.size());
   const auto slash = path.find_last_of('/');
   if (slash == std::string::npos) return {};
-  return fileScheme + path.substr(0, slash + 1) + "vendor.bundle";
+  const auto dir = path.substr(0, slash + 1);
+  const auto hbc = dir + "vendor.bundle.hbc";
+  struct stat st {};
+  if (::stat(hbc.c_str(), &st) == 0) {
+    return fileScheme + hbc;
+  }
+  return fileScheme + dir + "vendor.bundle";
 }
 
 }  // namespace
