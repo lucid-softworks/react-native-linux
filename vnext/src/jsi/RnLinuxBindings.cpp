@@ -713,6 +713,115 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // Instance-method backing for ref.current.measure / measureInWindow.
+  // RN's `measure(callback)` callback receives (x, y, width, height,
+  // pageX, pageY); `measureInWindow(callback)` gets (pageX, pageY,
+  // width, height). We return all six in one host call so the JS side
+  // can fan out without round-tripping.
+  //
+  // GTK4 unit is logical pixels at the widget's display scale factor —
+  // same convention RN uses, so we pass values through untouched.
+  bindMethod(
+      rt,
+      rnLinux,
+      "measureFabricView",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isNumber())
+          return jsi::Value::null();
+        const auto& s = state();
+        if (!s.fabricLookup)
+          return jsi::Value::null();
+        GtkWidget* w = s.fabricLookup(static_cast<int>(args[0].asNumber()));
+        if (!w)
+          return jsi::Value::null();
+
+        const int width = gtk_widget_get_width(w);
+        const int height = gtk_widget_get_height(w);
+
+        // Position relative to the immediate parent (RN's `x` / `y`).
+        // GTK doesn't surface a per-widget origin directly — convert the
+        // (0,0) point in widget-local coords to the parent's coord space.
+        double x = 0, y = 0;
+        GtkWidget* parent = gtk_widget_get_parent(w);
+        if (parent) {
+          graphene_point_t local{0.f, 0.f};
+          graphene_point_t out{0.f, 0.f};
+          if (gtk_widget_compute_point(w, parent, &local, &out)) {
+            x = out.x;
+            y = out.y;
+          }
+        }
+
+        // Position relative to the GtkRoot (RN's `pageX` / `pageY`).
+        // The root for our app is the toplevel GtkApplicationWindow.
+        double pageX = 0, pageY = 0;
+        GtkRoot* root = gtk_widget_get_root(w);
+        if (root) {
+          graphene_point_t local{0.f, 0.f};
+          graphene_point_t out{0.f, 0.f};
+          if (gtk_widget_compute_point(w, GTK_WIDGET(root), &local, &out)) {
+            pageX = out.x;
+            pageY = out.y;
+          }
+        }
+
+        jsi::Object obj(rt);
+        obj.setProperty(rt, "x", jsi::Value(x));
+        obj.setProperty(rt, "y", jsi::Value(y));
+        obj.setProperty(rt, "width", jsi::Value(static_cast<double>(width)));
+        obj.setProperty(rt, "height", jsi::Value(static_cast<double>(height)));
+        obj.setProperty(rt, "pageX", jsi::Value(pageX));
+        obj.setProperty(rt, "pageY", jsi::Value(pageY));
+        return obj;
+      });
+
+  // ref.current.focus() / blur() backing. Most useful for TextInput,
+  // where libraries (forms, navigation) call .focus() to advance the
+  // input. For non-focusable widgets (View, Image) the grab is a no-op
+  // at the GTK level — the widget either accepts focus or doesn't.
+  bindMethod(
+      rt,
+      rnLinux,
+      "focusFabricView",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isNumber())
+          return jsi::Value::undefined();
+        const auto& s = state();
+        if (!s.fabricLookup)
+          return jsi::Value::undefined();
+        GtkWidget* w = s.fabricLookup(static_cast<int>(args[0].asNumber()));
+        if (!w)
+          return jsi::Value::undefined();
+        gtk_widget_grab_focus(w);
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "blurFabricView",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isNumber())
+          return jsi::Value::undefined();
+        const auto& s = state();
+        if (!s.fabricLookup)
+          return jsi::Value::undefined();
+        GtkWidget* w = s.fabricLookup(static_cast<int>(args[0].asNumber()));
+        if (!w)
+          return jsi::Value::undefined();
+        // GTK has no per-widget blur — clear focus at the root so this
+        // widget is no longer the focus owner. Other interactions will
+        // re-focus as they fire.
+        GtkRoot* root = gtk_widget_get_root(w);
+        if (root) {
+          gtk_root_set_focus(root, nullptr);
+        }
+        return jsi::Value::undefined();
+      });
+
   // Sibling of fabricOnClick — registers the JS function invoked
   // whenever a TextInput's GtkText "changed" signal fires.
   bindMethod(

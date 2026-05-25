@@ -14,13 +14,19 @@ const ZERO_FRAME = {x: 0, y: 0, width: 0, height: 0};
 const SafeAreaInsetsContext = React.createContext(ZERO_INSETS);
 const SafeAreaFrameContext = React.createContext(ZERO_FRAME);
 
-function SafeAreaProvider({children, initialMetrics: _ignored, ...rest}) {
-  return React.createElement(View, {style: {flex: 1}, ...rest}, children);
-}
+const SafeAreaProvider = React.forwardRef(function SafeAreaProvider(
+  {children, initialMetrics: _ignored, ...rest},
+  ref,
+) {
+  return React.createElement(View, {style: {flex: 1}, ...rest, ref}, children);
+});
 
-function SafeAreaView({children, edges: _ignored, ...rest}) {
-  return React.createElement(View, rest, children);
-}
+const SafeAreaView = React.forwardRef(function SafeAreaView(
+  {children, edges: _ignored, ...rest},
+  ref,
+) {
+  return React.createElement(View, {...rest, ref}, children);
+});
 
 function SafeAreaConsumer({children}) {
   return children(ZERO_INSETS);

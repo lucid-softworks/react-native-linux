@@ -8,7 +8,7 @@
 // shim package, resolved by the esbuild alias (vendor) or Metro's
 // resolveRequest (template). End-user apps see the same surface.
 
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {StatusBar} from 'expo-status-bar';
 import {registerRootComponent} from 'expo';
@@ -86,7 +86,28 @@ function BlankScreen(): JSX.Element {
   );
 }
 
+type HostRef = {
+  measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void;
+  measure: (
+    cb: (x: number, y: number, w: number, h: number, pageX: number, pageY: number) => void,
+  ) => void;
+  focus: () => void;
+  blur: () => void;
+};
+
 function ModulesScreen(): JSX.Element {
+  const measuredRef = useRef<HostRef | null>(null);
+  const [measured, setMeasured] = useState<string>('—');
+  useEffect(() => {
+    // setTimeout under our shim runs as a microtask drain — by then the
+    // tab body has rendered AND GTK has run a layout pass on tab-switch.
+    const id = setTimeout(() => {
+      measuredRef.current?.measureInWindow((x, y, w, h) => {
+        setMeasured(`x=${x.toFixed(0)} y=${y.toFixed(0)} w=${w.toFixed(0)} h=${h.toFixed(0)}`);
+      });
+    }, 0);
+    return () => clearTimeout(id);
+  }, []);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.modulesContent}>
       <Text style={styles.h1}>Module shims</Text>
@@ -102,6 +123,12 @@ function ModulesScreen(): JSX.Element {
         v={String(Constants.platform?.linux?.userAgent ?? '—')}
       />
       <Row k="expo-symbols" v={'★ ⌂ → ⌕ ⚙'} />
+
+      <Text style={styles.h1}>Refs &amp; measure</Text>
+      <View ref={measuredRef as React.Ref<View>} style={styles.row}>
+        <Text style={styles.rowKey}>measureInWindow(this row)</Text>
+        <Text style={styles.rowVal}>{measured}</Text>
+      </View>
 
       <Text style={styles.h1}>Text overflow</Text>
       <View style={styles.row}>

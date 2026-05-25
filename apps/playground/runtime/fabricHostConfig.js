@@ -167,6 +167,64 @@ function syncScrollHandler(tag, props) {
   rnLinux.fabricOnScroll(tag, handler);
 }
 
+// Build the object react-reconciler sees as a host instance. Apps get
+// this back via ref.current; library code (paper, gesture-handler,
+// navigation, …) expects measure / measureInWindow / focus / blur to
+// exist as methods on the public instance. Methods dispatch into JSI
+// bindings (rnLinux.measureFabricView / focusFabricView / …) keyed by
+// the same tag the C++ mounting registry uses.
+//
+// Returning a fresh object per instance keeps the prop bag stable.
+// cloneInstance allocates a new one each commit; React's reconciliation
+// already treats the host instance as ephemeral, so the per-clone
+// closure cost is negligible.
+function makeInstance(tag, fabricNode, componentName, type) {
+  return {
+    tag,
+    fabricNode,
+    componentName,
+    type,
+    measure(callback) {
+      const m = rnLinux.measureFabricView(tag);
+      if (typeof callback !== 'function') return;
+      if (m) {
+        callback(m.x, m.y, m.width, m.height, m.pageX, m.pageY);
+      } else {
+        callback(0, 0, 0, 0, 0, 0);
+      }
+    },
+    measureInWindow(callback) {
+      const m = rnLinux.measureFabricView(tag);
+      if (typeof callback !== 'function') return;
+      if (m) {
+        callback(m.pageX, m.pageY, m.width, m.height);
+      } else {
+        callback(0, 0, 0, 0);
+      }
+    },
+    measureLayout(_relativeToNativeNode, onSuccess, _onFail) {
+      // measureLayout is "measure relative to another native node". We
+      // approximate by returning the same coords as measure() — that's
+      // wrong for the relative-to case but right when callers pass the
+      // ancestor's UIManager root tag (the common react-navigation
+      // pattern). Good enough until we wire a real relative-coord path.
+      const m = rnLinux.measureFabricView(tag);
+      if (typeof onSuccess !== 'function') return;
+      if (m) {
+        onSuccess(m.x, m.y, m.width, m.height);
+      } else {
+        onSuccess(0, 0, 0, 0);
+      }
+    },
+    focus() {
+      rnLinux.focusFabricView(tag);
+    },
+    blur() {
+      rnLinux.blurFabricView(tag);
+    },
+  };
+}
+
 const hostConfig = {
   // Persistence is the natural fit for Fabric — every commit clones
   // the affected nodes via nativeFabricUIManager.cloneNodeWith*, then
@@ -226,7 +284,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncClickHandler(tag, props);
-      return {tag, fabricNode, componentName: 'View', type};
+      return makeInstance(tag, fabricNode, 'View', type);
     }
 
     if (type === 'scrollview') {
@@ -239,7 +297,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncScrollHandler(tag, props);
-      return {tag, fabricNode, componentName: 'ScrollView', type};
+      return makeInstance(tag, fabricNode, 'ScrollView', type);
     }
 
     if (type === 'image') {
@@ -251,7 +309,7 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      return {tag, fabricNode, componentName: 'Image', type};
+      return makeInstance(tag, fabricNode, 'Image', type);
     }
 
     if (type === 'textinput') {
@@ -264,7 +322,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncChangeTextHandler(tag, props);
-      return {tag, fabricNode, componentName: 'TextInput', type};
+      return makeInstance(tag, fabricNode, 'TextInput', type);
     }
 
     if (type === 'text') {
@@ -281,7 +339,7 @@ const hostConfig = {
         buildFabricProps('text', props),
         internalInstanceHandle,
       );
-      return {tag, fabricNode, componentName: 'Paragraph', type};
+      return makeInstance(tag, fabricNode, 'Paragraph', type);
     }
 
     throw new Error('Unknown host element: <' + type + '>');
@@ -296,7 +354,7 @@ const hostConfig = {
       {text},
       internalInstanceHandle,
     );
-    return {tag, fabricNode, componentName: 'RawText', type: 'rawtext'};
+    return makeInstance(tag, fabricNode, 'RawText', 'rawtext');
   },
 
   appendInitialChild(parent, child) {
@@ -337,32 +395,27 @@ const hostConfig = {
     if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
     if (type === 'textinput') syncChangeTextHandler(currentInstance.tag, newProps);
     if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
-    return {
-      tag: currentInstance.tag,
-      fabricNode,
-      componentName: currentInstance.componentName,
-      type,
-    };
+    return makeInstance(currentInstance.tag, fabricNode, currentInstance.componentName, type);
   },
 
   // Used inside Fabric's `<hidden>` Offscreen branch — we don't have
   // a visibility primitive yet, so just return a clone with the same
   // props (no Pango layer needed to honour `display: none`).
   cloneHiddenInstance(currentInstance, type, _props /*, internalInstanceHandle */) {
-    return {
-      tag: currentInstance.tag,
-      fabricNode: currentFabric.cloneNode(currentInstance.fabricNode),
-      componentName: currentInstance.componentName,
+    return makeInstance(
+      currentInstance.tag,
+      currentFabric.cloneNode(currentInstance.fabricNode),
+      currentInstance.componentName,
       type,
-    };
+    );
   },
   cloneHiddenTextInstance(currentInstance /*, text, internalInstanceHandle */) {
-    return {
-      tag: currentInstance.tag,
-      fabricNode: currentFabric.cloneNode(currentInstance.fabricNode),
-      componentName: currentInstance.componentName,
-      type: currentInstance.type,
-    };
+    return makeInstance(
+      currentInstance.tag,
+      currentFabric.cloneNode(currentInstance.fabricNode),
+      currentInstance.componentName,
+      currentInstance.type,
+    );
   },
 
   appendChild(parent, child) {
