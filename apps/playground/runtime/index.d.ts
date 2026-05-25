@@ -114,8 +114,22 @@ export interface ScrollViewProps extends ViewProps {
   showsVerticalScrollIndicator?: boolean;
 }
 
+export interface ImageSource {
+  uri: string;
+  width?: number;
+  height?: number;
+  scale?: number;
+}
+
+export interface ImageProps extends Omit<ViewProps, 'children' | 'onClick'> {
+  source: ImageSource | ImageSource[];
+  resizeMode?: 'cover' | 'contain' | 'stretch' | 'center' | 'repeat';
+  tintColor?: Color;
+}
+
 export const View: (props: ViewProps) => JSX.Element;
 export const ScrollView: (props: ScrollViewProps) => JSX.Element;
+export const Image: (props: ImageProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
 export const Pressable: (props: PressableProps) => JSX.Element;
 export const Button: (props: ButtonProps) => JSX.Element;

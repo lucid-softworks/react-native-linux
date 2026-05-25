@@ -28,6 +28,14 @@ function ScrollView(props) {
   return React.createElement('scrollview', props, props.children);
 }
 
+// <Image source={{uri: 'file:///path/to/img.png'}} resizeMode="cover" />
+// RN's ImageProps parser reads the `source` prop into its internal
+// `sources` vector — it accepts either a single {uri,…} object or an
+// array of them (multi-density). Pass through unchanged.
+function Image(props) {
+  return React.createElement('image', props);
+}
+
 function Text(props) {
   return React.createElement('text', props, props.children);
 }
@@ -84,4 +92,4 @@ function Button(props) {
   );
 }
 
-module.exports = {View, ScrollView, Text, Pressable, Button};
+module.exports = {View, ScrollView, Image, Text, Pressable, Button};

@@ -91,6 +91,7 @@ set(RNL_SOURCES
   src/views/ViewComponentView.cpp
   src/views/ParagraphComponentView.cpp
   src/views/ScrollViewComponentView.cpp
+  src/views/ImageComponentView.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -111,6 +112,9 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/text/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/scrollview/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/image/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/legacyviewmanagerinterop/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/root/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/*.cpp
@@ -161,6 +165,7 @@ target_include_directories(react_native_rn_renderer
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/graphics/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx
     # RN's CallInvoker + RuntimeExecutor live under their own dirs as

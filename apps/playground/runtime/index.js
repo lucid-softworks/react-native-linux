@@ -42,11 +42,11 @@ function render(element, onCommit) {
   return root;
 }
 
-const {View, ScrollView, Text, Pressable, Button} = require('./components');
+const {View, ScrollView, Image, Text, Pressable, Button} = require('./components');
 const StyleSheet = require('./stylesheet');
 
 module.exports = {
   render, renderFabric,
-  View, ScrollView, Text, Pressable, Button,
+  View, ScrollView, Image, Text, Pressable, Button,
   StyleSheet,
 };

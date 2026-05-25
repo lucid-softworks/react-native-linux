@@ -3,6 +3,7 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorProvider.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
@@ -15,6 +16,7 @@ namespace {
 // Pull in the unqualified name from facebook::react in this TU only.
 using facebook::react::ComponentDescriptorProviderRegistry;
 using facebook::react::concreteComponentDescriptorProvider;
+using facebook::react::ImageComponentDescriptor;
 using facebook::react::ParagraphComponentDescriptor;
 using facebook::react::RawTextComponentDescriptor;
 using facebook::react::ScrollViewComponentDescriptor;
@@ -27,7 +29,7 @@ makeLinuxComponentDescriptorRegistry() {
   auto registry = std::make_shared<ComponentDescriptorProviderRegistry>();
   registerCoreDescriptors(*registry);
   RNL_LOGI("ComponentDescriptorRegistry")
-      << "registered core descriptors (View, Paragraph, RawText, Text, ScrollView)";
+      << "registered core descriptors (View, Paragraph, RawText, Text, ScrollView, Image)";
   return registry;
 }
 
@@ -45,6 +47,7 @@ void registerCoreDescriptors(ComponentDescriptorProviderRegistry& registry) {
   registry.add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
   registry.add(
       concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+  registry.add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
 }
 
 }  // namespace rnlinux

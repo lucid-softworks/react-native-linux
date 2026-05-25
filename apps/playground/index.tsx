@@ -1,10 +1,9 @@
-// react-native-linux playground — written the way you'd write any
-// other RN app: StyleSheet.create + style={...} / style={[a, b]}.
+// react-native-linux playground — write it like any other RN app.
 
 import {useEffect, useState} from 'react';
 import {
   renderFabric, StyleSheet,
-  View, ScrollView, Text, Pressable, Button,
+  View, ScrollView, Image, Text, Pressable, Button,
 } from './runtime';
 
 const palette = {
@@ -35,9 +34,18 @@ const styles = StyleSheet.create({
            borderRadius: 12, borderWidth: 1, borderColor: palette.border},
   cardLabel: {fontSize: 13, fontWeight: '500', color: palette.muted},
   cardValue: {fontSize: 36, fontWeight: '700', color: palette.text},
-  cardValueAccent: {fontSize: 36, fontWeight: '700', color: palette.accent},
 
   buttonRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
+
+  // Image gallery
+  galleryCard: {padding: 12, backgroundColor: palette.panel,
+                borderRadius: 12, borderWidth: 1, borderColor: palette.border,
+                gap: 10},
+  galleryHeader: {fontSize: 13, fontWeight: '600', color: palette.subtle},
+  galleryRow: {flexDirection: 'row', gap: 10},
+  thumb: {width: 100, height: 70, borderRadius: 8, backgroundColor: palette.panelAlt},
+  hero:  {width: '100%' as any, height: 160, borderRadius: 10,
+          backgroundColor: palette.panelAlt},
 
   scrollPanel: {flex: 1, backgroundColor: palette.panel,
                 borderRadius: 12, borderWidth: 1,
@@ -52,9 +60,17 @@ const styles = StyleSheet.create({
   rowText: {fontSize: 14, color: palette.text},
 });
 
+const wallpapers = [
+  'file:///usr/share/backgrounds/xfce/xfce-blue.jpg',
+  'file:///usr/share/backgrounds/xfce/xfce-teal.jpg',
+  'file:///usr/share/backgrounds/xfce/xfce-stripes.png',
+  'file:///usr/share/backgrounds/xfce/xfce-verticals.png',
+];
+
 function App(): JSX.Element {
   const [count, setCount] = useState(0);
   const [tick, setTick] = useState(0);
+  const [hero, setHero] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -66,10 +82,10 @@ function App(): JSX.Element {
   return (
     <View style={styles.app}>
       <Text style={styles.title}>
-        react-native-linux  •  Fabric + Yoga + Pango
+        react-native-linux  •  View / Text / Image / ScrollView
       </Text>
       <Text style={styles.hint}>
-        Using style=&#123;styles.x&#125; / StyleSheet.create like a normal RN app.
+        StyleSheet.create + style props + Yoga flex + Pango text + GTK images.
       </Text>
 
       <View style={styles.body}>
@@ -91,9 +107,25 @@ function App(): JSX.Element {
                     backgroundColor={palette.red} />
           </View>
 
+          {/* Image gallery: hero + thumbnails */}
+          <View style={styles.galleryCard}>
+            <Text style={styles.galleryHeader}>
+              &lt;Image&gt; · GdkTexture · tap a thumb
+            </Text>
+            <Image source={{uri: wallpapers[hero]}}
+                   resizeMode="cover" style={styles.hero} />
+            <View style={styles.galleryRow}>
+              {wallpapers.map((uri, i) => (
+                <Pressable key={uri} onPress={() => setHero(i)}>
+                  <Image source={{uri}} resizeMode="cover" style={styles.thumb} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.card}>
             <Text style={styles.cardLabel}>useEffect ticker</Text>
-            <Text style={styles.cardValueAccent}>{tick}</Text>
+            <Text style={[styles.cardValue, {color: palette.accent}]}>{tick}</Text>
           </View>
         </View>
 

@@ -198,6 +198,14 @@ const hostConfig = {
       return {tag, fabricNode, componentName: 'ScrollView', type};
     }
 
+    if (type === 'image') {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag, 'Image', currentSurfaceId,
+        buildFabricProps(type, props), {});
+      return {tag, fabricNode, componentName: 'Image', type};
+    }
+
     if (type === 'text') {
       // RN's textual flow is Paragraph (carries layout + base
       // TextAttributes) → RawText children (contribute string content).

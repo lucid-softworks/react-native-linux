@@ -1,6 +1,7 @@
 #include "LinuxComponentViewRegistry.h"
 #include "react-native-linux/Logging.h"
 
+#include "../views/ImageComponentView.h"
 #include "../views/ParagraphComponentView.h"
 #include "../views/ScrollViewComponentView.h"
 #include "../views/ViewComponentView.h"
@@ -21,6 +22,9 @@ LinuxComponentViewRegistry::LinuxComponentViewRegistry() {
   });
   registerComponent("ScrollView", [](Tag t) {
     return std::make_unique<ScrollViewComponentView>(t);
+  });
+  registerComponent("Image", [](Tag t) {
+    return std::make_unique<ImageComponentView>(t);
   });
 }
 
