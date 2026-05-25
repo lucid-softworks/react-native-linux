@@ -121,6 +121,13 @@ const appOpts = {
              '@react-native-async-storage/async-storage',
              'expo',
              'expo-status-bar',
+             'expo-font',
+             'expo-splash-screen',
+             'expo-web-browser',
+             'expo-symbols',
+             'expo-constants',
+             'expo-linking',
+             'react-native-safe-area-context',
              './runtime'],
   banner: {
     js:
@@ -136,6 +143,13 @@ const appOpts = {
       '  if (id === "@react-native-async-storage/async-storage") return rnv.asyncStorage;\n' +
       '  if (id === "expo") return rnv.expo;\n' +
       '  if (id === "expo-status-bar") return rnv.expoStatusBar;\n' +
+      '  if (id === "expo-font") return rnv.expoFont;\n' +
+      '  if (id === "expo-splash-screen") return rnv.expoSplashScreen;\n' +
+      '  if (id === "expo-web-browser") return rnv.expoWebBrowser;\n' +
+      '  if (id === "expo-symbols") return rnv.expoSymbols;\n' +
+      '  if (id === "expo-constants") return rnv.expoConstants;\n' +
+      '  if (id === "expo-linking") return rnv.expoLinking;\n' +
+      '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +
@@ -172,12 +186,42 @@ function compileVendorBytecode() {
   console.log(`✓ hermesc → ${vendorHbc} (${ms}ms)`);
 }
 
+// esbuild's __copyProps helper (added at the top of every bundle for
+// CJS/ESM interop) uses `for (let key of …) { __defProp(to, key, {
+// get: () => from[key] }) }`. Hermes mis-compiles per-iteration
+// `let`/`const` bindings in for-of — all closures capture the LAST
+// `key`, so every named import returns the value of the module's last
+// property. Confirmed with a 3-key repro that returned CC,CC,CC.
+// Workaround: rewrite the for-of loop to a `.forEach()`, which gives
+// each callback its own scope and isolates the closure.
+function patchHermesForOfBug(filePath) {
+  let src = readFileSync(filePath, 'utf8');
+  // Regex-based replace tolerates esbuild's varying indentation
+  // between the once() and watchMode() output paths, and between
+  // vendor and app bundles which sometimes differ by one indent step.
+  const buggy =
+    /for \(let key of __getOwnPropNames\(from\)\)\s+if \(!__hasOwnProp\.call\(to, key\) && key !== except\)\s+__defProp\(to, key, \{ get: \(\) => from\[key\], enumerable: !\(desc = __getOwnPropDesc\(from, key\)\) \|\| desc\.enumerable \}\);/;
+  const fixed =
+    '__getOwnPropNames(from).forEach(function (key) { ' +
+    'if (!__hasOwnProp.call(to, key) && key !== except) { ' +
+    'var d = __getOwnPropDesc(from, key); ' +
+    '__defProp(to, key, { get: function () { return from[key]; }, enumerable: !d || d.enumerable }); ' +
+    '} });';
+  const before = src;
+  src = src.replace(buggy, fixed);
+  if (src === before) return false;
+  writeFileSync(filePath, src);
+  return true;
+}
+
 async function once() {
   await build(vendorOpts);
-  console.log(`✓ vendor → ${vendorOut}`);
+  const vp = patchHermesForOfBug(vendorOut);
+  console.log(`✓ vendor → ${vendorOut}${vp ? ' (Hermes for-of patched)' : ''}`);
   compileVendorBytecode();
   await build(appOpts);
-  console.log(`✓ app    → ${appOut}`);
+  const ap = patchHermesForOfBug(appOut);
+  console.log(`✓ app    → ${appOut}${ap ? ' (Hermes for-of patched)' : ''}`);
 }
 
 // Discover the playground's HMR socket. Same default the C++ side
@@ -220,6 +264,7 @@ function pushBundleOverSocket(bytes) {
 async function watchMode() {
   // Vendor is built once — it doesn't depend on user code.
   await build(vendorOpts);
+  patchHermesForOfBug(vendorOut);
   console.log(`✓ vendor → ${vendorOut} (one-shot)`);
   compileVendorBytecode();
   // Wrap with timing + HMR-push hooks so we can both report rebuild
@@ -235,6 +280,10 @@ async function watchMode() {
           console.log(`[watch] rebuild failed in ${(performance.now() - start).toFixed(1)}ms`);
           return;
         }
+        // Workaround for the Hermes for-of let bug — see
+        // patchHermesForOfBug. Must run BEFORE pushing the bundle over
+        // the HMR socket or the live runtime will re-evaluate broken JS.
+        patchHermesForOfBug(appOut);
         const buildMs = (performance.now() - start).toFixed(1);
         const t1 = performance.now();
         // esbuild already wrote the bundle to disk (write: true by

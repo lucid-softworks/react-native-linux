@@ -46,6 +46,13 @@ const reactNativeMod = require('./react-native');
 const asyncStorageMod = require('./async-storage');
 const expoMod = require('./expo');
 const expoStatusBarMod = require('./expo-status-bar');
+const expoFontMod = require('./expo-font');
+const expoSplashScreenMod = require('./expo-splash-screen');
+const expoWebBrowserMod = require('./expo-web-browser');
+const expoSymbolsMod = require('./expo-symbols');
+const expoConstantsMod = require('./expo-constants');
+const expoLinkingMod = require('./expo-linking');
+const safeAreaCtxMod = require('./react-native-safe-area-context');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -61,6 +68,13 @@ globalThis.__rnv = {
   asyncStorage: asyncStorageMod,
   expo: expoMod,
   expoStatusBar: expoStatusBarMod,
+  expoFont: expoFontMod,
+  expoSplashScreen: expoSplashScreenMod,
+  expoWebBrowser: expoWebBrowserMod,
+  expoSymbols: expoSymbolsMod,
+  expoConstants: expoConstantsMod,
+  expoLinking: expoLinkingMod,
+  safeAreaContext: safeAreaCtxMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,
