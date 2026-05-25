@@ -108,15 +108,18 @@ const vendorOpts = {
   outfile: vendorOut,
 };
 
+// Override via RN_ENTRY for one-off experiments (e.g. RN_ENTRY=expo-blank.tsx).
+const appEntry = process.env.RN_ENTRY ?? 'index.tsx';
 const appOpts = {
   ...baseOpts,
-  entryPoints: [resolve(here, 'index.tsx')],
+  entryPoints: [resolve(here, appEntry)],
   outfile: appOut,
   // These resolve at runtime from globalThis.__rnv (see banner).
   external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime',
              'react-reconciler', 'react-refresh/runtime',
              'react-native',
              '@react-native-async-storage/async-storage',
+             'expo-status-bar',
              './runtime'],
   banner: {
     js:
@@ -130,6 +133,7 @@ const appOpts = {
       '  if (id === "react-refresh/runtime") return rnv.reactRefreshRuntime;\n' +
       '  if (id === "react-native") return rnv.reactNative;\n' +
       '  if (id === "@react-native-async-storage/async-storage") return rnv.asyncStorage;\n' +
+      '  if (id === "expo-status-bar") return rnv.expoStatusBar;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +

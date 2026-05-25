@@ -44,6 +44,7 @@ const componentsMod = {View, ScrollView, Image, Text, TextInput, Pressable, Butt
 // componentsMod (via the same vendor table below).
 const reactNativeMod = require('./react-native');
 const asyncStorageMod = require('./async-storage');
+const expoStatusBarMod = require('./expo-status-bar');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -57,6 +58,7 @@ globalThis.__rnv = {
   reactRefreshRuntime: RefreshRuntime,
   reactNative: reactNativeMod,
   asyncStorage: asyncStorageMod,
+  expoStatusBar: expoStatusBarMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,
