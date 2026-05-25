@@ -2,6 +2,7 @@
 #include "react-native-linux/Logging.h"
 
 #include "../views/ParagraphComponentView.h"
+#include "../views/ScrollViewComponentView.h"
 #include "../views/ViewComponentView.h"
 
 namespace rnlinux {
@@ -17,6 +18,9 @@ LinuxComponentViewRegistry::LinuxComponentViewRegistry() {
   });
   registerComponent("RawText", [](Tag) -> std::unique_ptr<LinuxComponentView> {
     return nullptr;  // RawText is data only; no widget.
+  });
+  registerComponent("ScrollView", [](Tag t) {
+    return std::make_unique<ScrollViewComponentView>(t);
   });
 }
 

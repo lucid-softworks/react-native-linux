@@ -24,6 +24,10 @@ function View(props) {
   return React.createElement('view', props, props.children);
 }
 
+function ScrollView(props) {
+  return React.createElement('scrollview', props, props.children);
+}
+
 function Text(props) {
   return React.createElement('text', props, props.children);
 }
@@ -80,4 +84,4 @@ function Button(props) {
   );
 }
 
-module.exports = {View, Text, Pressable, Button};
+module.exports = {View, ScrollView, Text, Pressable, Button};

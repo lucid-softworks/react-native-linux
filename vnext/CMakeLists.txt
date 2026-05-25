@@ -90,6 +90,7 @@ set(RNL_SOURCES
   src/jsi/RnLinuxBindings.cpp
   src/views/ViewComponentView.cpp
   src/views/ParagraphComponentView.cpp
+  src/views/ScrollViewComponentView.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -109,6 +110,7 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/platform/cxx/react/renderer/components/view/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/text/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/scrollview/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/legacyviewmanagerinterop/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/root/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/*.cpp

@@ -46,6 +46,13 @@ class LinuxComponentView {
   virtual void mountChild(LinuxComponentView& child, int index);
   virtual void unmountChild(LinuxComponentView& child, int index);
 
+  // Hook fired once per mounting transaction, AFTER every Create /
+  // Insert / Update / Remove + applyLayout pass. Component views that
+  // need to react to the final state of their subtree (e.g.
+  // ScrollViewComponentView measuring its content bounding box) hang
+  // logic here.
+  virtual void postLayoutPass() {}
+
  protected:
   Tag tag_;
   GtkWidget* widget_ = nullptr;  // Owned by GTK; set by subclass constructor.

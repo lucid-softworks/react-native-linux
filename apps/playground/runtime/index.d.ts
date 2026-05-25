@@ -67,7 +67,14 @@ export interface ButtonProps extends Omit<PressableProps, 'children'> {
   fontWeight?: TextProps['fontWeight'];
 }
 
+export interface ScrollViewProps extends ViewProps {
+  horizontal?: boolean;
+  showsHorizontalScrollIndicator?: boolean;
+  showsVerticalScrollIndicator?: boolean;
+}
+
 export const View: (props: ViewProps) => JSX.Element;
+export const ScrollView: (props: ScrollViewProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
 export const Pressable: (props: PressableProps) => JSX.Element;
 export const Button: (props: ButtonProps) => JSX.Element;

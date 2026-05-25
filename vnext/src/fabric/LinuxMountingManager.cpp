@@ -56,6 +56,16 @@ void LinuxMountingManager::performTransaction(
         break;
     }
   }
+
+  // Now that every Create/Insert/Update has run and every view has its
+  // post-layout position+size set, give component views a chance to
+  // observe the final state of their subtree. ScrollView uses this to
+  // size its inner GtkFixed to the children's bounding box — it can't
+  // do that during the per-mutation pass because children are inserted
+  // AFTER their parent receives applyLayout.
+  for (const auto& [tag, view] : registry_.views()) {
+    view->postLayoutPass();
+  }
 }
 
 void LinuxMountingManager::handleCreate(
