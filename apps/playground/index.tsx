@@ -151,6 +151,7 @@ function ModulesScreen(): JSX.Element {
       </View>
       <ClipboardDemo />
       <AlertDemo />
+      <CrashDemo />
 
       <Text style={styles.h1}>Refs &amp; measure</Text>
       <View ref={measuredRef as React.Ref<View>} style={styles.row}>
@@ -263,6 +264,25 @@ function ClipboardDemo() {
         <Text style={styles.btnText}>getString</Text>
       </Pressable>
       <Text style={styles.rowVal}>{last}</Text>
+    </View>
+  );
+}
+
+function CrashDemo() {
+  const [boom, setBoom] = useState(false);
+  if (boom) {
+    throw new Error(
+      'Demo crash: the ErrorBoundary wraps the app at the runtime layer (runtime/errorOverlay.js) so JS exceptions during render land here instead of a blank window.',
+    );
+  }
+  return (
+    <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>
+      <Pressable
+        style={[styles.linkBtn, {backgroundColor: '#dc2626'}]}
+        onPress={() => setBoom(true)}>
+        <Text style={styles.linkBtnText}>Throw a render error (LogBox)</Text>
+      </Pressable>
+      <Text style={styles.rowVal}>Reload (Ctrl+R) recovers</Text>
     </View>
   );
 }

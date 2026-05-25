@@ -44,6 +44,12 @@ void installRnLinuxBindings(facebook::jsi::Runtime& rt, GtkWidget* rootView);
 // already a heavy include site).
 void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int tag)> lookup);
 
+// Plumbs the host's reload() entry point so JS can trigger a
+// state-preserving reload via rnLinux.reloadApp (e.g. the LogBox
+// overlay's "Reload" button). Set once from RNLinuxApplication after
+// the host is constructed.
+void setReloadCallbackForJsi(std::function<void()> reload);
+
 // Maintains a global nativeId-string → widget map for the Animated
 // native driver. ViewComponentView calls these from its updateProps as
 // the View's nativeID prop changes. JS-side animated.js generates

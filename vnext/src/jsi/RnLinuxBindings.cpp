@@ -73,6 +73,11 @@ struct State {
   // through React/Fabric on every frame.
   std::function<GtkWidget*(int)> fabricLookup;
 
+  // Reload trigger — host wires its reload() in via
+  // setReloadCallbackForJsi. JS can hit it via rnLinux.reloadApp
+  // (the LogBox overlay's Reload button uses this).
+  std::function<void()> reload;
+
   // nativeID-string → widget map for the Animated native-driver path.
   // Populated by ViewComponentView::updateProps when JS sets a
   // `nativeID` prop; consumed by rnLinux.setNativeProp(stringId, …).
@@ -162,6 +167,10 @@ void dispatchFabricClick(int tag) {
 
 void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int)> lookup) {
   state().fabricLookup = std::move(lookup);
+}
+
+void setReloadCallbackForJsi(std::function<void()> reload) {
+  state().reload = std::move(reload);
 }
 
 void registerAnimWidget(const std::string& nativeId, GtkWidget* widget) {
@@ -1231,6 +1240,21 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         g_object_unref(dialog);
         return jsi::Value::undefined();
       });
+
+  // JS-callable reload. Same path Ctrl+R takes from the GTK side —
+  // re-evaluate the bundle in the live Hermes runtime so Fast Refresh
+  // keeps state. The LogBox overlay's Reload button hits this.
+  bindMethod(rt,
+             rnLinux,
+             "reloadApp",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               const auto& s = state();
+               if (s.reload) {
+                 s.reload();
+               }
+               return jsi::Value::undefined();
+             });
 
   rt.global().setProperty(rt, "rnLinux", rnLinux);
   RNL_LOGI("rnLinux") << "JSI bindings installed";

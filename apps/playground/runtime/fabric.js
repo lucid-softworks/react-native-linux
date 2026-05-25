@@ -18,9 +18,11 @@
 //     so component identities the babel transform registered against
 //     stable IDs map back to the still-mounted instances.
 
+const React = require('react');
 const Reconciler = require('react-reconciler');
 const RefreshRuntime = require('react-refresh/runtime');
 const {hostConfig, setSurfaceContext} = require('./fabricHostConfig');
+const {ErrorBoundary} = require('./errorOverlay');
 
 const reconciler = Reconciler(hostConfig);
 
@@ -64,7 +66,10 @@ function tryMount() {
       /* onRecoverableError */ err => rnLinux.log('warn', String(err)),
       /* transitionCallbacks */ null,
     );
-    const elementToCommit = pendingElement;
+    // Wrap the user's tree in an ErrorBoundary so JS exceptions during
+    // render / commit / lifecycle land on an in-window RedBox instead
+    // of leaving the user staring at a blank surface.
+    const elementToCommit = React.createElement(ErrorBoundary, null, pendingElement);
     pendingElement = null;
     reconciler.updateContainer(elementToCommit, root, null, () => {
       rnLinux.log('info', '[fabric-render] JSX commit done (cold)');

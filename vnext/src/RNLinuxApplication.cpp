@@ -274,6 +274,15 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
   impl->host->setBeforeBundleEvalHook(
       [rootForJs](facebook::jsi::Runtime& rt) { installRnLinuxBindings(rt, rootForJs); });
 
+  // Let JS trigger a host reload (LogBox overlay → rnLinux.reloadApp).
+  {
+    RNLinuxHost* hostPtr = impl->host.get();
+    setReloadCallbackForJsi([hostPtr] {
+      if (hostPtr)
+        hostPtr->reload();
+    });
+  }
+
   impl->host->start();
 
   // Phase 5.3: register a real Fabric SurfaceHandler with the Scheduler.
