@@ -198,7 +198,24 @@ const hostConfig = {
   detachDeletedInstance: noop,
   clearContainer: noop,
 
-  createInstance(type, props) {
+  // The 5th arg to `currentFabric.createNode` is the *instanceHandle*
+  // — RN's UIManagerBinding wraps it in a `jsi::WeakObject` and ties
+  // the ShadowNode's lifetime to it (it's how getNodeFromInstanceHandle
+  // resolves a fiber back to a ShadowNode, and how getPublicInstance /
+  // measure / focus / ref-attach all find their target on iOS/Android).
+  //
+  // Pre-fix we were passing `{}` here, expecting it to be `state`. RN's
+  // signature is `createNode(tag, name, surfaceId, props, instanceHandle)`
+  // — there's no separate `state` arg. The empty object got GC'd as
+  // soon as createNode returned; with no ref the dangling WeakObject
+  // was harmless, but the moment React tried to attach a ref the
+  // commit phase walked the InstanceHandle, dereferenced the dead
+  // weak object, and propagated an exception out of UIManager::startSurface.
+  //
+  // Passing the reconciler's `internalInstanceHandle` (the fiber) keeps
+  // it alive for the lifetime of the shadow node and matches the iOS/
+  // Android contract.
+  createInstance(type, props, _rootContainerInstance, _hostContext, internalInstanceHandle) {
     if (type === 'view') {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
@@ -206,7 +223,7 @@ const hostConfig = {
         'View',
         currentSurfaceId,
         buildFabricProps(type, props),
-        {},
+        internalInstanceHandle,
       );
       syncClickHandler(tag, props);
       return {tag, fabricNode, componentName: 'View', type};
@@ -219,7 +236,7 @@ const hostConfig = {
         'ScrollView',
         currentSurfaceId,
         buildFabricProps(type, props),
-        {},
+        internalInstanceHandle,
       );
       syncScrollHandler(tag, props);
       return {tag, fabricNode, componentName: 'ScrollView', type};
@@ -232,7 +249,7 @@ const hostConfig = {
         'Image',
         currentSurfaceId,
         buildFabricProps(type, props),
-        {},
+        internalInstanceHandle,
       );
       return {tag, fabricNode, componentName: 'Image', type};
     }
@@ -244,7 +261,7 @@ const hostConfig = {
         'TextInput',
         currentSurfaceId,
         buildFabricProps(type, props),
-        {},
+        internalInstanceHandle,
       );
       syncChangeTextHandler(tag, props);
       return {tag, fabricNode, componentName: 'TextInput', type};
@@ -256,18 +273,13 @@ const hostConfig = {
       // ParagraphProps inherits BaseTextProps, so top-level `color`,
       // `fontSize`, `fontWeight`, … parse into its textAttributes and
       // propagate to every fragment built from descendants.
-      // (We tried injecting an intermediate Text wrapper to allow
-      // mixed-style runs but Fabric collapsed both nodes into
-      // Paragraph creates in the mutation stream, breaking the
-      // AttributedString builder. Per-fragment styling can come back
-      // later as a real nested-<Text> story.)
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
         tag,
         'Paragraph',
         currentSurfaceId,
         buildFabricProps('text', props),
-        {},
+        internalInstanceHandle,
       );
       return {tag, fabricNode, componentName: 'Paragraph', type};
     }
@@ -275,9 +287,15 @@ const hostConfig = {
     throw new Error('Unknown host element: <' + type + '>');
   },
 
-  createTextInstance(text) {
+  createTextInstance(text, _rootContainerInstance, _hostContext, internalInstanceHandle) {
     const tag = newTag();
-    const fabricNode = currentFabric.createNode(tag, 'RawText', currentSurfaceId, {text}, {});
+    const fabricNode = currentFabric.createNode(
+      tag,
+      'RawText',
+      currentSurfaceId,
+      {text},
+      internalInstanceHandle,
+    );
     return {tag, fabricNode, componentName: 'RawText', type: 'rawtext'};
   },
 

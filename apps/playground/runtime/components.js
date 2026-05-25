@@ -20,48 +20,54 @@
 
 const React = require('react');
 
-function View(props) {
-  return React.createElement('view', props, props.children);
-}
+// Wrap every host-tag-emitting component in React.forwardRef so apps
+// can do `<View ref={r}>` and get the underlying host instance via
+// commitAttachRef → getPublicInstance. Without forwardRef the ref
+// would silently dead-end on the function component itself (React
+// logs a DEV warning and ref.current stays null).
+const View = React.forwardRef(function View(props, ref) {
+  return React.createElement('view', {...props, ref}, props.children);
+});
 
-function ScrollView(props) {
-  return React.createElement('scrollview', props, props.children);
-}
+const ScrollView = React.forwardRef(function ScrollView(props, ref) {
+  return React.createElement('scrollview', {...props, ref}, props.children);
+});
 
 // <Image source={{uri: 'file:///path/to/img.png'}} resizeMode="cover" />
 // RN's ImageProps parser reads the `source` prop into its internal
 // `sources` vector — it accepts either a single {uri,…} object or an
 // array of them (multi-density). Pass through unchanged.
-function Image(props) {
-  return React.createElement('image', props);
-}
+const Image = React.forwardRef(function Image(props, ref) {
+  return React.createElement('image', {...props, ref});
+});
 
 // <TextInput value="..." onChangeText={fn} placeholder="..."> — RN's
 // value prop maps to BaseTextInputProps.text (we rename here). The
 // onChangeText callback is stripped and registered via
 // rnLinux.fabricOnChangeText in the host config; the C++ component
 // view dispatches into it on every GtkText "changed" signal.
-function TextInput(props) {
+const TextInput = React.forwardRef(function TextInput(props, ref) {
   const {value, onChangeText, ...rest} = props;
   return React.createElement('textinput', {
     ...rest,
+    ref,
     text: value,
     onChangeText,
   });
-}
+});
 
-function Text(props) {
-  return React.createElement('text', props, props.children);
-}
+const Text = React.forwardRef(function Text(props, ref) {
+  return React.createElement('text', {...props, ref}, props.children);
+});
 
 // <Pressable onPress={fn}> — a clickable View. We expose `onPress` as
 // the public surface (matches react-native's API) and translate to
 // `onClick` on the underlying host tag, which is what the Fabric
 // host config registers with the C++ side.
-function Pressable(props) {
+const Pressable = React.forwardRef(function Pressable(props, ref) {
   const {onPress, ...rest} = props;
-  return React.createElement('view', {...rest, onClick: onPress}, props.children);
-}
+  return React.createElement('view', {...rest, ref, onClick: onPress}, props.children);
+});
 
 // <Button title="..." onPress={fn}> — a Pressable with a centered
 // Text label. Convenience for the common "tap target with words"

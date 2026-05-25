@@ -1,13 +1,66 @@
 'use strict';
 
 // Minimal browser-API shims so React + react-reconciler can run on
-// Hermes. Hermes ships Promise + console + globalThis; everything below
-// is what React's scheduler reaches for that Hermes doesn't provide.
-// Real timer plumbing tied to the GTK main loop lands in Phase 5.8.
+// Hermes. Hermes ships Promise + globalThis but our embedding does
+// NOT install console (that's a host-side opt-in). Everything below is
+// what React's scheduler / dev warnings reach for that Hermes doesn't
+// provide. Real timer plumbing tied to the GTK main loop lands in
+// Phase 5.8.
+//
+// console is critical: React's DEV warnings (e.g. "Function components
+// cannot be given refs") go through console.error, and an uncaught
+// ReferenceError there throws out of UIManager::startSurface as a JSI
+// exception. The unwind crosses a noexcept destructor and the process
+// terminates — so console must be installed before any React code runs.
+if (typeof globalThis.console === 'undefined') {
+  const make =
+    level =>
+    (...args) => {
+      let s = '';
+      for (let i = 0; i < args.length; i++) {
+        if (i > 0) s += ' ';
+        const a = args[i];
+        s +=
+          typeof a === 'string'
+            ? a
+            : (() => {
+                try {
+                  return JSON.stringify(a);
+                } catch {
+                  return String(a);
+                }
+              })();
+      }
+      rnLinux.log(level, s);
+    };
+  globalThis.console = {
+    log: make('info'),
+    info: make('info'),
+    warn: make('warn'),
+    error: make('error'),
+    debug: make('debug'),
+    trace: make('debug'),
+    // Stub the rest so library code that does `console.group(...)`
+    // doesn't throw ReferenceError on property access.
+    group: () => {},
+    groupCollapsed: () => {},
+    groupEnd: () => {},
+    table: () => {},
+    time: () => {},
+    timeEnd: () => {},
+    timeLog: () => {},
+    count: () => {},
+    countReset: () => {},
+    dir: () => {},
+    dirxml: () => {},
+    assert: () => {},
+    clear: () => {},
+  };
+}
 
 if (typeof globalThis.queueMicrotask === 'undefined') {
   const resolved = Promise.resolve();
-  globalThis.queueMicrotask = (fn) => {
+  globalThis.queueMicrotask = fn => {
     resolved.then(() => {
       try {
         fn();
@@ -54,7 +107,7 @@ if (typeof globalThis.setTimeout === 'undefined') {
     });
     return id;
   };
-  globalThis.clearTimeout = (id) => _timers.delete(id);
+  globalThis.clearTimeout = id => _timers.delete(id);
 }
 if (typeof globalThis.setInterval === 'undefined') {
   // Real GTK-driven interval (g_timeout_add wired up in
@@ -62,18 +115,18 @@ if (typeof globalThis.setInterval === 'undefined') {
   // each callback so any setState queued inside fires its commit
   // before the next interval tick.
   globalThis.setInterval = (fn, ms) => rnLinux.setInterval(fn, ms | 0);
-  globalThis.clearInterval = (id) => rnLinux.clearInterval(id);
+  globalThis.clearInterval = id => rnLinux.clearInterval(id);
 }
 if (typeof globalThis.requestAnimationFrame === 'undefined') {
   // ~60fps via g_timeout_add(16, ...). Callback receives a high-res
   // ms timestamp (RN/web convention). Real GdkFrameClock-driven
   // vsync lands in a follow-up.
-  globalThis.requestAnimationFrame = (fn) => rnLinux.requestAnimationFrame(fn);
-  globalThis.cancelAnimationFrame = (id) => rnLinux.cancelAnimationFrame(id);
+  globalThis.requestAnimationFrame = fn => rnLinux.requestAnimationFrame(fn);
+  globalThis.cancelAnimationFrame = id => rnLinux.cancelAnimationFrame(id);
 }
 if (typeof globalThis.setImmediate === 'undefined') {
   globalThis.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
-  globalThis.clearImmediate = (id) => clearTimeout(id);
+  globalThis.clearImmediate = id => clearTimeout(id);
 }
 if (typeof globalThis.performance === 'undefined') {
   globalThis.performance = {now: () => Date.now()};
