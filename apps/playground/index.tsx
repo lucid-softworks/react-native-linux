@@ -102,6 +102,30 @@ function ModulesScreen(): JSX.Element {
         v={String(Constants.platform?.linux?.userAgent ?? '—')}
       />
       <Row k="expo-symbols" v={'★ ⌂ → ⌕ ⚙'} />
+
+      <Text style={styles.h1}>Text overflow</Text>
+      <View style={styles.row}>
+        <Text style={styles.rowKey}>numberOfLines=1 ellipsizeMode=tail</Text>
+        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.rowVal}>
+          This is a very long single-line string that the Paragraph should truncate with an ellipsis
+          at the tail because the row width is bounded.
+        </Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.rowKey}>numberOfLines=2 ellipsizeMode=tail</Text>
+        <Text numberOfLines={2} ellipsizeMode="tail" style={styles.rowVal}>
+          Lines beyond the second should disappear behind an ellipsis. This paragraph is
+          intentionally long to spill across the 2-line limit and give the Paragraph something
+          visible to clip — multiple sentences, various word lengths, just to make the wrap behavior
+          unambiguous.
+        </Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.rowKey}>numberOfLines=1 ellipsizeMode=middle</Text>
+        <Text numberOfLines={1} ellipsizeMode="middle" style={styles.rowVal}>
+          /home/luna/projects/react-native-linux/apps/playground/linux/build/assets/index.linux.bundle
+        </Text>
+      </View>
     </ScrollView>
   );
 }
