@@ -182,6 +182,49 @@ export interface ModalProps {
 }
 export const Modal: (props: ModalProps) => JSX.Element | null;
 
+// Tiny Animated surface — covers the JS-driver subset (Value,
+// timing, sequence, parallel, loop, interpolate, Animated.View etc.).
+// No native driver; useNativeDriver is silently ignored.
+export interface AnimatedValue {
+  setValue(v: number): void;
+  __getValue(): number;
+  addListener(cb: (s: {value: number}) => void): string;
+  removeListener(id: string): void;
+  interpolate(config: {
+    inputRange: readonly number[];
+    outputRange: readonly (number | string)[];
+    extrapolate?: 'extend' | 'clamp' | 'identity';
+  }): AnimatedValue;
+}
+export interface AnimatedHandle {
+  start(cb?: (r: {finished: boolean}) => void): void;
+  stop(): void;
+}
+export const Animated: {
+  Value: new (initial?: number) => AnimatedValue;
+  View: (props: ViewProps) => JSX.Element;
+  Text: (props: TextProps) => JSX.Element;
+  Image: (props: ImageProps) => JSX.Element;
+  ScrollView: (props: ScrollViewProps) => JSX.Element;
+  createAnimatedComponent<P>(c: (p: P) => JSX.Element): (p: P) => JSX.Element;
+  timing(value: AnimatedValue, config: {
+    toValue: number;
+    duration?: number;
+    easing?: (t: number) => number;
+    useNativeDriver?: boolean;
+  }): AnimatedHandle;
+  sequence(anims: AnimatedHandle[]): AnimatedHandle;
+  parallel(anims: AnimatedHandle[]): AnimatedHandle;
+  loop(anim: AnimatedHandle, opts?: {iterations?: number}): AnimatedHandle;
+};
+export const Easing: {
+  linear: (t: number) => number;
+  ease: (t: number) => number;
+  in: (t: number) => number;
+  out: (t: number) => number;
+  inOut: (t: number) => number;
+};
+
 // renderFabric mounts a React element into the Fabric surface that
 // C++ opens. Subsequent calls (from re-eval'd app bundles) feed
 // Fast Refresh — see runtime/fabric.js.

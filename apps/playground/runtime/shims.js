@@ -64,6 +64,13 @@ if (typeof globalThis.setInterval === 'undefined') {
   globalThis.setInterval = (fn, ms) => rnLinux.setInterval(fn, ms | 0);
   globalThis.clearInterval = (id) => rnLinux.clearInterval(id);
 }
+if (typeof globalThis.requestAnimationFrame === 'undefined') {
+  // ~60fps via g_timeout_add(16, ...). Callback receives a high-res
+  // ms timestamp (RN/web convention). Real GdkFrameClock-driven
+  // vsync lands in a follow-up.
+  globalThis.requestAnimationFrame = (fn) => rnLinux.requestAnimationFrame(fn);
+  globalThis.cancelAnimationFrame = (id) => rnLinux.cancelAnimationFrame(id);
+}
 if (typeof globalThis.setImmediate === 'undefined') {
   globalThis.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
   globalThis.clearImmediate = (id) => clearTimeout(id);

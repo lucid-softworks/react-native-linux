@@ -1,11 +1,12 @@
 // react-native-linux playground. Imports come from 'react-native'
 // the same way an iOS/Android app does.
 
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {
   StyleSheet,
   View, ScrollView, Image, Text, TextInput, Pressable, Button,
   FlatList, Modal,
+  Animated, Easing,
   Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -106,6 +107,23 @@ function App(): JSX.Element {
     return () => clearInterval(id);
   }, []);
 
+  // Animated demo — a value that loops 0 → 1 → 0, driving an
+  // indicator pip's opacity and horizontal slide.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {toValue: 1, duration: 1100,
+                                easing: Easing.inOut}),
+        Animated.timing(pulse, {toValue: 0, duration: 1100,
+                                easing: Easing.inOut}),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+  const slideX = pulse.interpolate({inputRange: [0, 1], outputRange: [0, 80]});
+
   return (
     <View style={styles.app}>
       <Text style={styles.title}>
@@ -165,6 +183,20 @@ function App(): JSX.Element {
             <Text style={styles.cardLabel}>useEffect ticker</Text>
             <Text style={[styles.cardValue, {color: palette.accent}]}>{tick}</Text>
           </View>
+
+          {/* Animated pip — opacity + left both driven by `pulse`. */}
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Animated.loop · 1.1s in/out</Text>
+            <View style={{height: 28, marginTop: 10, width: 120}}>
+              <Animated.View style={{
+                position: 'absolute',
+                width: 40, height: 28, borderRadius: 14,
+                backgroundColor: palette.accent,
+                opacity: pulse, left: slideX,
+              }} />
+            </View>
+          </View>
+
         </View>
 
         {/* Right column — FlatList */}

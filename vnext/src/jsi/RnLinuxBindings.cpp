@@ -363,6 +363,63 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
     return jsi::Value::undefined();
   });
 
+  // requestAnimationFrame backed by g_timeout_add at ~60fps. Real RN
+  // schedules these on the platform's native compositor vsync; we'd
+  // wire to GdkFrameClock for that, but a 16ms tick is fine for the
+  // playground demo work.
+  bindMethod(rt, rnLinux, "requestAnimationFrame", 1,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 1) return jsi::Value::undefined();
+    auto fn = std::make_shared<jsi::Function>(
+        args[0].asObject(rt).asFunction(rt));
+    int handlerId = state().nextTimerId++;
+    // One-shot — return G_SOURCE_REMOVE inside the callback.
+    guint sourceId = g_timeout_add(16,
+        +[](gpointer ud) -> gboolean {
+          int hid = GPOINTER_TO_INT(ud);
+          auto it = state().timerHandlers.find(hid);
+          if (it == state().timerHandlers.end() || !state().runtime) {
+            return G_SOURCE_REMOVE;
+          }
+          auto fn = it->second.second;
+          // Pull the entry out of the map BEFORE calling — apps
+          // commonly schedule the next rAF from inside the callback
+          // and the new id reuses the slot if we leave it stale.
+          state().timerHandlers.erase(it);
+          try {
+            // rAF fires the callback with a high-res timestamp in
+            // milliseconds — RN/web convention. We compute from
+            // GLib's monotonic time so consecutive rAFs see a
+            // strictly-monotonic clock.
+            const double tMs = g_get_monotonic_time() / 1000.0;
+            fn->call(*state().runtime, jsi::Value{tMs});
+            state().runtime->drainMicrotasks();
+          } catch (const jsi::JSError& e) {
+            RNL_LOGE("rnLinux") << "rAF threw: " << e.getMessage();
+          } catch (const std::exception& e) {
+            RNL_LOGE("rnLinux") << "rAF threw: " << e.what();
+          }
+          return G_SOURCE_REMOVE;
+        },
+        GINT_TO_POINTER(handlerId));
+    state().timerHandlers[handlerId] = {sourceId, std::move(fn)};
+    return jsi::Value{handlerId};
+  });
+
+  bindMethod(rt, rnLinux, "cancelAnimationFrame", 1,
+      [](jsi::Runtime& /*rt*/, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 1) return jsi::Value::undefined();
+    int handlerId = static_cast<int>(args[0].asNumber());
+    auto it = state().timerHandlers.find(handlerId);
+    if (it != state().timerHandlers.end()) {
+      g_source_remove(it->second.first);
+      state().timerHandlers.erase(it);
+    }
+    return jsi::Value::undefined();
+  });
+
   // Real timers backed by g_timeout_add. JS+GTK share a thread today,
   // so the GTK source callback can call into the runtime directly.
   // setInterval returns a JS-visible handler id; clearInterval removes

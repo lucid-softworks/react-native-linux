@@ -17,6 +17,7 @@ const {View, ScrollView, Image, Text, TextInput, Pressable, Button} =
 const StyleSheet = require('./stylesheet');
 const {FlatList} = require('./flatlist');
 const {Modal} = require('./modal');
+const {Animated, Easing} = require('./animated');
 
 const Platform = {
   OS: 'linux',
@@ -64,6 +65,8 @@ module.exports = {
   // Components
   View, ScrollView, Image, Text, TextInput, Pressable, Button,
   FlatList, Modal,
+  // Animated
+  Animated, Easing,
   // Layout helper
   StyleSheet,
   // Platform globals
