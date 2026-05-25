@@ -93,6 +93,14 @@ const Linking = {
   addEventListener: () => ({remove: () => {}}),
 };
 
+// SafeAreaView from 'react-native' itself (vs. react-native-safe-area-context).
+// RN deprecated it on iOS in favour of the community module, but apps still
+// import it. Desktop GTK windows have no notch/inset, so the whole client
+// area is "safe" — passthrough View. Ref forwards so libraries can measure.
+const SafeAreaView = React.forwardRef(function SafeAreaView(props, ref) {
+  return React.createElement(View, {...props, ref}, props.children);
+});
+
 module.exports = {
   // Components
   View,
@@ -104,6 +112,7 @@ module.exports = {
   Button,
   FlatList,
   Modal,
+  SafeAreaView,
   // Animated
   Animated,
   Easing,
