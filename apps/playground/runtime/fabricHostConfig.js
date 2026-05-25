@@ -134,6 +134,7 @@ function buildFabricProps(type, props) {
     if (k === 'onClick' || k === 'style') continue;
     if (k === 'onChangeText') continue;
     if (k === 'onScroll') continue;
+    if (k === 'onSubmitEditing' || k === 'onKeyPress') continue;
     out[k] = props[k];
   }
   // Style merges in after direct props so it wins (RN precedence).
@@ -170,6 +171,26 @@ function syncScrollHandler(tag, props) {
 function syncSwitchHandler(tag, props) {
   const handler = props && typeof props.onValueChange === 'function' ? props.onValueChange : null;
   rnLinux.fabricOnSwitchChange(tag, handler);
+}
+
+function syncSubmitEditingHandler(tag, props) {
+  const handler =
+    props && typeof props.onSubmitEditing === 'function' ? props.onSubmitEditing : null;
+  rnLinux.fabricOnSubmitEditing(tag, handler);
+}
+
+// onKeyPress is fired with a raw `key` string. We wrap into the
+// RN-shaped {nativeEvent: {key}} object so userland code that reads
+// `e.nativeEvent.key` works unchanged.
+function syncKeyPressHandler(tag, props) {
+  const user = props && typeof props.onKeyPress === 'function' ? props.onKeyPress : null;
+  if (!user) {
+    rnLinux.fabricOnKeyPress(tag, null);
+    return;
+  }
+  rnLinux.fabricOnKeyPress(tag, key => {
+    user({nativeEvent: {key}});
+  });
 }
 
 // Build the object react-reconciler sees as a host instance. Apps get
@@ -327,6 +348,8 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncChangeTextHandler(tag, props);
+      syncSubmitEditingHandler(tag, props);
+      syncKeyPressHandler(tag, props);
       return makeInstance(tag, fabricNode, 'TextInput', type);
     }
 
@@ -439,7 +462,11 @@ const hostConfig = {
     // renders, so we keep the C++ registry pointing at the freshest
     // closure.
     if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
-    if (type === 'textinput') syncChangeTextHandler(currentInstance.tag, newProps);
+    if (type === 'textinput') {
+      syncChangeTextHandler(currentInstance.tag, newProps);
+      syncSubmitEditingHandler(currentInstance.tag, newProps);
+      syncKeyPressHandler(currentInstance.tag, newProps);
+    }
     if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
     if (type === 'switch') syncSwitchHandler(currentInstance.tag, newProps);
     return makeInstance(currentInstance.tag, fabricNode, currentInstance.componentName, type);

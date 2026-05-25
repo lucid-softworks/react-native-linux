@@ -61,6 +61,12 @@ struct State {
   // notify::active and routes through dispatchFabricSwitchChange.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricSwitchHandlers;
 
+  // TextInput Enter-pressed (onSubmitEditing) handlers.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricSubmitEditingHandlers;
+
+  // TextInput per-keystroke (onKeyPress) handlers.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricKeyPressHandlers;
+
   // Active intervals/timers. `handlerId → (sourceId, fn)`. We keep the
   // jsi::Function alive here so the GTK source can call back into JS
   // safely; resetRnLinuxBindings drops these on reload so dangling
@@ -138,6 +144,8 @@ void resetRnLinuxBindings() {
   state().fabricClickHandlers.clear();
   state().fabricChangeTextHandlers.clear();
   state().fabricSwitchHandlers.clear();
+  state().fabricSubmitEditingHandlers.clear();
+  state().fabricKeyPressHandlers.clear();
   state().fabricScrollHandlers.clear();
   state().nodes.clear();
   state().nextId = 1;
@@ -199,6 +207,36 @@ void dispatchFabricChangeText(int tag, const std::string& text) {
     RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.getMessage();
   } catch (const std::exception& e) {
     RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricSubmitEditing(int tag) {
+  auto& s = state();
+  if (!s.runtime)
+    return;
+  auto it = s.fabricSubmitEditingHandlers.find(tag);
+  if (it == s.fabricSubmitEditingHandlers.end())
+    return;
+  try {
+    it->second->call(*s.runtime);
+    s.runtime->drainMicrotasks();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric submitEditing handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricKeyPress(int tag, const std::string& key) {
+  auto& s = state();
+  if (!s.runtime)
+    return;
+  auto it = s.fabricKeyPressHandlers.find(tag);
+  if (it == s.fabricKeyPressHandlers.end())
+    return;
+  try {
+    it->second->call(*s.runtime, jsi::String::createFromUtf8(*s.runtime, key));
+    s.runtime->drainMicrotasks();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric keyPress handler threw: " << e.what();
   }
 }
 
@@ -869,6 +907,44 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           return jsi::Value::undefined();
         }
         state().fabricChangeTextHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // TextInput "activate" (Enter) → JS onSubmitEditing.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnSubmitEditing",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricSubmitEditingHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricSubmitEditingHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // TextInput key-press → JS onKeyPress.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnKeyPress",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricKeyPressHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricKeyPressHandlers[tag] =
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });

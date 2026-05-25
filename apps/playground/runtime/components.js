@@ -47,12 +47,14 @@ const Image = React.forwardRef(function Image(props, ref) {
 // rnLinux.fabricOnChangeText in the host config; the C++ component
 // view dispatches into it on every GtkText "changed" signal.
 const TextInput = React.forwardRef(function TextInput(props, ref) {
-  const {value, onChangeText, ...rest} = props;
+  const {value, onChangeText, onSubmitEditing, onKeyPress, ...rest} = props;
   return React.createElement('textinput', {
     ...rest,
     ref,
     text: value,
     onChangeText,
+    onSubmitEditing,
+    onKeyPress,
   });
 });
 

@@ -78,6 +78,15 @@ void dispatchFabricClick(int tag);
 // `rnLinux.fabricOnChangeText(tag, fn)`.
 void dispatchFabricChangeText(int tag, const std::string& text);
 
+// TextInput "activate" (Enter pressed). No payload — the JS handler
+// is registered via `rnLinux.fabricOnSubmitEditing(tag, fn)`.
+void dispatchFabricSubmitEditing(int tag);
+
+// TextInput key-pressed events. Sends an RN-shaped {key} string —
+// special keys ("Enter", "ArrowLeft", etc.) or the UTF-8 character.
+// Handler registered via `rnLinux.fabricOnKeyPress(tag, fn)`.
+void dispatchFabricKeyPress(int tag, const std::string& key);
+
 // Same shape, for GtkSwitch active-state changes. The bool is passed
 // as the first argument to the JS handler registered via
 // `rnLinux.fabricOnSwitchChange(tag, fn)`.
