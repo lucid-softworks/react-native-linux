@@ -42,7 +42,7 @@ function tryMount() {
   if (pendingElement === null) return;
   const fabric = globalThis.nativeFabricUIManager;
   const surfaceId = globalThis.__rnFabricSurfaceId;
-  if (!fabric || !surfaceId) return;  // pre-runApplication; wait
+  if (!fabric || !surfaceId) return; // pre-runApplication; wait
 
   setSurfaceContext(fabric, surfaceId);
 
@@ -59,9 +59,9 @@ function tryMount() {
       /* isStrictMode */ false,
       /* concurrentUpdatesByDefault */ null,
       /* identifierPrefix */ '',
-      /* onUncaughtError */ (err) => rnLinux.log('error', String(err)),
-      /* onCaughtError */ (err) => rnLinux.log('error', String(err)),
-      /* onRecoverableError */ (err) => rnLinux.log('warn', String(err)),
+      /* onUncaughtError */ err => rnLinux.log('error', String(err)),
+      /* onCaughtError */ err => rnLinux.log('error', String(err)),
+      /* onRecoverableError */ err => rnLinux.log('warn', String(err)),
       /* transitionCallbacks */ null,
     );
     const elementToCommit = pendingElement;
@@ -69,7 +69,12 @@ function tryMount() {
     reconciler.updateContainer(elementToCommit, root, null, () => {
       rnLinux.log('info', '[fabric-render] JSX commit done (cold)');
     });
-    RefreshRuntime.performReactRefresh();
+    // Cold mount: no families exist to "refresh" — the very first
+    // render IS their initial mount. Calling performReactRefresh here
+    // can stall on complex trees (we hit a 100% CPU spin in
+    // RefreshRuntime.scheduleRoot for the rich demo + Tabs combo).
+    // Hot reloads still run performReactRefresh below via the second
+    // tryMount path; the on-mount call is gratuitous.
     return;
   }
 
@@ -88,8 +93,14 @@ function tryMount() {
   pendingElement = null;
   const refreshed = RefreshRuntime.performReactRefresh();
   if (refreshed) {
-    rnLinux.log('info', '[fast-refresh] ' + refreshed.updatedFamilies.size +
-      ' families refreshed, ' + refreshed.staleFamilies.size + ' stale');
+    rnLinux.log(
+      'info',
+      '[fast-refresh] ' +
+        refreshed.updatedFamilies.size +
+        ' families refreshed, ' +
+        refreshed.staleFamilies.size +
+        ' stale',
+    );
   }
 }
 
@@ -105,9 +116,10 @@ function renderFabric(element) {
 
 function runApplication(moduleName, parameters, _displayMode) {
   globalThis.__rnFabricSurfaceId = parameters.rootTag;
-  rnLinux.log('info',
-    '[fabric-render] runApplication module=' + moduleName +
-    ' surface=' + parameters.rootTag);
+  rnLinux.log(
+    'info',
+    '[fabric-render] runApplication module=' + moduleName + ' surface=' + parameters.rootTag,
+  );
   tryMount();
 }
 

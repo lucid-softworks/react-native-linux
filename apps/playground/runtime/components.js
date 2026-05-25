@@ -63,16 +63,29 @@ const TextInput = React.forwardRef(function TextInput(props, ref) {
 // TextAttributes to the ancestor Paragraph's AttributedString). That
 // lets `<Text>foo <Text style={{color:'red'}}>bar</Text></Text>`
 // produce two fragments with distinct styling instead of collapsing.
+//
+// We avoid wrapping every Text in a Provider — even with a stable
+// `true` value, the extra fiber in a deep tree compounds. Instead the
+// outer Text branches once on whether it's the root, and only emits
+// the Provider when it actually has children that might be Texts.
 const InTextContext = React.createContext(false);
 
 const Text = React.forwardRef(function Text(props, ref) {
   const inText = React.useContext(InTextContext);
-  const hostTag = inText ? 'innertext' : 'text';
-  return React.createElement(
-    InTextContext.Provider,
-    {value: true},
-    React.createElement(hostTag, {...props, ref}, props.children),
+  if (inText) {
+    // Already inside a Text — render the data-only fragment host.
+    return React.createElement('innertext', {...props, ref}, props.children);
+  }
+  // Outer Text — Paragraph shadow node. Only wrap children in the
+  // Provider if there are non-string children (string children turn
+  // into RawText leaves; no nested Text possible).
+  const hasElementChildren = React.Children.toArray(props.children).some(
+    c => c != null && typeof c !== 'string',
   );
+  const host = React.createElement('text', {...props, ref}, props.children);
+  return hasElementChildren
+    ? React.createElement(InTextContext.Provider, {value: true}, host)
+    : host;
 });
 
 // <Pressable onPress={fn}> — a clickable View. We expose `onPress` as
