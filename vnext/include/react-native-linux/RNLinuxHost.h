@@ -34,7 +34,11 @@ class RNLinuxHost {
  public:
   struct Config {
     std::string applicationId;
-    std::string bundleUrl;       // file:// or http://
+    // Vendor bundle: React + reconciler + react-refresh + our runtime.
+    // Loaded once on start; never re-evaluated by reload(). Empty
+    // means "single-bundle mode" — bundleUrl is used for everything.
+    std::string vendorBundleUrl;
+    std::string bundleUrl;       // app bundle (file:// or http://)
     std::string windowTitle;
     int initialWidth = 800;
     int initialHeight = 600;

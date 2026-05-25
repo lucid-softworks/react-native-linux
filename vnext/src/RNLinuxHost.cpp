@@ -172,7 +172,25 @@ void RNLinuxHost::start() {
     RNL_LOGI("RNLinuxHost") << "nativeFabricUIManager installed";
   }
 
-  // 3. Load + evaluate the bundle.
+  // 3. Load + evaluate the bundle(s). With Fast Refresh, we split
+  //    into a vendor bundle (React + reconciler + refresh + runtime/*)
+  //    and an app bundle (user code). Vendor is loaded once and
+  //    survives reload(); the app bundle re-evaluates on every save
+  //    so $RefreshReg$ + performReactRefresh can patch the live tree.
+  if (!config_.vendorBundleUrl.empty()) {
+    const auto vendor = loadBundleSync(config_.vendorBundleUrl);
+    if (!vendor.ok) {
+      RNL_LOGE("RNLinuxHost") << "vendor bundle load failed: " << vendor.error;
+      impl_->running = false;
+      return;
+    }
+    RNL_LOGI("RNLinuxHost") << "vendor loaded (" << vendor.source.size()
+                            << " bytes from " << vendor.sourceUrl << ")";
+    if (!impl_->runtimeHolder->evaluate(vendor.source, vendor.sourceUrl)) {
+      RNL_LOGE("RNLinuxHost") << "vendor bundle evaluation failed";
+    }
+  }
+
   const auto bundle = loadBundleSync(config_.bundleUrl);
   if (!bundle.ok) {
     RNL_LOGE("RNLinuxHost") << "bundle load failed: " << bundle.error;

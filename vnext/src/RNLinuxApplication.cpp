@@ -52,8 +52,9 @@ void onBundleChanged(GFileMonitor* /*monitor*/, GFile* /*file*/,
                      gpointer userData) {
   // Multiple events fire per write (CHANGED, CHANGES_DONE_HINT,
   // ATTRIBUTE_CHANGED). Coalesce to a single reload by re-arming a
-  // 150ms timer; bundlers write in bursts and we only want the final
-  // settled state.
+  // 30ms timer. esbuild writes the bundle atomically (rename of a
+  // temp file) so we don't need a long settling window; 30ms is just
+  // enough to absorb the burst of monitor events.
   if (event != G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT &&
       event != G_FILE_MONITOR_EVENT_CREATED &&
       event != G_FILE_MONITOR_EVENT_MOVED_IN) {
@@ -63,7 +64,7 @@ void onBundleChanged(GFileMonitor* /*monitor*/, GFile* /*file*/,
   if (impl->reloadDebounceSource) {
     g_source_remove(impl->reloadDebounceSource);
   }
-  impl->reloadDebounceSource = g_timeout_add(150, fireReload, impl);
+  impl->reloadDebounceSource = g_timeout_add(30, fireReload, impl);
 }
 
 }  // namespace
