@@ -6,3 +6,7 @@ node_modules/
 vnext/build/
 vnext/codegen/
 packages/**/templates/**
+# Playground runtime ships its own per-app babel.config.js; root-level
+# @babel/eslint-parser can't resolve it from this depth, so let the
+# playground's own lint pipeline cover these.
+apps/playground/runtime/

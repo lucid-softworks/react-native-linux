@@ -20,7 +20,13 @@ sleep 1
 
 # nohup + detach stdin → log → log so the child is fully independent of
 # the calling shell.
+# GSK_RENDERER=ngl: try the new OpenGL renderer. On VNC/software-only
+# rasterization stacks (like this VM) it usually beats the default
+# cairo fallback by ~2-3x. Override by exporting RN_GSK_RENDERER.
+GSK_RENDERER="${RN_GSK_RENDERER:-ngl}"
+
 nohup env DISPLAY=:1 \
+  GSK_RENDERER="$GSK_RENDERER" \
   RN_BUNDLE_URL="file://$BUNDLE" \
   "$EXE" </dev/null >"$LOG" 2>&1 &
 

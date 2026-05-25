@@ -46,7 +46,9 @@ AnimatedValue.prototype.setValue = function (v) {
   for (const cb of cbs) cb({value: v});
 };
 
-AnimatedValue.prototype.__getValue = function () { return this._value; };
+AnimatedValue.prototype.__getValue = function () {
+  return this._value;
+};
 
 AnimatedValue.prototype.addListener = function (cb) {
   const id = String(++nextValueId);
@@ -130,11 +132,11 @@ function extrapolate(x, x0, x1, y0, y1) {
 // ───────────── easings ──────────────────────────────────────────
 
 const Easing = {
-  linear: (t) => t,
-  ease: (t) => 1 - Math.pow(1 - t, 3),
-  in: (t) => t * t,
-  out: (t) => 1 - (1 - t) * (1 - t),
-  inOut: (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+  linear: t => t,
+  ease: t => 1 - Math.pow(1 - t, 3),
+  in: t => t * t,
+  out: t => 1 - (1 - t) * (1 - t),
+  inOut: t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
 };
 
 // ───────────── timing / sequence / parallel / loop ──────────────
@@ -191,7 +193,7 @@ function sequence(anims) {
           return;
         }
         current = anims[i++];
-        current.start((result) => {
+        current.start(result => {
           if (result.finished) next();
           else if (cb) cb(result);
         });
@@ -210,8 +212,8 @@ function parallel(anims) {
   let cancelled = false;
   return {
     start(cb) {
-      anims.forEach((a) => {
-        a.start((result) => {
+      anims.forEach(a => {
+        a.start(result => {
           done++;
           if (done === anims.length && cb) {
             cb({finished: !cancelled && result.finished});
@@ -221,7 +223,7 @@ function parallel(anims) {
     },
     stop() {
       cancelled = true;
-      anims.forEach((a) => a.stop());
+      anims.forEach(a => a.stop());
     },
   };
 }
@@ -237,7 +239,7 @@ function loop(anim, {iterations = -1} = {}) {
           return;
         }
         i++;
-        anim.start((result) => {
+        anim.start(result => {
           if (result.finished) next();
           else if (cb) cb(result);
         });
@@ -262,6 +264,14 @@ function isAnimated(x) {
   return !!x && (x instanceof AnimatedValue || x instanceof InterpolatedValue);
 }
 
+// Props we can drive directly via the rnLinux.setNativeProp C++ binding —
+// no React re-render, no Fabric commit, no mount transaction per frame.
+// Mirrors what RN's "useNativeDriver" supports: opacity + transform
+// translates. Anything else falls back to the slow path (forceUpdate +
+// reconcile + commit + mount).
+const NATIVE_DRIVEABLE_TOP_LEVEL = new Set(['opacity']);
+const NATIVE_DRIVEABLE_TRANSFORM = new Set(['translateX', 'translateY']);
+
 function resolveStyle(style) {
   if (style == null || style === false) return style;
   if (Array.isArray(style)) return style.map(resolveStyle);
@@ -269,43 +279,113 @@ function resolveStyle(style) {
   const out = {};
   for (const k in style) {
     const v = style[k];
-    out[k] = isAnimated(v) ? v.__getValue() : v;
+    // `transform` is an array of single-key objects, each of which can
+    // carry an animated value. Fabric chokes on AnimatedValue objects
+    // in props, so resolve them to their current scalar even when
+    // native-driven (the native binding overwrites the GTK position
+    // every tick; this is just the React-side snapshot).
+    if (k === 'transform' && Array.isArray(v)) {
+      out[k] = v.map(entry => {
+        if (entry == null || typeof entry !== 'object') return entry;
+        const resolved = {};
+        for (const tk in entry) {
+          const tv = entry[tk];
+          resolved[tk] = isAnimated(tv) ? tv.__getValue() : tv;
+        }
+        return resolved;
+      });
+    } else {
+      out[k] = isAnimated(v) ? v.__getValue() : v;
+    }
   }
   return out;
 }
 
-function collectAnimatedValues(style, acc) {
+// Walk `style` and collect `{value, prop}` pairs for every Animated
+// occurrence. Native bindings get the GTK property name we want to
+// drive; React bindings get the value alone (the listener calls
+// forceUpdate). Same value can be in both lists if it appears in
+// multiple slots — that's a degenerate case the playground doesn't
+// hit, but we handle it correctly by registering distinct listeners.
+function classifyAnimatedValues(style, native, react) {
   if (style == null || style === false) return;
-  if (Array.isArray(style)) { style.forEach((s) => collectAnimatedValues(s, acc)); return; }
+  if (Array.isArray(style)) {
+    style.forEach(s => classifyAnimatedValues(s, native, react));
+    return;
+  }
   if (typeof style !== 'object') return;
   for (const k in style) {
-    if (isAnimated(style[k])) acc.add(style[k]);
+    const v = style[k];
+    if (k === 'transform' && Array.isArray(v)) {
+      // transform: [{translateX: v1}, {scale: v2}, ...]
+      for (const entry of v) {
+        if (entry == null || typeof entry !== 'object') continue;
+        for (const tk in entry) {
+          const tv = entry[tk];
+          if (!isAnimated(tv)) continue;
+          if (NATIVE_DRIVEABLE_TRANSFORM.has(tk)) {
+            native.push({value: tv, prop: tk});
+          } else {
+            react.push(tv);
+          }
+        }
+      }
+      continue;
+    }
+    if (!isAnimated(v)) continue;
+    if (NATIVE_DRIVEABLE_TOP_LEVEL.has(k)) {
+      native.push({value: v, prop: k});
+    } else {
+      react.push(v);
+    }
   }
 }
 
+let nextAnimId = 1;
+
 function createAnimatedComponent(Inner) {
   return function AnimatedHost(props) {
-    const [, force] = React.useReducer((n) => n + 1, 0);
-    const trackedRef = React.useRef(new Set());
+    const [, force] = React.useReducer(n => n + 1, 0);
+    // Stable nativeID for the lifetime of this host. The C++ side
+    // (ViewComponentView::updateProps) registers a `nativeID → widget`
+    // mapping on this string, so listeners can call setNativeProp
+    // without going through a React ref (our reconciler does not
+    // support refs cleanly yet — passing one crashes Fabric).
+    const animIdRef = React.useRef(null);
+    if (animIdRef.current === null) {
+      animIdRef.current = 'rnl-anim-' + nextAnimId++;
+    }
+    const animId = animIdRef.current;
 
     React.useEffect(() => {
-      const next = new Set();
-      collectAnimatedValues(props.style, next);
-      // Cheap diff: subscribe to anything new, unsubscribe from
-      // anything that fell out.
-      const old = trackedRef.current;
-      const subs = new Map();
-      next.forEach((v) => {
-        subs.set(v, v.addListener(() => force()));
-      });
-      trackedRef.current = next;
+      const native = [];
+      const react = [];
+      classifyAnimatedValues(props.style, native, react);
+
+      const subs = [];
+      const hasSetter = typeof rnLinux !== 'undefined' && rnLinux.setNativeProp;
+      for (const {value, prop} of native) {
+        if (hasSetter) {
+          rnLinux.setNativeProp(animId, prop, value.__getValue());
+        }
+        const id = value.addListener(({value: v}) => {
+          if (hasSetter) rnLinux.setNativeProp(animId, prop, v);
+        });
+        subs.push({value, id});
+      }
+      for (const value of react) {
+        const id = value.addListener(() => force());
+        subs.push({value, id});
+      }
       return () => {
-        subs.forEach((id, v) => v.removeListener(id));
+        subs.forEach(({value, id}) => value.removeListener(id));
       };
-    }, [props.style]);
+    }, [props.style, animId]);
 
     return React.createElement(Inner, {
-      ...props, style: resolveStyle(props.style),
+      ...props,
+      nativeID: animId,
+      style: resolveStyle(props.style),
     });
   };
 }

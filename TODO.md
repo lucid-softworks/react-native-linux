@@ -1,6 +1,7 @@
 # react-native-linux — MVP Roadmap
 
 Decisions locked in (2026-05-21):
+
 - **UI toolkit:** GTK4 (via `gtk4` + optionally `libadwaita-1` later)
 - **JS engine:** Hermes (vendor bundle pre-compiled to `.hbc` for fast cold start)
 - **Architecture:** Fabric (Scheduler + cloneNodeWithNewProps persistent mode)
@@ -27,14 +28,27 @@ Working end-to-end, verified live in the playground:
 
 What's broken right now:
 
-- **Window resize:** the tick callback queries `gtk_widget_get_height(window)`, which returns content request (≈5446 px when the FlatList expands its content) instead of the viewport. Layout grows past the monitor. Pick a different signal source (probably `gtk_widget_get_allocated_height` on the GtkFixed after subtracting decorations, or hook `GdkSurface::layout`).
+- **Reconciler refs**: passing `ref={r}` to a host instance (`<View ref={r}>`) crashes Fabric at `UIManager::startSurface`. The fix is wiring `commitAttachRef` / `commitDetachRef` properly in `fabricHostConfig.js`. Animated.View dodges this via a generated `nativeID` side channel (see below); other apps that ref host instances will break.
+- **Steady-state FPS on the Lima VM** is paint-bound at ~30 FPS with Animated.loop active, ~50 FPS idle. The full investigation lives in the perf section below — short answer: software cairo + TigerVNC/TurboVNC encode is the floor, hardware GPU is the only real fix.
+
+Perf optimizations that landed (2026-05-25 perf push):
+
+- Hermes register pool 128 KiB → 2 MiB — long-running Animated.loop chains were exhausting the pool, killing the rAF chain and producing 30→60 FPS swings.
+- TurboVNC swapped in for TigerVNC (`/opt/TurboVNC/bin/vncserver`, systemd service `rn-linux-vnc.service`).
+- `ViewComponentView` caches the last CSS string + opacity; `gtk_css_provider_load_from_string` only fires on change. Big win — was the bottleneck for Animated opacity updates.
+- `LinuxComponentView::updateLayoutMetrics` diff-skips `gtk_widget_set_size_request` and `gtk_fixed_move` when nothing actually changed. Was the cause of a 19→4 FPS degradation over time (cumulative measure-invalidation cascade).
+- Resize → Yoga commit coalesced behind a 33 ms `g_timeout` in `RNLinuxApplication.cpp`.
+- Native Animated driver plumbed: `rnLinux.setNativeProp(nativeID, prop, value)` for `opacity` / `transform.translateX` / `transform.translateY`. Uses `gtk_fixed_set_child_transform` (paint-only, no layout cascade) for translates. Currently NOT used by default — on this VM software paint dominates and React's implicit batching beats the per-listener fire of native. Will be a clear win on bare-metal GTK.
+- FlatList virtualization (JS-side via onScroll). `dispatchFabricScroll` → `fabricOnScroll` JSI binding wires the GtkAdjustment value-changed signal up to JS; the FlatList shim windows items at ~14 visible + buffer with absolute-positioned spacers preserving the scroll extent.
+- `MountingManager.prof` + `rnLinux.rafProf` instrumentation rolls up per-mount and per-rAF timings every 60 transactions.
 
 Honest gaps for arbitrary RN apps to drop in:
 
+- React refs to host instances crash the reconciler (see above).
 - Inline nested `<Text>` for mixed-style runs (Fabric collapses our intermediate Text shadow nodes; one Paragraph per outer `<Text>` today).
 - `tintColor` on Image (needs a custom GdkPaintable subclass).
 - `numberOfLines` / `ellipsizeMode` plumbed from Paragraph props (TextLayoutManager already accepts them).
-- `Animated.useNativeDriver` — silently ignored.
+- `Animated.useNativeDriver` — flag is currently ignored, but the underlying native-driver code path exists; just needs a flag check in `animated.js`'s `timing()`.
 - `Switch` / `ActivityIndicator` / `RefreshControl` / `KeyboardAvoidingView` / `SafeAreaView` — not wired yet.
 - TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
 - Clipboard / real Linking / Alert / AT-SPI2 accessibility.
@@ -68,7 +82,7 @@ Honest gaps for arbitrary RN apps to drop in:
 
 - [x] LinuxMountingManager: `performTransaction` walks `ShadowViewMutation`s; `postLayoutPass()` runs at end of transaction
 - [x] LinuxComponentViewRegistry with virtual `postLayoutPass` hook
-- [x] LinuxComponentView base: widget_, updateProps, updateLayoutMetrics (gtk_fixed_move + set_size_request), mountChild / unmountChild
+- [x] LinuxComponentView base: widget\_, updateProps, updateLayoutMetrics (gtk_fixed_move + set_size_request), mountChild / unmountChild
 - [x] ViewComponentView (GtkFixed) — backgroundColor, borderRadius (per-corner), borderWidth (per-side), borderColor, opacity, all composed into one CSS load_from_string per update; GtkGestureClick wired to dispatchFabricClick
 - [x] ParagraphComponentView (GtkLabel) — Pango markup from AttributedString fragments; textAlign → gtk_label_set_xalign
 - [x] ScrollViewComponentView (GtkScrolledWindow + inner GtkFixed) — children mount into inner; postLayoutPass sizes the inner from children's bounding box; horizontal / showsScrollIndicator
@@ -81,10 +95,12 @@ Honest gaps for arbitrary RN apps to drop in:
 
 - [x] GtkGestureClick on every View — `dispatchFabricClick(tag)` JSI registry
 - [x] GtkText "changed" → `dispatchFabricChangeText(tag, text)` JSI registry
-- [ ] Long-press / motion / scroll events
+- [x] Scroll events — `dispatchFabricScroll` from GtkAdjustment value-changed → `rnLinux.fabricOnScroll(tag, fn)`, emits nativeEvent with contentOffset / contentSize / layoutMeasurement matching RN's shape
+- [ ] Long-press / motion events
 - [ ] Keyboard events on `<TextInput>` (onKeyPress, onSubmitEditing)
 - [ ] Touch events synthesized from pointer
 - [ ] Real Fabric `EventEmitter` plumbing (we use JSI registries keyed by tag — fine for MVP, won't survive nested gestures)
+- [ ] React refs to host instances — currently crashes Fabric at startSurface; missing commitAttachRef/commitDetachRef in fabricHostConfig.js. We worked around this for Animated.View via a generated `nativeID` registered in a C++ map, but apps that ref their own Views will break.
 
 ### 5.6 — TurboModule infrastructure
 
@@ -120,13 +136,13 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 
 - [x] `View` / `Text` / `ScrollView` / `Image` / `TextInput` / `Pressable` / `Button` / `FlatList` / `Modal` (see status snapshot above)
 - [x] `StyleSheet.create / flatten / compose / hairlineWidth / absoluteFill`
-- [x] `Animated` (Value / timing / sequence / parallel / loop / interpolate / Easing) + `Animated.View / Text / Image / ScrollView` — JS driver only
+- [x] `Animated` (Value / timing / sequence / parallel / loop / interpolate / Easing) + `Animated.View / Text / Image / ScrollView` — JS driver default; native driver scaffolded (`rnLinux.setNativeProp` for opacity / transform.translateX/Y via `nativeID` side-channel) but useNativeDriver flag not yet honored
 - [x] Platform.OS = 'linux', Platform.select; Dimensions / Appearance / useColorScheme stubs
 - [x] HTTP image loading via libsoup-3 async fetch (process-wide SoupSession, dedup-by-uri via g_object_set_data tag)
-- [x] AsyncStorage (`@react-native-async-storage/async-storage` import works) — full API as Promise-returning wrappers over synchronous rnLinux.storage* JSI bindings
+- [x] AsyncStorage (`@react-native-async-storage/async-storage` import works) — full API as Promise-returning wrappers over synchronous rnLinux.storage\* JSI bindings
 - [~] Inline `<Text>` styling — only one fontSize/color/etc. per Paragraph; mixed-style runs collapse
 - [~] `numberOfLines` / `ellipsizeMode` — TextLayoutManager accepts them, host config doesn't pass them through yet
-- [~] Window resize — initial render fits, larger window grows the constraint but tick callback returns content size not viewport (see Status snapshot)
+- [x] Window resize / maximize — viewport widget with a custom GtkLayoutManager (natural=(0,0), allocate-child-to-full-size) breaks the GtkFixed-children-bbox propagation; resize/maximize/restore push real (w, h) into `resizeRootSurface()` on every tick
 - [ ] `tintColor` on Image (needs a custom GdkPaintable that colour-tints)
 - [ ] `Switch` → `GtkSwitch`
 - [ ] `ActivityIndicator` → `GtkSpinner`
@@ -134,8 +150,8 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [ ] `KeyboardAvoidingView` (mostly no-op on desktop)
 - [ ] `SafeAreaView` (no-op on desktop, but apps import it so a passthrough wrapper helps)
 - [ ] `Modal` as a separate `GtkWindow` with `transient-for` instead of in-window overlay
-- [ ] `FlatList` virtualization (today the JS shim renders all items inline)
-- [ ] `Animated.useNativeDriver` — silently ignored; either implement on the C++ side or warn loudly
+- [x] `FlatList` virtualization — JS-side windowing via onScroll. Renders ~14 visible items + spacers preserving total scroll extent. Multi-column path skips windowing (item-size estimate ambiguous).
+- [~] `Animated.useNativeDriver` — C++ side (`rnLinux.setNativeProp`) + JS dispatcher (`animated.js`) exist for opacity + transform.translateX/Y; honoring the `useNativeDriver: true` flag in `timing()` is the remaining hookup, plus per-frame batching so multiple property writes flush as one GTK invalidation
 - [ ] `Linking.openURL` — `g_app_info_launch_default_for_uri`
 - [ ] `Clipboard` — `gdk_clipboard_set_text`
 - [ ] Real Dimensions backed by `gdk_monitor_*`
@@ -159,16 +175,20 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 
 ## Immediate next actions
 
-In priority order, what would move the needle most for "real apps drop in":
+In priority order toward "drop a real RN app in and have it work":
 
-1. **Fix window resize**: tick callback queries the wrong widget. Probably swap to `gtk_widget_get_allocated_width / height` on the rootView (GtkFixed) but pin its `set_size_request` to (0, 0) so the WIDGET allocation reflects the window's viewport rather than its content's natural size. Or hook GdkSurface's `layout` signal on `gtk_native_get_surface(window)`.
-2. **`numberOfLines` plumbing**: forward from Paragraph props to GtkLabel's `set_lines` / `set_ellipsize`. The TextLayoutManager already honours ParagraphAttributes.maximumNumberOfLines.
-3. **`SafeAreaView`** as a passthrough View (3 lines of JS); apps import it but on desktop it can be a no-op.
-4. **Inline nested `<Text>` styling**: figure out why Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates in the mutation stream. Probably a `LeafYogaNode` trait or `Trait::FormsView` thing on TextShadowNode that we're missing — re-read the BaseTextShadowNode dynamic_cast path.
-5. **`Switch` + `ActivityIndicator`**: small, direct GTK wrappers.
-6. **TurboModule manager**: replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules.
-7. **`tintColor`**: custom GdkPaintable that delegates to source paintable but masks with a colour.
-8. **Try a real app**: pull `react-native-paper` or a basic Expo screen and see what's left to add.
+1. **Fix React refs** — `<View ref={r}>` crashes Fabric. Wire `commitAttachRef` / `commitDetachRef` in `fabricHostConfig.js`. This blocks basically every non-trivial app (libraries lean heavily on refs for measure/scroll/focus). Without this, app authors hit a wall as soon as they `useRef()` against a host component.
+2. **`SafeAreaView` passthrough** (3 lines of JS). Apps universally import it; on desktop it can be a no-op. Cheap unlock.
+3. **`numberOfLines` / `ellipsizeMode`** — forward from ParagraphAttributes (TextLayoutManager already honours them) to GtkLabel's `set_lines` / `set_ellipsize`. Text-heavy apps look very wrong without this.
+4. **Inline nested `<Text>` styling** — Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates. Read BaseTextShadowNode's `dynamic_cast` path; probably a `LeafYogaNode` / `Trait::FormsView` thing. RN apps mix bold/colored fragments inside one `<Text>` constantly.
+5. **`Switch` + `ActivityIndicator` + `RefreshControl`** — direct GTK wrappers (GtkSwitch, GtkSpinner, GtkScrolledWindow's "edge-reached" signal). Each is a few hundred lines.
+6. **Try a real app** — pull `react-native-paper` showcase or a basic Expo screen. The list above is best-guess; the actual blockers reveal themselves only when you run real code. Land an "app harness" doc with results.
+7. **TurboModule manager** — replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules. Required for AsyncStorage, NetInfo, anything from react-native-community.
+8. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
+9. **`tintColor`** — custom GdkPaintable that delegates to source paintable but masks with a colour. Common in icon-heavy UIs.
+10. **Long-press, real Fabric EventEmitter, keyboard events** — once the simpler components are landing, gesture coverage starts mattering for parity.
+
+Resize lag and FPS perf are real but second-order: the app needs to RUN before being smooth matters. The perf scaffolding from this session (CSS cache, opacity cache, set_size_request diff, paint-only transforms, FlatList virtualization, Hermes stack bump, TurboVNC) gives a healthy floor; bare-metal Linux is the final unblock for 60 FPS regardless.
 
 ## Open questions
 

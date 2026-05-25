@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 typedef struct _GtkWidget GtkWidget;
@@ -33,6 +34,24 @@ namespace rnlinux {
 // g_idle_add.
 void installRnLinuxBindings(facebook::jsi::Runtime& rt, GtkWidget* rootView);
 
+// Hand the bindings a back-pointer to the Fabric mount registry so JS
+// can look up widgets by tag. This is what `rnLinux.setNativeProp`
+// uses to drive Animated.View directly from JS, bypassing the
+// React → reconcile → Fabric commit → mount path each frame.
+//
+// Pass a function rather than a pointer to a class so we can keep the
+// LinuxComponentView header out of this one (the JSI bindings .cpp is
+// already a heavy include site).
+void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int tag)> lookup);
+
+// Maintains a global nativeId-string → widget map for the Animated
+// native driver. ViewComponentView calls these from its updateProps as
+// the View's nativeID prop changes. JS-side animated.js generates
+// unique nativeIds per Animated.* component and uses them as the
+// first arg to rnLinux.setNativeProp.
+void registerAnimWidget(const std::string& nativeId, GtkWidget* widget);
+void unregisterAnimWidget(const std::string& nativeId);
+
 // Drop everything we hold onto the current runtime (jsi::Function click
 // handlers, the runtime pointer itself). Must be called by the host on
 // reload() *before* the runtime is destroyed — otherwise the destructors
@@ -53,4 +72,16 @@ void dispatchFabricClick(int tag);
 // `rnLinux.fabricOnChangeText(tag, fn)`.
 void dispatchFabricChangeText(int tag, const std::string& text);
 
-}  // namespace rnlinux
+// Dispatch a scroll event for the given tag. Args mirror RN's
+// nativeEvent.contentOffset + layoutMeasurement so JS can pluck the
+// values it needs. Called by ScrollViewComponentView from the
+// GtkAdjustment value-changed signal.
+void dispatchFabricScroll(int tag,
+                          double offsetX,
+                          double offsetY,
+                          double contentWidth,
+                          double contentHeight,
+                          double viewportWidth,
+                          double viewportHeight);
+
+} // namespace rnlinux

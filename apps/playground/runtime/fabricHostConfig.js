@@ -68,18 +68,24 @@ function normalizeColor(c) {
   if ((m = /^#([0-9a-f]{8})$/i.exec(c))) {
     // CSS form is #RRGGBBAA.
     const n = parseInt(m[1], 16);
-    return [((n >>> 24) & 0xff) / 255, ((n >>> 16) & 0xff) / 255,
-            ((n >>> 8) & 0xff) / 255, (n & 0xff) / 255];
+    return [
+      ((n >>> 24) & 0xff) / 255,
+      ((n >>> 16) & 0xff) / 255,
+      ((n >>> 8) & 0xff) / 255,
+      (n & 0xff) / 255,
+    ];
   }
   if ((m = /^#([0-9a-f]{3})$/i.exec(c))) {
     const s = m[1];
-    return [parseInt(s[0] + s[0], 16) / 255,
-            parseInt(s[1] + s[1], 16) / 255,
-            parseInt(s[2] + s[2], 16) / 255, 1];
+    return [
+      parseInt(s[0] + s[0], 16) / 255,
+      parseInt(s[1] + s[1], 16) / 255,
+      parseInt(s[2] + s[2], 16) / 255,
+      1,
+    ];
   }
   if ((m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(c))) {
-    return [(+m[1]) / 255, (+m[2]) / 255, (+m[3]) / 255,
-            m[4] != null ? +m[4] : 1];
+    return [+m[1] / 255, +m[2] / 255, +m[3] / 255, m[4] != null ? +m[4] : 1];
   }
   rnLinux.log('warn', '[fabric-reconciler] unrecognized color: ' + c);
   return c;
@@ -127,6 +133,7 @@ function buildFabricProps(type, props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
     if (k === 'onClick' || k === 'style') continue;
     if (k === 'onChangeText') continue;
+    if (k === 'onScroll') continue;
     out[k] = props[k];
   }
   // Style merges in after direct props so it wins (RN precedence).
@@ -146,15 +153,18 @@ function buildFabricProps(type, props) {
 // Push (or remove) a click handler for a Fabric tag into the JSI
 // registry the C++ ViewComponentView gesture controller consults.
 function syncClickHandler(tag, props) {
-  const handler = props && typeof props.onClick === 'function'
-    ? props.onClick : null;
+  const handler = props && typeof props.onClick === 'function' ? props.onClick : null;
   rnLinux.fabricOnClick(tag, handler);
 }
 
 function syncChangeTextHandler(tag, props) {
-  const handler = props && typeof props.onChangeText === 'function'
-    ? props.onChangeText : null;
+  const handler = props && typeof props.onChangeText === 'function' ? props.onChangeText : null;
   rnLinux.fabricOnChangeText(tag, handler);
+}
+
+function syncScrollHandler(tag, props) {
+  const handler = props && typeof props.onScroll === 'function' ? props.onScroll : null;
+  rnLinux.fabricOnScroll(tag, handler);
 }
 
 const hostConfig = {
@@ -174,7 +184,7 @@ const hostConfig = {
 
   getRootHostContext: () => ({}),
   getChildHostContext: () => ({}),
-  getPublicInstance: (instance) => instance,
+  getPublicInstance: instance => instance,
 
   prepareForCommit: () => null,
   resetAfterCommit: noop,
@@ -192,7 +202,12 @@ const hostConfig = {
     if (type === 'view') {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
-        tag, 'View', currentSurfaceId, buildFabricProps(type, props), {});
+        tag,
+        'View',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        {},
+      );
       syncClickHandler(tag, props);
       return {tag, fabricNode, componentName: 'View', type};
     }
@@ -200,24 +215,37 @@ const hostConfig = {
     if (type === 'scrollview') {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
-        tag, 'ScrollView', currentSurfaceId,
-        buildFabricProps(type, props), {});
+        tag,
+        'ScrollView',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        {},
+      );
+      syncScrollHandler(tag, props);
       return {tag, fabricNode, componentName: 'ScrollView', type};
     }
 
     if (type === 'image') {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
-        tag, 'Image', currentSurfaceId,
-        buildFabricProps(type, props), {});
+        tag,
+        'Image',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        {},
+      );
       return {tag, fabricNode, componentName: 'Image', type};
     }
 
     if (type === 'textinput') {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
-        tag, 'TextInput', currentSurfaceId,
-        buildFabricProps(type, props), {});
+        tag,
+        'TextInput',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        {},
+      );
       syncChangeTextHandler(tag, props);
       return {tag, fabricNode, componentName: 'TextInput', type};
     }
@@ -235,8 +263,12 @@ const hostConfig = {
       // later as a real nested-<Text> story.)
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
-        tag, 'Paragraph', currentSurfaceId,
-        buildFabricProps('text', props), {});
+        tag,
+        'Paragraph',
+        currentSurfaceId,
+        buildFabricProps('text', props),
+        {},
+      );
       return {tag, fabricNode, componentName: 'Paragraph', type};
     }
 
@@ -245,8 +277,7 @@ const hostConfig = {
 
   createTextInstance(text) {
     const tag = newTag();
-    const fabricNode = currentFabric.createNode(
-      tag, 'RawText', currentSurfaceId, {text}, {});
+    const fabricNode = currentFabric.createNode(tag, 'RawText', currentSurfaceId, {text}, {});
     return {tag, fabricNode, componentName: 'RawText', type: 'rawtext'};
   },
 
@@ -287,6 +318,7 @@ const hostConfig = {
     // closure.
     if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
     if (type === 'textinput') syncChangeTextHandler(currentInstance.tag, newProps);
+    if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
     return {
       tag: currentInstance.tag,
       fabricNode,

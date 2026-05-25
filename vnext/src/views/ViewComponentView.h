@@ -2,6 +2,8 @@
 
 #include "../fabric/LinuxComponentView.h"
 
+#include <string>
+
 namespace rnlinux {
 
 // Backed by a GtkFixed. View is the catch-all container in RN; children get
@@ -18,11 +20,23 @@ class ViewComponentView final : public LinuxComponentView {
  private:
   void applyBackgroundColor(unsigned int argb);
   void applyOpacity(float opacity);
-  void applyBorderRadius(float topLeft, float topRight,
-                         float bottomRight, float bottomLeft);
+  void applyBorderRadius(float topLeft, float topRight, float bottomRight, float bottomLeft);
 
   // Per-instance CSS provider for unique background/border styling.
-  void* cssProvider_ = nullptr;  // GtkCssProvider* (forward-declared)
+  void* cssProvider_ = nullptr; // GtkCssProvider* (forward-declared)
+  // Last stylesheet pushed to cssProvider_. Animated views can hit
+  // updateProps() ~60 Hz for opacity/transform changes that don't
+  // touch CSS (opacity is gtk_widget_set_opacity, not a CSS rule); the
+  // load_from_string call is expensive (re-parse + re-style-invalidate),
+  // so skip it when the stylesheet is byte-identical.
+  std::string lastCss_;
+  // Cached opacity so we don't re-issue gtk_widget_set_opacity when the
+  // value is unchanged (each call invalidates a redraw).
+  float lastOpacity_ = -1.0f;
+  // Last seen nativeID. When this changes (or the view is destroyed)
+  // we update the global animWidgets map in RnLinuxBindings so the
+  // Animated native driver's setNativeProp(stringId, …) can find us.
+  std::string lastNativeId_;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

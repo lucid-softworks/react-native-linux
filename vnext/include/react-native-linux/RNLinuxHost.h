@@ -12,7 +12,7 @@ namespace facebook::react {
 class ReactInstance;
 class Scheduler;
 class SurfaceHandler;
-}  // namespace facebook::react
+} // namespace facebook::react
 
 namespace rnlinux {
 
@@ -38,11 +38,11 @@ class RNLinuxHost {
     // Loaded once on start; never re-evaluated by reload(). Empty
     // means "single-bundle mode" — bundleUrl is used for everything.
     std::string vendorBundleUrl;
-    std::string bundleUrl;       // app bundle (file:// or http://)
+    std::string bundleUrl; // app bundle (file:// or http://)
     std::string windowTitle;
     int initialWidth = 800;
     int initialHeight = 600;
-    int pointScaleFactor = 1;    // updated from gdk_monitor_get_scale_factor
+    int pointScaleFactor = 1; // updated from gdk_monitor_get_scale_factor
   };
 
   explicit RNLinuxHost(Config config);
@@ -67,17 +67,20 @@ class RNLinuxHost {
   // *before* the bundle is loaded/evaluated. Use it to install JSI host
   // functions / globals (e.g. our lightning-path rnLinux bridge) so the
   // bundle sees them at top level.
-  void setBeforeBundleEvalHook(
-      std::function<void(facebook::jsi::Runtime&)> hook);
+  void setBeforeBundleEvalHook(std::function<void(facebook::jsi::Runtime&)> hook);
 
   // Surface management. The returned SurfaceHandler is owned by the host;
   // callers receive a non-owning reference.
-  facebook::react::SurfaceHandler& createSurface(
-      std::string moduleName,
-      std::string initialPropsJson);
+  facebook::react::SurfaceHandler& createSurface(std::string moduleName,
+                                                 std::string initialPropsJson);
 
   void startSurface(facebook::react::SurfaceHandler& surface);
   void stopSurface(facebook::react::SurfaceHandler& surface);
+
+  // Push a new viewport size into the surface's LayoutConstraints.
+  // Wired to GtkWindow resize events by RNLinuxApplication so Yoga
+  // re-lays the tree against the actual window geometry.
+  void resizeRootSurface(int widthLogicalPx, int heightLogicalPx);
 
   const Config& config() const { return config_; }
 
@@ -87,4 +90,4 @@ class RNLinuxHost {
   Config config_;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

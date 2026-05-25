@@ -1,10 +1,9 @@
 #include <cstdlib>
 #include <iostream>
-#include <string>
-#include <sys/stat.h>
-
 #include <react-native-linux/RNLinuxApplication.h>
 #include <react-native-linux/RNLinuxHost.h>
+#include <string>
+#include <sys/stat.h>
 
 namespace {
 
@@ -19,8 +18,7 @@ std::string resolveBundleUrl() {
   }
   const auto host = envOr("RN_METRO_HOST", "127.0.0.1");
   const auto port = envOr("RN_METRO_PORT", "8081");
-  return "http://" + host + ":" + port +
-         "/index.bundle?platform=linux&dev=true&minify=false";
+  return "http://" + host + ":" + port + "/index.bundle?platform=linux&dev=true&minify=false";
 }
 
 std::string resolveVendorBundleUrl(const std::string& appBundleUrl) {
@@ -33,20 +31,22 @@ std::string resolveVendorBundleUrl(const std::string& appBundleUrl) {
   // bytecode magic header and skips parse/codegen, cutting cold-start
   // JS init time. For http:// (Metro) we don't do the split.
   const std::string fileScheme = "file://";
-  if (appBundleUrl.rfind(fileScheme, 0) != 0) return {};
+  if (appBundleUrl.rfind(fileScheme, 0) != 0)
+    return {};
   auto path = appBundleUrl.substr(fileScheme.size());
   const auto slash = path.find_last_of('/');
-  if (slash == std::string::npos) return {};
+  if (slash == std::string::npos)
+    return {};
   const auto dir = path.substr(0, slash + 1);
   const auto hbc = dir + "vendor.bundle.hbc";
-  struct stat st {};
+  struct stat st{};
   if (::stat(hbc.c_str(), &st) == 0) {
     return fileScheme + hbc;
   }
   return fileScheme + dir + "vendor.bundle";
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   rnlinux::RNLinuxHost::Config cfg;
@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
   cfg.vendorBundleUrl = resolveVendorBundleUrl(cfg.bundleUrl);
   cfg.windowTitle = "RN-Linux Playground";
   cfg.initialWidth = 1024;
-  cfg.initialHeight = 860;
+  cfg.initialHeight = 720;
 
   std::cout << "[playground] vendor: " << cfg.vendorBundleUrl << '\n';
   std::cout << "[playground] app:    " << cfg.bundleUrl << '\n';

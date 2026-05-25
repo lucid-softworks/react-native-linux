@@ -1,5 +1,4 @@
 #include "react-native-linux/RNLinuxHost.h"
-#include "react-native-linux/Logging.h"
 
 #include "fabric/LinuxComponentDescriptorRegistry.h"
 #include "fabric/LinuxMountingManager.h"
@@ -7,7 +6,13 @@
 #include "jsi/BundleLoader.h"
 #include "jsi/HermesRuntimeFactory.h"
 #include "jsi/RnLinuxBindings.h"
+#include "react-native-linux/Logging.h"
 
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <react/config/ReactNativeConfig.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/core/EventBeat.h>
@@ -16,11 +21,6 @@
 #include <react/renderer/scheduler/SurfaceHandler.h>
 #include <react/renderer/uimanager/UIManagerBinding.h>
 #include <react/utils/ContextContainer.h>
-
-#include <atomic>
-#include <condition_variable>
-#include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -33,8 +33,7 @@ struct RNLinuxHost::Impl {
   std::unique_ptr<HermesRuntimeHolder> runtimeHolder;
   std::function<void(facebook::jsi::Runtime&)> beforeBundleEval;
   std::shared_ptr<facebook::react::ContextContainer> contextContainer;
-  std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry>
-      descriptorProviders;
+  std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry> descriptorProviders;
   std::unique_ptr<facebook::react::Scheduler> scheduler;
   std::unique_ptr<facebook::react::SurfaceHandler> rootSurface;
   std::thread jsThread;
@@ -42,7 +41,8 @@ struct RNLinuxHost::Impl {
 };
 
 RNLinuxHost::RNLinuxHost(Config config)
-    : impl_(std::make_unique<Impl>()), config_(std::move(config)) {}
+    : impl_(std::make_unique<Impl>())
+    , config_(std::move(config)) {}
 
 RNLinuxHost::~RNLinuxHost() {
   stop();
@@ -90,7 +90,7 @@ class NoopEventBeat final : public facebook::react::EventBeat {
   using EventBeat::EventBeat;
 };
 
-}  // namespace
+} // namespace
 
 void RNLinuxHost::start() {
   if (impl_->running.exchange(true)) {
@@ -109,18 +109,15 @@ void RNLinuxHost::start() {
 
   // 2. Fabric Scheduler. Built before bundle eval so commit hooks
   //    landing during JS bootstrap have a registry to talk to.
-  impl_->schedulerDelegate =
-      std::make_unique<LinuxSchedulerDelegate>(impl_->mountingManager);
-  impl_->contextContainer =
-      std::make_shared<facebook::react::ContextContainer>();
+  impl_->schedulerDelegate = std::make_unique<LinuxSchedulerDelegate>(impl_->mountingManager);
+  impl_->contextContainer = std::make_shared<facebook::react::ContextContainer>();
   // The Scheduler reads runtime feature flags via
   // ContextContainer::at<ReactNativeConfig>("ReactNativeConfig"); without
   // an instance present the ctor asserts. Register an empty config —
   // all features stay at their default values, which is what we want.
-  impl_->contextContainer->insert(
-      "ReactNativeConfig",
-      std::shared_ptr<const facebook::react::ReactNativeConfig>(
-          std::make_shared<facebook::react::EmptyReactNativeConfig>()));
+  impl_->contextContainer->insert("ReactNativeConfig",
+                                  std::shared_ptr<const facebook::react::ReactNativeConfig>(
+                                      std::make_shared<facebook::react::EmptyReactNativeConfig>()));
   impl_->descriptorProviders = makeLinuxComponentDescriptorRegistry();
 
   facebook::react::SchedulerToolbox toolbox;
@@ -130,11 +127,9 @@ void RNLinuxHost::start() {
   {
     auto providers = impl_->descriptorProviders;
     toolbox.componentRegistryFactory =
-        [providers](
-            const facebook::react::EventDispatcher::Weak& eventDispatcher,
-            const facebook::react::ContextContainer::Shared& cc) {
-          return providers->createComponentDescriptorRegistry(
-              {eventDispatcher, cc});
+        [providers](const facebook::react::EventDispatcher::Weak& eventDispatcher,
+                    const facebook::react::ContextContainer::Shared& cc) {
+          return providers->createComponentDescriptorRegistry({eventDispatcher, cc});
         };
   }
 
@@ -143,10 +138,10 @@ void RNLinuxHost::start() {
   // when we add the JS thread (Phase 5.8) this becomes a real queue.
   {
     auto* runtime = &impl_->runtimeHolder->runtime();
-    toolbox.runtimeExecutor =
-        [runtime](std::function<void(facebook::jsi::Runtime&)>&& fn) {
-          if (runtime) fn(*runtime);
-        };
+    toolbox.runtimeExecutor = [runtime](std::function<void(facebook::jsi::Runtime&)>&& fn) {
+      if (runtime)
+        fn(*runtime);
+    };
   }
 
   // EventBeat factory: produce a noop beat. Sufficient to satisfy the
@@ -167,8 +162,8 @@ void RNLinuxHost::start() {
   {
     auto& rt = impl_->runtimeHolder->runtime();
     rt.global().setProperty(rt, "RN$Bridgeless", true);
-    facebook::react::UIManagerBinding::createAndInstallIfNeeded(
-        rt, impl_->scheduler->getUIManager());
+    facebook::react::UIManagerBinding::createAndInstallIfNeeded(rt,
+                                                                impl_->scheduler->getUIManager());
     RNL_LOGI("RNLinuxHost") << "nativeFabricUIManager installed";
   }
 
@@ -184,8 +179,8 @@ void RNLinuxHost::start() {
       impl_->running = false;
       return;
     }
-    RNL_LOGI("RNLinuxHost") << "vendor loaded (" << vendor.source.size()
-                            << " bytes from " << vendor.sourceUrl << ")";
+    RNL_LOGI("RNLinuxHost") << "vendor loaded (" << vendor.source.size() << " bytes from "
+                            << vendor.sourceUrl << ")";
     if (!impl_->runtimeHolder->evaluate(vendor.source, vendor.sourceUrl)) {
       RNL_LOGE("RNLinuxHost") << "vendor bundle evaluation failed";
     }
@@ -197,8 +192,8 @@ void RNLinuxHost::start() {
     impl_->running = false;
     return;
   }
-  RNL_LOGI("RNLinuxHost") << "bundle loaded (" << bundle.source.size()
-                          << " bytes from " << bundle.sourceUrl << ")";
+  RNL_LOGI("RNLinuxHost") << "bundle loaded (" << bundle.source.size() << " bytes from "
+                          << bundle.sourceUrl << ")";
 
   if (!impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl)) {
     RNL_LOGE("RNLinuxHost") << "bundle evaluation failed; runtime still alive";
@@ -253,8 +248,7 @@ void RNLinuxHost::reload() {
     RNL_LOGE("RNLinuxHost") << "reload: bundle load failed: " << bundle.error;
     return;
   }
-  RNL_LOGI("RNLinuxHost") << "reload: re-evaluating bundle ("
-                          << bundle.source.size() << " bytes)";
+  RNL_LOGI("RNLinuxHost") << "reload: re-evaluating bundle (" << bundle.source.size() << " bytes)";
   impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl);
 }
 
@@ -263,8 +257,8 @@ void RNLinuxHost::reloadFromSource(std::string source, std::string sourceUrl) {
     RNL_LOGW("RNLinuxHost") << "reloadFromSource: runtime not yet up";
     return;
   }
-  RNL_LOGI("RNLinuxHost") << "reload (socket-push): "
-                          << source.size() << " bytes from " << sourceUrl;
+  RNL_LOGI("RNLinuxHost") << "reload (socket-push): " << source.size() << " bytes from "
+                          << sourceUrl;
   impl_->runtimeHolder->evaluate(source, sourceUrl);
 }
 
@@ -272,20 +266,16 @@ void RNLinuxHost::setMountingManager(std::shared_ptr<LinuxMountingManager> m) {
   impl_->mountingManager = std::move(m);
 }
 
-void RNLinuxHost::setBeforeBundleEvalHook(
-    std::function<void(facebook::jsi::Runtime&)> hook) {
+void RNLinuxHost::setBeforeBundleEvalHook(std::function<void(facebook::jsi::Runtime&)> hook) {
   impl_->beforeBundleEval = std::move(hook);
 }
 
-facebook::react::SurfaceHandler& RNLinuxHost::createSurface(
-    std::string moduleName,
-    std::string initialPropsJson) {
-  RNL_LOGI("RNLinuxHost") << "createSurface module=" << moduleName
-                          << " props=" << initialPropsJson;
+facebook::react::SurfaceHandler& RNLinuxHost::createSurface(std::string moduleName,
+                                                            std::string initialPropsJson) {
+  RNL_LOGI("RNLinuxHost") << "createSurface module=" << moduleName << " props=" << initialPropsJson;
 
   if (!impl_->scheduler) {
-    RNL_LOGE("RNLinuxHost")
-        << "createSurface called before scheduler was constructed";
+    RNL_LOGE("RNLinuxHost") << "createSurface called before scheduler was constructed";
     static facebook::react::SurfaceHandler* placeholder = nullptr;
     return *placeholder;
   }
@@ -294,22 +284,40 @@ facebook::react::SurfaceHandler& RNLinuxHost::createSurface(
   // single-root MVP) and a module name. We default LayoutConstraints to
   // the configured window size; the Scheduler runs Yoga against that
   // when JS commits a tree.
-  impl_->rootSurface = std::make_unique<facebook::react::SurfaceHandler>(
-      moduleName, /*surfaceId=*/1);
+  impl_->rootSurface =
+      std::make_unique<facebook::react::SurfaceHandler>(moduleName, /*surfaceId=*/1);
   impl_->rootSurface->setProps(folly::dynamic::object());
-  // Pin the surface to the configured window size in BOTH dimensions
-  // (min == max). Without this, Yoga is free to shrink-wrap the root
-  // to content size and flex:1 on the outermost View only fills as
-  // far as the content reaches, leaving empty stripes on the right /
-  // bottom. Setting min=max forces the root to fill the window so
-  // child flex distributes against a known viewport.
+  // Pin to max(viewport, initial design size) in both dims, with
+  // min == max so flex:1 fills exactly. When the window grows past the
+  // design size the layout grows with it (responsive). When the window
+  // is smaller, the layout stays at the design size and the
+  // GtkScrolledWindow wrapper exposes scrollbars instead of clipping or
+  // reflowing the content.
   const auto W = static_cast<facebook::react::Float>(config_.initialWidth);
   const auto H = static_cast<facebook::react::Float>(config_.initialHeight);
   impl_->rootSurface->constraintLayout(
       {{W, H}, {W, H}, facebook::react::LayoutDirection::LeftToRight},
-      {.pointScaleFactor =
-           static_cast<facebook::react::Float>(config_.pointScaleFactor)});
+      {.pointScaleFactor = static_cast<facebook::react::Float>(config_.pointScaleFactor)});
   return *impl_->rootSurface;
+}
+
+void RNLinuxHost::resizeRootSurface(int w, int h) {
+  if (!impl_->rootSurface)
+    return;
+  if (w <= 0 || h <= 0)
+    return;
+  // Floor the layout at the initial design size — see createSurface()
+  // for the rationale. Below it, the GtkScrolledWindow scrolls the
+  // (design-sized) layout. Above it, the layout grows to fit.
+  const int effW = std::max(w, config_.initialWidth);
+  const int effH = std::max(h, config_.initialHeight);
+  RNL_LOGI("RNLinuxHost") << "resize → viewport " << w << "x" << h << " (layout " << effW << "x"
+                          << effH << ")";
+  const auto W = static_cast<facebook::react::Float>(effW);
+  const auto H = static_cast<facebook::react::Float>(effH);
+  impl_->rootSurface->constraintLayout(
+      {{W, H}, {W, H}, facebook::react::LayoutDirection::LeftToRight},
+      {.pointScaleFactor = static_cast<facebook::react::Float>(config_.pointScaleFactor)});
 }
 
 void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
@@ -342,4 +350,4 @@ void RNLinuxHost::stopSurface(facebook::react::SurfaceHandler& surface) {
   impl_->scheduler->unregisterSurface(surface);
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux

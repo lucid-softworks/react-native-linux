@@ -1,14 +1,13 @@
 #include "ViewComponentView.h"
-#include "react-native-linux/Logging.h"
-#include "../jsi/RnLinuxBindings.h"
 
+#include "../jsi/RnLinuxBindings.h"
+#include "react-native-linux/Logging.h"
+
+#include <cstdio>
+#include <gtk/gtk.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/graphics/Color.h>
 #include <react/renderer/graphics/HostPlatformColor.h>
-
-#include <gtk/gtk.h>
-
-#include <cstdio>
 #include <string>
 
 namespace rnlinux {
@@ -20,18 +19,24 @@ namespace {
 // hasn't been set (UndefinedColor), so callers can skip emitting
 // rules for properties the app didn't touch.
 std::string colorToCss(const facebook::react::SharedColor& color) {
-  if (!color) return {};
+  if (!color)
+    return {};
   const auto v = static_cast<unsigned int>(*color);
   char buf[40];
-  std::snprintf(buf, sizeof(buf), "rgba(%u,%u,%u,%.3f)",
-                (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff,
+  std::snprintf(buf,
+                sizeof(buf),
+                "rgba(%u,%u,%u,%.3f)",
+                (v >> 16) & 0xff,
+                (v >> 8) & 0xff,
+                v & 0xff,
                 ((v >> 24) & 0xff) / 255.0);
   return buf;
 }
 
-}  // namespace
+} // namespace
 
-ViewComponentView::ViewComponentView(Tag tag) : LinuxComponentView(tag) {
+ViewComponentView::ViewComponentView(Tag tag)
+    : LinuxComponentView(tag) {
   widget_ = gtk_fixed_new();
   // Tag every widget with a unique CSS name so per-instance style rules
   // (background, border) can target it without affecting siblings.
@@ -40,10 +45,9 @@ ViewComponentView::ViewComponentView(Tag tag) : LinuxComponentView(tag) {
 
   auto* provider = gtk_css_provider_new();
   cssProvider_ = provider;
-  gtk_style_context_add_provider_for_display(
-      gtk_widget_get_display(widget_),
-      GTK_STYLE_PROVIDER(provider),
-      GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  gtk_style_context_add_provider_for_display(gtk_widget_get_display(widget_),
+                                             GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
   // Single GtkGestureClick per View — the registered Fabric handler
   // (set by JS via rnLinux.fabricOnClick(tag, fn)) is looked up at
@@ -52,26 +56,30 @@ ViewComponentView::ViewComponentView(Tag tag) : LinuxComponentView(tag) {
   // handler is registered.
   auto* gesture = gtk_gesture_click_new();
   g_signal_connect_data(
-      gesture, "released",
-      G_CALLBACK(+[](GtkGestureClick* /*gc*/, int /*n_press*/,
-                     double /*x*/, double /*y*/, gpointer ud) {
-        const int t = GPOINTER_TO_INT(ud);
-        dispatchFabricClick(t);
-      }),
+      gesture,
+      "released",
+      G_CALLBACK(
+          +[](GtkGestureClick* /*gc*/, int /*n_press*/, double /*x*/, double /*y*/, gpointer ud) {
+            const int t = GPOINTER_TO_INT(ud);
+            dispatchFabricClick(t);
+          }),
       GINT_TO_POINTER(static_cast<int>(tag)),
-      /*destroy=*/nullptr, /*flags=*/static_cast<GConnectFlags>(0));
+      /*destroy=*/nullptr,
+      /*flags=*/static_cast<GConnectFlags>(0));
   gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(gesture));
 }
 
 ViewComponentView::~ViewComponentView() {
+  if (!lastNativeId_.empty()) {
+    unregisterAnimWidget(lastNativeId_);
+  }
   if (cssProvider_) {
     g_object_unref(static_cast<GtkCssProvider*>(cssProvider_));
   }
 }
 
-void ViewComponentView::updateProps(
-    facebook::react::Props const& /*oldProps*/,
-    facebook::react::Props const& newProps) {
+void ViewComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
+                                    facebook::react::Props const& newProps) {
   // On Create, the mounting manager calls us with (newProps, newProps)
   // since there's no real "old" yet — a naive (oldVP != newVP) diff
   // would skip the very first prop application. Just always rebuild
@@ -94,15 +102,19 @@ void ViewComponentView::updateProps(
   // JS app can write either `borderWidth: 2` (sets `all`) or
   // `borderTopWidth: 2` (sets just `top`).
   auto bw = vp.getBorderWidths();
-  const float bwTop    = bw.top.value_or(bw.all.value_or(0.0f));
-  const float bwRight  = bw.right.value_or(bw.all.value_or(0.0f));
-  const float bwBot    = bw.bottom.value_or(bw.all.value_or(0.0f));
-  const float bwLeft   = bw.left.value_or(bw.all.value_or(0.0f));
+  const float bwTop = bw.top.value_or(bw.all.value_or(0.0f));
+  const float bwRight = bw.right.value_or(bw.all.value_or(0.0f));
+  const float bwBot = bw.bottom.value_or(bw.all.value_or(0.0f));
+  const float bwLeft = bw.left.value_or(bw.all.value_or(0.0f));
   char buf[120];
   if (bwTop > 0 || bwRight > 0 || bwBot > 0 || bwLeft > 0) {
-    std::snprintf(buf, sizeof(buf),
+    std::snprintf(buf,
+                  sizeof(buf),
                   " border-width: %.0fpx %.0fpx %.0fpx %.0fpx;",
-                  bwTop, bwRight, bwBot, bwLeft);
+                  bwTop,
+                  bwRight,
+                  bwBot,
+                  bwLeft);
     css += buf;
     css += " border-style: solid;";
   }
@@ -111,7 +123,8 @@ void ViewComponentView::updateProps(
   // top-priority order. Per-side colors would mean emitting
   // border-top-color, border-right-color, etc.
   auto pickColor = [&](const std::optional<facebook::react::SharedColor>& side) {
-    if (side && *side) return colorToCss(*side);
+    if (side && *side)
+      return colorToCss(*side);
     if (vp.borderColors.all && *vp.borderColors.all) {
       return colorToCss(*vp.borderColors.all);
     }
@@ -126,7 +139,8 @@ void ViewComponentView::updateProps(
   // treat both Point and Percent as plain pixels for now — a real
   // length resolver against layoutMetrics.frame.size lands later.
   auto pickRadius = [&](const std::optional<facebook::react::ValueUnit>& corner) {
-    if (corner && corner->value > 0) return corner->value;
+    if (corner && corner->value > 0)
+      return corner->value;
     if (vp.borderRadii.all && vp.borderRadii.all->value > 0) {
       return vp.borderRadii.all->value;
     }
@@ -137,20 +151,41 @@ void ViewComponentView::updateProps(
   const float rBR = pickRadius(vp.borderRadii.bottomRight);
   const float rBL = pickRadius(vp.borderRadii.bottomLeft);
   if (rTL > 0 || rTR > 0 || rBR > 0 || rBL > 0) {
-    std::snprintf(buf, sizeof(buf),
-                  " border-radius: %.0fpx %.0fpx %.0fpx %.0fpx;",
-                  rTL, rTR, rBR, rBL);
+    std::snprintf(
+        buf, sizeof(buf), " border-radius: %.0fpx %.0fpx %.0fpx %.0fpx;", rTL, rTR, rBR, rBL);
     css += buf;
   }
 
   css += " }";
-  gtk_css_provider_load_from_string(
-      static_cast<GtkCssProvider*>(cssProvider_), css.c_str());
+  // load_from_string re-parses the stylesheet AND invalidates the
+  // GtkStyleContext for every widget matched by the selector. With
+  // Animated.View triggering updateProps 60 Hz on opacity-only changes
+  // (which don't touch CSS), this was the dominant per-frame cost.
+  // Skip when the generated CSS is identical to what we last pushed.
+  if (css != lastCss_) {
+    gtk_css_provider_load_from_string(static_cast<GtkCssProvider*>(cssProvider_), css.c_str());
+    lastCss_ = std::move(css);
+  }
 
   // Opacity sits on the widget directly (no CSS), simpler than going
-  // through filter: opacity().
-  if (!std::isnan(vp.opacity)) {
+  // through filter: opacity(). Skip when unchanged — each call queues
+  // a redraw.
+  if (!std::isnan(vp.opacity) && vp.opacity != lastOpacity_) {
     gtk_widget_set_opacity(widget_, vp.opacity);
+    lastOpacity_ = vp.opacity;
+  }
+
+  // Sync nativeID into the global Animated-driver lookup. JS-side
+  // animated.js generates a unique nativeID per Animated.* host so
+  // setNativeProp(nativeID, prop, value) can address us without
+  // going through a React ref (our reconciler doesn't support refs
+  // cleanly yet).
+  if (vp.nativeId != lastNativeId_) {
+    if (!lastNativeId_.empty())
+      unregisterAnimWidget(lastNativeId_);
+    if (!vp.nativeId.empty())
+      registerAnimWidget(vp.nativeId, widget_);
+    lastNativeId_ = vp.nativeId;
   }
 }
 
@@ -161,13 +196,13 @@ void ViewComponentView::applyBackgroundColor(unsigned int /*argb*/) {
 }
 
 void ViewComponentView::applyOpacity(float opacity) {
-  if (!widget_) return;
+  if (!widget_)
+    return;
   gtk_widget_set_opacity(widget_, opacity);
 }
 
-void ViewComponentView::applyBorderRadius(float /*tl*/, float /*tr*/,
-                                          float /*br*/, float /*bl*/) {
+void ViewComponentView::applyBorderRadius(float /*tl*/, float /*tr*/, float /*br*/, float /*bl*/) {
   // Subsumed by updateProps(). Header retained until callers move.
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux
