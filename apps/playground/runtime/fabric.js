@@ -96,6 +96,15 @@ function tryMount() {
   // enough to swap the type and preserve hook state, no
   // updateContainer needed.
   pendingElement = null;
+  // If the user just reloaded from the LogBox, the boundary stashed a
+  // reset function. Fire it BEFORE performReactRefresh so the cleared
+  // state lands in the same commit batch as the family swap — the
+  // panel disappears and the freshly-evaluated children mount.
+  if (typeof globalThis.__rnLinuxBoundaryReset === 'function') {
+    const reset = globalThis.__rnLinuxBoundaryReset;
+    globalThis.__rnLinuxBoundaryReset = null;
+    reset();
+  }
   const refreshed = RefreshRuntime.performReactRefresh();
   if (refreshed) {
     rnLinux.log(

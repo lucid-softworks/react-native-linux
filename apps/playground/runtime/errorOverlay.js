@@ -153,20 +153,23 @@ ErrorBoundary.prototype.componentDidCatch = function (error, info) {
   }
 };
 ErrorBoundary.prototype._reload = function () {
-  // Clear our state first so the post-reload render starts clean —
-  // the new bundle still uses the same React root + boundary instance
-  // (host->reload re-evaluates the app bundle but doesn't recreate
-  // the React tree), so a left-over error state would re-render the
-  // panel immediately. setState is async, so the actual reload must
-  // wait on the setState callback — otherwise reloadApp races ahead
-  // and the cleared-state render never commits.
-  this.setState({error: null, info: null}, function () {
-    if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
-      rnLinux.reloadApp();
-    }
-  });
+  rnLinux.log('info', '[ErrorBoundary] _reload pressed');
+  // Stash this boundary's reset into a global so the hot-reload
+  // tryMount path can clear our state AFTER the bundle re-evaluates.
+  // Doing it here via setState races against the synchronous
+  // reloadApp call — by the time React processes the update, the
+  // bundle re-eval has already run with the boundary still in error
+  // state, so the post-reload render re-displays the panel.
+  globalThis.__rnLinuxBoundaryReset = () => {
+    rnLinux.log('info', '[ErrorBoundary] reset fired post-reload');
+    this.setState({error: null, info: null});
+  };
+  if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) {
+    rnLinux.reloadApp();
+  }
 };
 ErrorBoundary.prototype._dismiss = function () {
+  rnLinux.log('info', '[ErrorBoundary] _dismiss pressed');
   this.setState({error: null, info: null});
 };
 ErrorBoundary.prototype.render = function () {
