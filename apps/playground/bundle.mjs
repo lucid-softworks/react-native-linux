@@ -106,6 +106,14 @@ const vendorOpts = {
   ...baseOpts,
   entryPoints: [resolve(here, 'runtime/vendor.js')],
   outfile: vendorOut,
+  // The umbrella shims now `require('react-native')` so they're
+  // portable to Metro. esbuild would follow that into the real
+  // react-native package and choke on its Flow `import typeof`
+  // syntax. Redirect to the playground's own react-native shim
+  // (runtime/react-native.js) before resolution walks node_modules.
+  alias: {
+    'react-native': resolve(here, 'runtime/react-native.js'),
+  },
 };
 
 // Override via RN_ENTRY for one-off experiments (e.g. RN_ENTRY=expo-blank.tsx).

@@ -21,7 +21,7 @@
 // read from it; Link writes to it.
 
 const React = require('react');
-const {Pressable, Text, View} = require('./components');
+const {Pressable, Text, View} = require('react-native');
 
 const DefaultTheme = {
   dark: false,
@@ -55,7 +55,6 @@ const DarkTheme = {
 let activeNav = null;
 function withNav(name, args) {
   if (activeNav) return activeNav[name](...args);
-  // eslint-disable-next-line no-console
   if (typeof rnLinux !== 'undefined') {
     rnLinux.log('warn', '[expo-router] no active navigator for ' + name);
   }
@@ -203,8 +202,6 @@ const stackStyles = {
 function Tabs({children, screenOptions}) {
   const ctx = makeRouter('/');
   const screens = collectScreens(children, Tabs.Screen);
-  // Tab selection = first segment of pathname (or first screen if no
-  // match). Tapping a tab navigates to that screen's name.
   const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || screens[0]?.name;
   const active = screens.find(s => s.name === seg) ?? screens[0];
   const activeColor =
@@ -217,7 +214,6 @@ function Tabs({children, screenOptions}) {
     React.createElement(
       View,
       {style: {flex: 1}},
-      // Optional header
       active?.options?.title && active?.options?.headerShown !== false
         ? React.createElement(
             View,
@@ -268,8 +264,6 @@ const tabsStyles = {
 // ────────────────────────────────────────────────────────────────
 // Helpers
 
-// Walk the children, picking up <Type name=… component=… options=…/>
-// entries. Skips anything that isn't a screen of the requested type.
 function collectScreens(children, Type) {
   const out = [];
   React.Children.forEach(children, child => {
@@ -281,8 +275,6 @@ function collectScreens(children, Type) {
         // `component` is OUR extension — real expo-router resolves the
         // component from a same-named file under `app/`.
         component: child.props.component,
-        // Children can be inline content; real expo-router renders the
-        // matched file.
         children: child.props.children,
       });
     }
@@ -328,9 +320,6 @@ function Link(props) {
     if (e && e.defaultPrevented) return;
     (replace ? ctx.replace : ctx.navigate)(href);
   };
-  // asChild: real expo-router clones its child to attach onPress
-  // (Radix-style). We approximate: if asChild, render the child with
-  // onPress merged in.
   if (asChild && React.isValidElement(children)) {
     return React.cloneElement(children, {
       onPress: handle,
@@ -339,8 +328,7 @@ function Link(props) {
   }
   // Don't theme text unless the Link has no parent style — apps that
   // pass their own style for the Pressable wrapper expect to control
-  // the text colour themselves (real expo-router's <Link> just renders
-  // the child as text without imposing a theme colour).
+  // the text colour themselves.
   const styledChild =
     typeof children === 'string'
       ? React.createElement(

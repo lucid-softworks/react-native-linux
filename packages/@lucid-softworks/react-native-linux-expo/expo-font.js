@@ -8,10 +8,7 @@
 // any unloaded font will just fall back to the system default in
 // Pango's resolution, which is the right thing visually for a desktop.
 
-const React = require('react');
-
 function useFonts(_map) {
-  // Returns [loaded, error]. Always loaded, never errored.
   return [true, null];
 }
 
@@ -42,7 +39,5 @@ module.exports = {
   isLoading,
   unloadAsync,
   unloadAllAsync,
-  // Some apps `import { processFontFamily } from 'expo-font'`; pass
-  // names through unchanged.
   processFontFamily: name => name,
 };

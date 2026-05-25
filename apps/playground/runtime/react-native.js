@@ -12,12 +12,45 @@
 // to a sensible no-op or throws at use-time so apps know they hit a
 // gap.
 
-const {View, ScrollView, Image, Text, TextInput, Pressable, Button} =
-  require('./components');
+const React = require('react');
+const {View, ScrollView, Image, Text, TextInput, Pressable, Button} = require('./components');
 const StyleSheet = require('./stylesheet');
 const {FlatList} = require('./flatlist');
 const {Modal} = require('./modal');
 const {Animated, Easing} = require('./animated');
+const {renderFabric} = require('./fabric');
+
+// AppRegistry — minimal surface for Expo's registerRootComponent
+// path. registerComponent immediately mounts via renderFabric since
+// the playground only runs one app at a time and the Fabric surface
+// is already up by the time the app bundle hits this code. Real
+// react-native's AppRegistry holds component factories until the
+// native side calls runApplication; we collapse that into one step.
+const registrations = new Map();
+const AppRegistry = {
+  registerComponent(appKey, factory) {
+    registrations.set(appKey, factory);
+    const Component = factory();
+    renderFabric(React.createElement(Component));
+    return appKey;
+  },
+  getApplication(appKey, _initialProps) {
+    const factory = registrations.get(appKey);
+    if (!factory) return null;
+    return {element: React.createElement(factory())};
+  },
+  getRunnable(appKey) {
+    return registrations.get(appKey) ? {appKey} : undefined;
+  },
+  getAppKeys() {
+    return Array.from(registrations.keys());
+  },
+  registerRunnable(appKey, run) {
+    registrations.set(appKey, () => null);
+    return appKey;
+  },
+  unmountApplicationComponentAtRootTag() {},
+};
 
 const Platform = {
   OS: 'linux',
@@ -35,7 +68,7 @@ const Platform = {
 };
 
 const Dimensions = {
-  get: (kind) =>
+  get: kind =>
     kind === 'screen' || kind === 'window'
       ? {width: 1024, height: 860, scale: 1, fontScale: 1}
       : {width: 0, height: 0, scale: 1, fontScale: 1},
@@ -55,18 +88,25 @@ function useColorScheme() {
 // Promise-based (not async) so hermesc can compile the bundle —
 // the hermes -emit-binary path doesn't accept async function syntax.
 const Linking = {
-  openURL: () => Promise.reject(new Error(
-    "Linking.openURL not wired yet on react-native-linux")),
+  openURL: () => Promise.reject(new Error('Linking.openURL not wired yet on react-native-linux')),
   canOpenURL: () => Promise.resolve(false),
   addEventListener: () => ({remove: () => {}}),
 };
 
 module.exports = {
   // Components
-  View, ScrollView, Image, Text, TextInput, Pressable, Button,
-  FlatList, Modal,
+  View,
+  ScrollView,
+  Image,
+  Text,
+  TextInput,
+  Pressable,
+  Button,
+  FlatList,
+  Modal,
   // Animated
-  Animated, Easing,
+  Animated,
+  Easing,
   // Layout helper
   StyleSheet,
   // Platform globals
@@ -75,4 +115,5 @@ module.exports = {
   Appearance,
   useColorScheme,
   Linking,
+  AppRegistry,
 };

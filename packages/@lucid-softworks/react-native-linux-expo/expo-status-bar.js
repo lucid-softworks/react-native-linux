@@ -11,8 +11,6 @@ function StatusBar() {
   return null;
 }
 
-// expo-status-bar also exports `setStatusBarStyle`, `setStatusBarHidden`
-// etc. as imperative API. Stub them so calls don't throw.
 function noop() {}
 
 module.exports = {

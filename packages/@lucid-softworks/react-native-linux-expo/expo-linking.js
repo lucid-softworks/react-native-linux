@@ -4,7 +4,7 @@
 // Linking with URL parsing helpers and deep-link routing. We re-export
 // RN's Linking and add the parse helpers expo-router needs.
 
-const {Linking} = require('./react-native');
+const {Linking} = require('react-native');
 
 function parse(url) {
   // Hand-rolled because Hermes doesn't ship the URL constructor and
@@ -50,9 +50,6 @@ function createURL(path, options = {}) {
 }
 
 function useURL() {
-  // Real hook listens for incoming deep links; on desktop without
-  // OS-level URL handling we just report null. Apps using this for
-  // initial routing should gracefully fall through to their default.
   return null;
 }
 
@@ -61,7 +58,6 @@ module.exports = {
   parse,
   createURL,
   useURL,
-  // Reverse compat name used by some packages.
   parseInitialURLAsync: () => Promise.resolve({scheme: null, path: null, queryParams: {}}),
   getInitialURL: () => Promise.resolve(null),
   addEventListener: (...args) => Linking.addEventListener(...args),

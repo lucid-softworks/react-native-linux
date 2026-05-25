@@ -7,10 +7,8 @@
 // passthrough, every imperative method is a no-op.
 
 const React = require('react');
-const {View} = require('./components');
+const {View} = require('react-native');
 
-// `enableScreens(true)` is the opt-in real apps call early. Our
-// "screens" are always just Views, so always enabled.
 function enableScreens(_enable) {}
 function enableFreeze(_enable) {}
 function enableScreenshotEvents(_enable) {}
@@ -24,7 +22,6 @@ function isSearchBarAvailableForCurrentPlatform() {
   return false;
 }
 
-// Components — all View passthroughs.
 function Screen(props) {
   return React.createElement(View, props);
 }
@@ -35,8 +32,6 @@ function ScreenStack(props) {
   return React.createElement(View, props);
 }
 function ScreenStackHeaderConfig(_props) {
-  // The header is conventionally rendered by the navigator on iOS/
-  // Android. expo-router on desktop has nothing to render here.
   return null;
 }
 function ScreenStackHeaderLeftView(props) {
@@ -64,7 +59,6 @@ function ScreenStackHeaderSubview(props) {
   return React.createElement(View, props);
 }
 
-// Constants used by react-navigation when configuring screens.
 const ScreenStackHeaderBackButtonDisplayMode = {
   default: 'default',
   generic: 'generic',
@@ -96,15 +90,12 @@ const StackAnimationTypes = {
 };
 
 module.exports = {
-  // Opt-in / state
   enableScreens,
   enableFreeze,
   enableScreenshotEvents,
   screensEnabled,
   freezeEnabled,
   isSearchBarAvailableForCurrentPlatform,
-
-  // Components
   Screen,
   ScreenContainer,
   ScreenStack,
@@ -117,13 +108,10 @@ module.exports = {
   ScreenStackHeaderSubview,
   SearchBar,
   FullWindowOverlay,
-
-  // Enums
   ScreenStackHeaderBackButtonDisplayMode,
   ScreenStackHeaderStatusBarStyle,
   StackPresentationTypes,
   StackAnimationTypes,
-
   default: {Screen, ScreenContainer, ScreenStack},
   __esModule: true,
 };

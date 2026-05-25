@@ -10,18 +10,14 @@
 // but at least won't crash on import.
 
 const React = require('react');
-const {View, Text, Image, ScrollView} = require('./components');
+const {View, Text, Image, ScrollView} = require('react-native');
 
-// Identity hook — returns a mutable ref-like object so downstream code
-// that does `sharedValue.value = …` doesn't blow up.
 function useSharedValue(initial) {
   const ref = React.useRef({value: initial});
   return ref.current;
 }
 
 function useAnimatedStyle(fn) {
-  // Run the worklet once with no animated context. The returned style
-  // is applied statically; no animation. Better than throwing.
   try {
     return typeof fn === 'function' ? fn() : {};
   } catch {
@@ -58,8 +54,6 @@ function useAnimatedProps(fn) {
   }
 }
 
-// withTiming / withSpring / withDecay — return the target value
-// immediately. Apps animating between values just see snaps.
 const withTiming = (target, _config, callback) => {
   if (callback) callback(true);
   return target;
@@ -77,7 +71,6 @@ const withRepeat = value => value;
 const withSequence = (...values) => values[values.length - 1];
 const cancelAnimation = _value => {};
 
-// Easing — same interface as RN's, just identity-ish functions.
 const Easing = {
   linear: t => t,
   ease: t => t,
@@ -90,8 +83,6 @@ const Easing = {
   bezierFn: () => t => t,
 };
 
-// runOnJS / runOnUI — on real reanimated these jump between threads.
-// We're single-threaded; just call the function.
 function runOnJS(fn) {
   return (...args) => fn(...args);
 }
@@ -99,8 +90,6 @@ function runOnUI(fn) {
   return (...args) => fn(...args);
 }
 
-// Animated.View / Text / Image / ScrollView — just our base
-// components. Animation props are silently dropped.
 const Animated = {
   View,
   Text,
@@ -112,8 +101,6 @@ const Animated = {
 module.exports = {
   default: Animated,
   __esModule: true,
-
-  // Hooks
   useSharedValue,
   useAnimatedStyle,
   useAnimatedProps,
@@ -122,8 +109,6 @@ module.exports = {
   useAnimatedReaction,
   useAnimatedGestureHandler,
   useAnimatedScrollHandler,
-
-  // Animation primitives
   withTiming,
   withSpring,
   withDecay,
@@ -132,15 +117,9 @@ module.exports = {
   withSequence,
   cancelAnimation,
   Easing,
-
-  // Threading
   runOnJS,
   runOnUI,
-
-  // Animated namespace
   ...Animated,
-
-  // Layout animations + transitions — just return null/identity.
   Layout: {duration: () => ({})},
   FadeIn: {duration: () => ({})},
   FadeOut: {duration: () => ({})},

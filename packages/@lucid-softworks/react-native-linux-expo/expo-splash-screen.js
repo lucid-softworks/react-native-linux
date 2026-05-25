@@ -13,10 +13,7 @@ function hideAsync() {
   return Promise.resolve(true);
 }
 
-function setOptions(_options) {
-  // expo-splash-screen has an options API (fade, duration, etc.).
-  // Nothing to do here.
-}
+function setOptions(_options) {}
 
 module.exports = {
   preventAutoHideAsync,

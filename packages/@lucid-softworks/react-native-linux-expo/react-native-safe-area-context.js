@@ -6,7 +6,7 @@
 // safe — so every inset is 0 and SafeAreaView is a passthrough View.
 
 const React = require('react');
-const {View} = require('./components');
+const {View} = require('react-native');
 
 const ZERO_INSETS = {top: 0, right: 0, bottom: 0, left: 0};
 const ZERO_FRAME = {x: 0, y: 0, width: 0, height: 0};
@@ -15,7 +15,6 @@ const SafeAreaInsetsContext = React.createContext(ZERO_INSETS);
 const SafeAreaFrameContext = React.createContext(ZERO_FRAME);
 
 function SafeAreaProvider({children, initialMetrics: _ignored, ...rest}) {
-  // Passes through; the context defaults are already 0/0/0/0.
   return React.createElement(View, {style: {flex: 1}, ...rest}, children);
 }
 

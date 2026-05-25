@@ -1,0 +1,51 @@
+{
+  "name": "@lucid-softworks/react-native-linux-expo",
+  "version": "0.0.1",
+  "description": "Expo-ecosystem module shims for react-native-linux (expo-router, expo-status-bar, react-native-safe-area-context, …)",
+  "license": "MIT",
+  "author": "Lucid Softworks <hello@lucidsoft.works> (https://lucidsoft.works)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucid-softworks/react-native-linux.git",
+    "directory": "packages/@lucid-softworks/react-native-linux-expo"
+  },
+  "bugs": {
+    "url": "https://github.com/lucid-softworks/react-native-linux/issues"
+  },
+  "homepage": "https://github.com/lucid-softworks/react-native-linux#readme",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "expo.js",
+    "expo-constants.js",
+    "expo-font.js",
+    "expo-linking.js",
+    "expo-router.js",
+    "expo-splash-screen.js",
+    "expo-status-bar.js",
+    "expo-symbols.js",
+    "expo-web-browser.js",
+    "react-native-reanimated.js",
+    "react-native-safe-area-context.js",
+    "react-native-screens.js"
+  ],
+  "scripts": {
+    "typecheck": "echo 'no typecheck'",
+    "test": "jest --passWithNoTests",
+    "build": "echo 'no build step'",
+    "clean": "echo 'no clean'"
+  },
+  "peerDependencies": {
+    "@lucid-softworks/react-native-linux": "workspace:*",
+    "react": "*",
+    "react-native": "^0.76.0"
+  },
+  "keywords": [
+    "react-native",
+    "linux",
+    "expo",
+    "gtk",
+    "gtk4",
+    "shim"
+  ]
+}

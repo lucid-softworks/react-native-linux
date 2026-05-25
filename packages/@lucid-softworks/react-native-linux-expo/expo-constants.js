@@ -6,11 +6,10 @@
 // reference for analytics empty.
 
 const Constants = {
-  // Always available on real Expo
-  appOwnership: null, // not "expo" since we're not in Expo Go
-  executionEnvironment: 'bare', // not 'storeClient' / 'standalone'
+  appOwnership: null,
+  executionEnvironment: 'bare',
   expoVersion: '0.0.0',
-  expoConfig: null, // populated from app.json on real Expo
+  expoConfig: null,
   manifest: null,
   manifest2: null,
   installationId: 'rnl-installation',
@@ -34,15 +33,6 @@ const Constants = {
   nativeBuildVersion: '0',
 };
 
-// Plain CJS export — let esbuild's __toESM helper wrap it. Without
-// __esModule, __toESM sets target.default = mod, and copyProps adds
-// each Constants field as a getter on target. So both
-// `import Constants from 'expo-constants'` (gets the default which
-// is the whole Constants object) and `import {deviceName}` work.
-// Mirror expo-status-bar's shape: spread named fields, plus an
-// explicit `default` + `__esModule`. With patchHermesForOfBug in
-// bundle.mjs fixing the for-of-let closure bug, both default and
-// named imports come out correctly.
 module.exports = {
   ...Constants,
   default: Constants,

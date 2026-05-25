@@ -5,18 +5,10 @@
 // we render the symbol's name as text — visually obvious as a
 // placeholder but doesn't break layout. Apps that care can pass a
 // `fallback` prop and we'll honour it.
-//
-// Usage in the wild:
-//   <SymbolView name={{ios: 'chevron.right', android: 'arrow', web: 'arrow'}} />
-//   <SymbolView name="chevron.right" />
-//   <SymbolView name="x" size={28} tintColor="red" />
 
 const React = require('react');
-const {Text} = require('./components');
+const {Text} = require('react-native');
 
-// Some common SF Symbols → a unicode glyph that reads similarly. Way
-// shorter than the real catalog; falls back to the symbol name for
-// anything we don't have.
 const GLYPH = {
   'chevron.left': '‹',
   'chevron.right': '›',
@@ -60,8 +52,6 @@ function resolveGlyph(nameProp) {
     return GLYPH[nameProp] ?? nameProp;
   }
   if (nameProp && typeof nameProp === 'object') {
-    // Per-platform name object: {ios, android, web}. Pick whichever
-    // matches our Platform.OS, or fall back through the list.
     const key = nameProp.ios ?? nameProp.android ?? nameProp.web;
     return key ? (GLYPH[key] ?? key) : '◻';
   }
@@ -80,8 +70,6 @@ function SymbolView(props) {
 
 module.exports = {
   SymbolView,
-  // Some apps also import SFSymbol/SymbolEffect. Stub out so imports
-  // don't crash; real behavior is platform-specific anyway.
   SFSymbol: SymbolView,
   SymbolEffect: {},
 };
