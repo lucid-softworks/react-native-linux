@@ -99,6 +99,7 @@ set(RNL_SOURCES
   src/views/ImageComponentView.cpp
   src/views/TextInputComponentView.cpp
   src/components/TextInput.cpp
+  src/storage/AsyncStorage.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )

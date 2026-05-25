@@ -116,6 +116,7 @@ const appOpts = {
   external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime',
              'react-reconciler', 'react-refresh/runtime',
              'react-native',
+             '@react-native-async-storage/async-storage',
              './runtime'],
   banner: {
     js:
@@ -128,6 +129,7 @@ const appOpts = {
       '  if (id === "react-reconciler") return rnv.reactReconciler;\n' +
       '  if (id === "react-refresh/runtime") return rnv.reactRefreshRuntime;\n' +
       '  if (id === "react-native") return rnv.reactNative;\n' +
+      '  if (id === "@react-native-async-storage/async-storage") return rnv.asyncStorage;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +

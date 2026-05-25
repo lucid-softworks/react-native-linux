@@ -8,6 +8,7 @@ import {
   FlatList, Modal,
   Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {renderFabric} from './runtime';
 
 const palette = {
@@ -84,6 +85,22 @@ function App(): JSX.Element {
   const [name, setName] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
 
+  // Restore the name from AsyncStorage on first mount, then persist
+  // on every change. Survives full process restart. We use a
+  // `loaded` flag to avoid the classic race where the on-mount
+  // getItem resolves AFTER the user has typed and overwrites them.
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem('rnl.demo.name').then((v) => {
+      if (v != null) setName(v);
+      setLoaded(true);
+    });
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem('rnl.demo.name', name);
+  }, [name, loaded]);
+
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
@@ -101,13 +118,15 @@ function App(): JSX.Element {
       {/* TextInput + remote Image row */}
       <View style={{flexDirection: 'row', gap: 12, marginBottom: 12}}>
         <View style={[styles.card, {flex: 2}]}>
-          <Text style={styles.cardLabel}>type your name — flows through onChangeText</Text>
+          <Text style={styles.cardLabel}>
+            type your name — saved via AsyncStorage
+          </Text>
           <TextInput style={styles.input}
                      placeholder="your name…"
                      value={name}
                      onChangeText={setName} />
           <Text style={styles.echo}>
-            {name ? `hello, ${name}!` : '(state is empty)'}
+            {name ? `hello, ${name}! (persists across restarts)` : '(state is empty)'}
           </Text>
         </View>
         <View style={[styles.card, {flex: 1, gap: 6}]}>

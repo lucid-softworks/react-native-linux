@@ -8,8 +8,16 @@
 #include <cstdio>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace rnlinux {
+
+// Storage backing lives in vnext/src/storage/AsyncStorage.cpp. The
+// JSI rnLinux.storage* bindings below forward into these four.
+std::string asyncStorageRead(const std::string& key);
+void asyncStorageWrite(const std::string& key, const std::string& value);
+void asyncStorageRemove(const std::string& key);
+std::vector<std::string> asyncStorageKeys();
 
 namespace {
 
@@ -422,6 +430,58 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
     state().fabricChangeTextHandlers[tag] = std::make_shared<jsi::Function>(
         args[1].asObject(rt).asFunction(rt));
     return jsi::Value::undefined();
+  });
+
+  // AsyncStorage backing — a simple key/value store kept in a JSON
+  // file at $XDG_CONFIG_HOME/<app-id>/async-storage.json. JS calls
+  // rnLinux.storageRead(key) / storageWrite(key, value) /
+  // storageRemove(key) / storageKeys(). All synchronous since our
+  // single-thread model can read+write the file inline without
+  // blocking anything meaningful.
+  // Forward decls for the storage backing — implementation lives in
+  // vnext/src/storage/AsyncStorage.cpp.
+  // (Wrapped in this scope so we don't leak the declarations into
+  // other translation units that include this header.)
+  // Note: these need to be at file scope for linkage, but C++ doesn't
+  // let us declare locally and call from a lambda; we use the
+  // namespace-qualified names directly inside the lambdas below.
+
+  bindMethod(rt, rnLinux, "storageRead", 1,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 1) return jsi::Value::null();
+    auto v = asyncStorageRead(args[0].asString(rt).utf8(rt));
+    if (v.empty()) return jsi::Value::null();
+    return jsi::Value{jsi::String::createFromUtf8(rt, v)};
+  });
+
+  bindMethod(rt, rnLinux, "storageWrite", 2,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 2) return jsi::Value::undefined();
+    asyncStorageWrite(args[0].asString(rt).utf8(rt),
+                      args[1].asString(rt).utf8(rt));
+    return jsi::Value::undefined();
+  });
+
+  bindMethod(rt, rnLinux, "storageRemove", 1,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value* args, size_t count) -> jsi::Value {
+    if (count < 1) return jsi::Value::undefined();
+    asyncStorageRemove(args[0].asString(rt).utf8(rt));
+    return jsi::Value::undefined();
+  });
+
+  bindMethod(rt, rnLinux, "storageKeys", 0,
+      [](jsi::Runtime& rt, const jsi::Value&,
+         const jsi::Value*, size_t) -> jsi::Value {
+    auto keys = asyncStorageKeys();
+    jsi::Array arr{rt, keys.size()};
+    for (size_t i = 0; i < keys.size(); ++i) {
+      arr.setValueAtIndex(rt, i,
+                          jsi::String::createFromUtf8(rt, keys[i]));
+    }
+    return arr;
   });
 
   bindMethod(rt, rnLinux, "clearInterval", 1,

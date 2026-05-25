@@ -199,6 +199,10 @@ declare global {
     log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void;
     setInterval(fn: () => void, ms: number): number;
     clearInterval(id: number): void;
+    storageRead(key: string): string;
+    storageWrite(key: string, value: string): void;
+    storageRemove(key: string): void;
+    storageKeys(): string[];
     // … (other rnLinux.* members live in vnext/src/jsi)
   };
 }

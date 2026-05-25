@@ -43,6 +43,7 @@ const componentsMod = {View, ScrollView, Image, Text, TextInput, Pressable, Butt
 // runtime is wired so its `require('./')` resolves to a populated
 // componentsMod (via the same vendor table below).
 const reactNativeMod = require('./react-native');
+const asyncStorageMod = require('./async-storage');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -55,6 +56,7 @@ globalThis.__rnv = {
   reactReconciler: Reconciler,
   reactRefreshRuntime: RefreshRuntime,
   reactNative: reactNativeMod,
+  asyncStorage: asyncStorageMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,
