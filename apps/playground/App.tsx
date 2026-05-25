@@ -1,148 +1,329 @@
-import React from 'react';
-import {Platform, ScrollView, StyleSheet, Text, View} from 'react-native';
+// Rich react-native-linux playground, written as an Expo app would
+// be — `export default function App` + `<StatusBar />`. The entry is
+// `index.tsx`, which calls `registerRootComponent(App)` from the
+// `expo` shim, exactly as `npx create-expo-app` generates.
+//
+// Imports come from 'react-native' / 'expo-status-bar' the same way
+// an iOS or Android Expo app does. The only knowledge of "Linux" in
+// this file is `Platform.OS === 'linux'` for the header text.
 
-// Touchstone of the things the runtime has to handle on day one:
-// nested Views, multi-fragment Text with mixed styling, flex layout
-// (driven by Yoga, identical to RN), and dynamic content from
-// Platform.constants. CI uses this app as the smoke target — if it
-// boots and the assertions in tests/visualSnapshot pass, we treat the
-// platform as alive.
-export default function App() {
-  return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <View style={styles.header}>
-        <Text style={styles.heading}>react-native-linux playground</Text>
-        <Text style={styles.subheading}>
-          Running on{' '}
-          <Text style={styles.bold}>{Platform.constants.Distribution}</Text>{' '}
-          ({Platform.OS} {Platform.Version})
-        </Text>
-      </View>
+import {useEffect, useRef, useState} from 'react';
+import {
+  StyleSheet,
+  View,
+  Image,
+  Text,
+  TextInput,
+  Pressable,
+  Button,
+  FlatList,
+  Modal,
+  Animated,
+  Easing,
+  Platform,
+} from 'react-native';
+import {StatusBar} from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {FpsOverlay} from './FpsOverlay';
 
-      <Section title="View nesting">
-        <View style={styles.row}>
-          <View style={[styles.box, {backgroundColor: '#3b82f6'}]} />
-          <View style={[styles.box, {backgroundColor: '#10b981'}]} />
-          <View style={[styles.box, {backgroundColor: '#f97316'}]} />
-          <View style={[styles.box, {backgroundColor: '#ef4444'}]} />
-        </View>
-      </Section>
+const palette = {
+  bg: '#0f172a',
+  panel: '#1e293b',
+  panelAlt: '#111827',
+  border: '#334155',
+  text: '#f8fafc',
+  muted: '#94a3b8',
+  subtle: '#cbd5e1',
+  accent: '#fde047',
+  green: '#22c55e',
+  blue: '#3b82f6',
+  orange: '#f97316',
+  red: '#ef4444',
+};
 
-      <Section title="Text styles">
-        <Text style={styles.body}>
-          Plain text, <Text style={styles.bold}>bold</Text>,{' '}
-          <Text style={styles.italic}>italic</Text>,{' '}
-          <Text style={styles.mono}>monospace</Text>, and{' '}
-          <Text style={styles.code}>inline code</Text>.
-        </Text>
-      </Section>
+const styles = StyleSheet.create({
+  app: {flex: 1, padding: 20, backgroundColor: palette.bg},
+  title: {fontSize: 24, fontWeight: '700', color: palette.text},
+  hint: {fontSize: 13, color: palette.muted, fontStyle: 'italic', marginBottom: 16},
 
-      <Section title="Flex layout">
-        <View style={styles.flexRow}>
-          <View style={[styles.flexCell, {flex: 1}]}>
-            <Text style={styles.body}>flex: 1</Text>
-          </View>
-          <View style={[styles.flexCell, {flex: 2}]}>
-            <Text style={styles.body}>flex: 2</Text>
-          </View>
-          <View style={[styles.flexCell, {flex: 1}]}>
-            <Text style={styles.body}>flex: 1</Text>
-          </View>
-        </View>
-      </Section>
+  body: {flexDirection: 'row', gap: 16, flex: 1},
+  column: {flex: 1, gap: 12},
 
-      <Section title="Status">
-        <Text style={styles.muted}>
-          If you can read this on a GTK4 window, the host, scheduler,
-          mounting layer, and at least View + Text are all alive.
-        </Text>
-      </Section>
-    </ScrollView>
-  );
+  card: {
+    padding: 14,
+    backgroundColor: palette.panel,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  cardLabel: {fontSize: 13, fontWeight: '500', color: palette.muted},
+  cardValue: {fontSize: 32, fontWeight: '700', color: palette.text},
+
+  buttonRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
+
+  input: {
+    height: 36,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    color: palette.text,
+    backgroundColor: palette.panelAlt,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  echo: {fontSize: 13, color: palette.muted, fontStyle: 'italic', marginTop: 4},
+
+  listPanel: {
+    flex: 1,
+    backgroundColor: palette.panel,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 4,
+  },
+  listHeader: {fontSize: 13, fontWeight: '600', color: palette.subtle, padding: 8},
+  listFooter: {fontSize: 12, color: palette.muted, padding: 10, fontStyle: 'italic'},
+  row: {padding: 10, borderRadius: 6, marginBottom: 4},
+  rowEven: {backgroundColor: palette.bg},
+  rowOdd: {backgroundColor: palette.panelAlt},
+  rowText: {fontSize: 14, color: palette.text},
+  separator: {height: 1, backgroundColor: palette.border, marginVertical: 2},
+
+  modalPanel: {
+    width: 360,
+    padding: 20,
+    backgroundColor: palette.panel,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 12,
+  },
+  modalTitle: {fontSize: 18, fontWeight: '700', color: palette.text},
+  modalText: {fontSize: 14, color: palette.subtle, lineHeight: 20},
+});
+
+interface Item {
+  id: string;
+  label: string;
+  subtitle: string;
 }
 
-function Section({title, children}: {title: string; children: React.ReactNode}) {
+const data: Item[] = Array.from({length: 80}, (_, i) => ({
+  id: `i${i}`,
+  label: `item ${i}`,
+  subtitle:
+    i % 3 === 0
+      ? 'tap to set the counter'
+      : i % 3 === 1
+        ? 'rendered via FlatList'
+        : 'styled with StyleSheet.create',
+}));
+
+export default function App(): JSX.Element {
+  const [count, setCount] = useState(0);
+  const [tick, setTick] = useState(0);
+  const [name, setName] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+
+  // Restore the name from AsyncStorage on first mount, then persist
+  // on every change. Survives full process restart. We use a
+  // `loaded` flag to avoid the classic race where the on-mount
+  // getItem resolves AFTER the user has typed and overwrites them.
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem('rnl.demo.name').then(v => {
+      if (v != null) setName(v);
+      setLoaded(true);
+    });
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem('rnl.demo.name', name);
+  }, [name, loaded]);
+
+  useEffect(() => {
+    // Slowed to 5 s — each tick commits → mounts → paints (~250 ms
+    // on this VM's software stack), which used to drag steady-state
+    // animation FPS down. Still demonstrates useEffect+setInterval,
+    // just less often.
+    const id = setInterval(() => setTick(t => t + 1), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Animated demo — a value that loops 0 → 1 → 0, driving an
+  // indicator pip's opacity and horizontal slide.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {toValue: 1, duration: 1100, easing: Easing.inOut}),
+        Animated.timing(pulse, {toValue: 0, duration: 1100, easing: Easing.inOut}),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+    // pulse is a useRef.current — stable identity across renders, so
+    // omitting from deps is intentional. The lint rule can't tell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const slideX = pulse.interpolate({inputRange: [0, 1], outputRange: [0, 80]});
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
+    <View style={styles.app}>
+      <Text style={styles.title}>react-native-linux • Platform.OS = {Platform.OS}</Text>
+      <Text style={styles.hint}>
+        Expo-style App.tsx · FlatList + Modal + View + Text + Image + ScrollView + TextInput.
+      </Text>
+
+      {/* TextInput + remote Image row */}
+      <View style={{flexDirection: 'row', gap: 12, marginBottom: 12}}>
+        <View style={[styles.card, {flex: 2}]}>
+          <Text style={styles.cardLabel}>type your name — saved via AsyncStorage</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="your name…"
+            value={name}
+            onChangeText={setName}
+          />
+          <Text style={styles.echo}>
+            {name ? `hello, ${name}! (persists across restarts)` : '(state is empty)'}
+          </Text>
+        </View>
+        <View style={[styles.card, {flex: 1, gap: 6}]}>
+          <Text style={styles.cardLabel}>remote image (libsoup-3)</Text>
+          <Image
+            source={{uri: 'https://picsum.photos/240/120'}}
+            resizeMode="cover"
+            style={{
+              width: 160,
+              height: 80,
+              alignSelf: 'center',
+              backgroundColor: palette.panelAlt,
+              borderRadius: 6,
+            }}
+          />
+        </View>
+      </View>
+
+      <View style={styles.body}>
+        {/* Left column — counter, buttons, modal trigger */}
+        <View style={styles.column}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>counter</Text>
+            <Text style={styles.cardValue}>{count}</Text>
+          </View>
+
+          <View style={styles.buttonRow}>
+            <Button
+              title="+1"
+              width={84}
+              onPress={() => setCount(c => c + 1)}
+              backgroundColor={palette.green}
+            />
+            <Button
+              title="+10"
+              width={84}
+              onPress={() => setCount(c => c + 10)}
+              backgroundColor={palette.blue}
+            />
+            <Button
+              title="−1"
+              width={84}
+              onPress={() => setCount(c => c - 1)}
+              backgroundColor={palette.orange}
+            />
+            <Button
+              title="reset"
+              width={84}
+              onPress={() => setCount(0)}
+              backgroundColor={palette.red}
+            />
+          </View>
+
+          <Button
+            title="open modal"
+            onPress={() => setModalOpen(true)}
+            backgroundColor={palette.blue}
+          />
+
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>useEffect ticker</Text>
+            <Text style={[styles.cardValue, {color: palette.accent}]}>{tick}</Text>
+          </View>
+
+          {/* Animated pip — opacity (native-driveable) + left (falls
+              back to React-driven). On this VM software paint cost
+              dominates, so batched React commits actually beat the
+              N-redraws-per-frame the native driver does. Switch to
+              `transform: [{translateX: slideX}]` on hardware-accelerated
+              GTK to get the native-driver fast path. */}
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Animated.loop · 1.1s in/out</Text>
+            <View style={{height: 28, marginTop: 10, width: 120}}>
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  width: 40,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: palette.accent,
+                  opacity: pulse,
+                  left: slideX,
+                }}
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Right column — FlatList */}
+        <View style={styles.listPanel}>
+          <FlatList
+            data={data}
+            keyExtractor={item => item.id}
+            ListHeaderComponent={
+              <Text style={styles.listHeader}>FlatList · {data.length} items · separators</Text>
+            }
+            ListFooterComponent={<Text style={styles.listFooter}>— end of list —</Text>}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            renderItem={({item, index}) => (
+              <Pressable
+                style={[styles.row, index % 2 === 0 ? styles.rowEven : styles.rowOdd]}
+                onPress={() => setCount(index)}>
+                <Text style={styles.rowText}>
+                  {item.label} · {item.subtitle}
+                </Text>
+              </Pressable>
+            )}
+          />
+        </View>
+      </View>
+
+      {/* Dev FPS overlay — ported from akari's DevPerformanceOverlay.
+          Pressable: tap to collapse to a "FPS" badge, tap again to expand. */}
+      <FpsOverlay />
+
+      {/* Modal */}
+      <Modal visible={modalOpen} onRequestClose={() => setModalOpen(false)}>
+        <View style={styles.modalPanel}>
+          <Text style={styles.modalTitle}>Modal — overlay layer</Text>
+          <Text style={styles.modalText}>
+            Modal renders as an absolutely-positioned overlay inside the same window. Tap the
+            backdrop or press the button below to dismiss.
+          </Text>
+          <Text style={styles.modalText}>
+            counter is {count}; ticker is {tick}; name is {name || '(empty)'}.
+          </Text>
+          <Button
+            title="dismiss"
+            onPress={() => setModalOpen(false)}
+            backgroundColor={palette.green}
+          />
+        </View>
+      </Modal>
+
+      {/* No-op on desktop GTK — see runtime/expo-status-bar.js. Kept
+          in tree so the App reads identically to a real Expo app. */}
+      <StatusBar style="auto" />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: {
-    padding: 24,
-    backgroundColor: '#0f172a',
-    minHeight: '100%',
-  },
-  header: {
-    marginBottom: 24,
-  },
-  heading: {
-    color: '#f8fafc',
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  subheading: {
-    color: '#cbd5f5',
-    fontSize: 14,
-  },
-  section: {
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 8,
-    backgroundColor: '#1e293b',
-  },
-  sectionTitle: {
-    color: '#f1f5f9',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  box: {
-    width: 56,
-    height: 56,
-    borderRadius: 6,
-  },
-  body: {
-    color: '#e2e8f0',
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  bold: {
-    fontWeight: '700',
-  },
-  italic: {
-    fontStyle: 'italic',
-  },
-  mono: {
-    fontFamily: 'monospace',
-  },
-  code: {
-    fontFamily: 'monospace',
-    backgroundColor: '#334155',
-    color: '#fcd34d',
-    paddingHorizontal: 4,
-  },
-  flexRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  flexCell: {
-    backgroundColor: '#0f172a',
-    borderRadius: 4,
-    padding: 12,
-    alignItems: 'center',
-  },
-  muted: {
-    color: '#94a3b8',
-    fontSize: 12,
-    lineHeight: 18,
-  },
-});

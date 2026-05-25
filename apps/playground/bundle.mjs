@@ -119,6 +119,7 @@ const appOpts = {
              'react-reconciler', 'react-refresh/runtime',
              'react-native',
              '@react-native-async-storage/async-storage',
+             'expo',
              'expo-status-bar',
              './runtime'],
   banner: {
@@ -133,6 +134,7 @@ const appOpts = {
       '  if (id === "react-refresh/runtime") return rnv.reactRefreshRuntime;\n' +
       '  if (id === "react-native") return rnv.reactNative;\n' +
       '  if (id === "@react-native-async-storage/async-storage") return rnv.asyncStorage;\n' +
+      '  if (id === "expo") return rnv.expo;\n' +
       '  if (id === "expo-status-bar") return rnv.expoStatusBar;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
