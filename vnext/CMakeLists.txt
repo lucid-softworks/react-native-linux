@@ -34,6 +34,12 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 
 include(FindGTK4)         # GTK4 via pkg-config
+
+# Pango + cairo — used by our Pango-backed TextLayoutManager in
+# rn_renderer for real text measurement. GTK4 transitively links
+# these, but rn_renderer is a sibling static library that compiles
+# first, so it needs its own pkg-config path.
+pkg_check_modules(Pango REQUIRED IMPORTED_TARGET pangocairo)
 include(ReactNativeHeaders)  # locate node_modules/react-native
 include(FetchHermes)      # Hermes runtime
 include(FetchFolly)       # Folly (subset)
@@ -129,6 +135,22 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
 list(FILTER RNL_RN_RENDERER_SOURCES EXCLUDE REGEX "/tests/")
 list(FILTER RNL_RN_RENDERER_SOURCES EXCLUDE REGEX "Test\\.cpp$")
 
+# Drop RN's stock cxx TextLayoutManager.cpp — it always returns {0,0}
+# from measure(), which leaves every <Text> Yoga node zero-height. We
+# provide a Pango-backed replacement in vnext/src/text/TextLayoutManager
+# .cpp (same class, same header from RN, real measurement).
+list(FILTER RNL_RN_RENDERER_SOURCES EXCLUDE REGEX "textlayoutmanager/platform/cxx/TextLayoutManager\\.cpp$")
+
+# Bring our Pango-backed replacement (and the markup helper it shares
+# with ParagraphComponentView) into the same library that holds the
+# rest of the renderer. Keeping them in rn_renderer means the
+# TextLayoutManager class definition is satisfied from a single
+# translation unit — no duplicate-symbol risk.
+list(APPEND RNL_RN_RENDERER_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/text/PangoMarkup.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/text/TextLayoutManager.cpp
+)
+
 add_library(react_native_rn_renderer STATIC ${RNL_RN_RENDERER_SOURCES})
 target_include_directories(react_native_rn_renderer
   PUBLIC
@@ -151,6 +173,12 @@ target_link_libraries(react_native_rn_renderer
   PUBLIC
     Hermes::Hermes
     Folly::folly
+    # Our Pango-backed TextLayoutManager.cpp lives in this library and
+    # needs both pangocairo (font map + layout APIs) and cairo
+    # itself. GTK4 transitively links them, but rn_renderer is built
+    # before react_native_linux pulls GTK in, so we have to ask for
+    # the include path + lib here directly.
+    PkgConfig::Pango
     glog::glog
     fmt::fmt
     double-conversion::double-conversion

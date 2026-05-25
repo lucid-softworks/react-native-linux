@@ -24,19 +24,8 @@ function View(props) {
   return React.createElement('view', props, props.children);
 }
 
-// RN's stock cxx TextLayoutManager returns {0,0} for measure() —
-// without that, Yoga gives every <Text> zero height and siblings
-// overlap. Until we wire a Pango-backed measurer, we estimate the
-// height from fontSize so flex layouts don't collapse. Width still
-// flows from the flex container.
 function Text(props) {
-  const {fontSize = 14, height, ...rest} = props;
-  const estimatedHeight = Math.ceil(fontSize * 1.45);
-  return React.createElement(
-    'text',
-    {...rest, fontSize, height: height ?? estimatedHeight},
-    props.children,
-  );
+  return React.createElement('text', props, props.children);
 }
 
 // <Pressable onPress={fn}> — a clickable View. We expose `onPress` as
