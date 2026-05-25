@@ -152,6 +152,16 @@ function ModulesScreen(): JSX.Element {
         <Text style={styles.rowVal}>animating=false hidesWhenStopped=false</Text>
       </View>
 
+      <Text style={styles.h1}>Mixed-style Text</Text>
+      <View style={styles.row}>
+        <Text style={styles.rowKey}>nested Text with per-fragment style</Text>
+        <Text style={styles.rowVal}>
+          plain <Text style={{color: '#ef4444', fontWeight: '700'}}>red bold</Text>{' '}
+          <Text style={{color: '#10b981', fontStyle: 'italic'}}>green italic</Text>{' '}
+          <Text style={{fontSize: 22}}>big</Text> tail
+        </Text>
+      </View>
+
       <Text style={styles.h1}>Text overflow</Text>
       <View style={styles.row}>
         <Text style={styles.rowKey}>numberOfLines=1 ellipsizeMode=tail</Text>

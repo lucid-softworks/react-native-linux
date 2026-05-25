@@ -56,8 +56,23 @@ const TextInput = React.forwardRef(function TextInput(props, ref) {
   });
 });
 
+// Tracks whether we're inside an outer <Text>. The outermost Text
+// emits a `<text>` host (Paragraph shadow node — Yoga layout root +
+// AttributedString owner); inner Texts emit `<innertext>` host
+// (Text shadow node — just contributes one fragment with its own
+// TextAttributes to the ancestor Paragraph's AttributedString). That
+// lets `<Text>foo <Text style={{color:'red'}}>bar</Text></Text>`
+// produce two fragments with distinct styling instead of collapsing.
+const InTextContext = React.createContext(false);
+
 const Text = React.forwardRef(function Text(props, ref) {
-  return React.createElement('text', {...props, ref}, props.children);
+  const inText = React.useContext(InTextContext);
+  const hostTag = inText ? 'innertext' : 'text';
+  return React.createElement(
+    InTextContext.Provider,
+    {value: true},
+    React.createElement(hostTag, {...props, ref}, props.children),
+  );
 });
 
 // <Pressable onPress={fn}> — a clickable View. We expose `onPress` as

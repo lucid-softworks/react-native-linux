@@ -19,6 +19,9 @@ LinuxComponentViewRegistry::LinuxComponentViewRegistry() {
   registerComponent("RawText", [](Tag) -> std::unique_ptr<LinuxComponentView> {
     return nullptr; // RawText is data only; no widget.
   });
+  // Text is also data only — fragments roll up to the nearest
+  // Paragraph ancestor and contribute their TextAttributes there.
+  registerComponent("Text", [](Tag) -> std::unique_ptr<LinuxComponentView> { return nullptr; });
   registerComponent("ScrollView",
                     [](Tag t) { return std::make_unique<ScrollViewComponentView>(t); });
   registerComponent("Image", [](Tag t) { return std::make_unique<ImageComponentView>(t); });

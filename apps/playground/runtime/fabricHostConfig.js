@@ -356,11 +356,9 @@ const hostConfig = {
     }
 
     if (type === 'text') {
-      // RN's textual flow is Paragraph (carries layout + base
-      // TextAttributes) → RawText children (contribute string content).
-      // ParagraphProps inherits BaseTextProps, so top-level `color`,
-      // `fontSize`, `fontWeight`, … parse into its textAttributes and
-      // propagate to every fragment built from descendants.
+      // Outer <Text> → Paragraph (Yoga layout + AttributedString
+      // owner). Top-level text-style props become the default
+      // TextAttributes for descendant fragments.
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
         tag,
@@ -370,6 +368,24 @@ const hostConfig = {
         internalInstanceHandle,
       );
       return makeInstance(tag, fabricNode, 'Paragraph', type);
+    }
+
+    if (type === 'innertext') {
+      // Nested <Text> inside another <Text> → Text shadow node.
+      // Data-only (no widget); Fabric walks Text + RawText descendants
+      // of the nearest Paragraph to build the AttributedString. The
+      // Text shadow node's TextAttributes override the parent
+      // Paragraph's for the fragments under this branch — that's how
+      // mixed-style runs come out as multiple Pango <span>s.
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'Text',
+        currentSurfaceId,
+        buildFabricProps('text', props),
+        internalInstanceHandle,
+      );
+      return makeInstance(tag, fabricNode, 'Text', type);
     }
 
     throw new Error('Unknown host element: <' + type + '>');
