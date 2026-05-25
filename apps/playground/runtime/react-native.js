@@ -97,13 +97,23 @@ const Dimensions = {
   removeEventListener: () => {},
 };
 
+// Reads the GTK setting `gtk-application-prefer-dark-theme` on each
+// call so apps see the current system preference. We don't yet emit
+// change events when the user toggles their theme — apps that want
+// reactivity would need a useEffect subscription wrapper today.
+function _readScheme() {
+  if (typeof rnLinux !== 'undefined' && rnLinux.getColorScheme) {
+    return rnLinux.getColorScheme();
+  }
+  return 'light';
+}
 const Appearance = {
-  getColorScheme: () => 'dark',
+  getColorScheme: _readScheme,
   addChangeListener: () => ({remove: () => {}}),
 };
 
 function useColorScheme() {
-  return 'dark';
+  return _readScheme();
 }
 
 // Promise-based (not async) so hermesc can compile the bundle —

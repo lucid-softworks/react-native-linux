@@ -11,6 +11,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Appearance,
   Clipboard,
   Dimensions,
   Linking,
@@ -137,6 +138,7 @@ function ModulesScreen(): JSX.Element {
 
       <Text style={styles.h1}>Platform APIs</Text>
       <DimensionsRow />
+      <Row k="Appearance.getColorScheme()" v={Appearance.getColorScheme() ?? '—'} />
       <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>
         <Pressable
           style={styles.linkBtn}

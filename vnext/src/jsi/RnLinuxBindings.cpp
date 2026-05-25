@@ -1084,6 +1084,24 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::String::createFromUtf8(rt, out);
       });
 
+  // Appearance.getColorScheme backing. Reads the GTK setting
+  // `gtk-application-prefer-dark-theme` and returns 'dark' or 'light'.
+  // GTK exposes this via GtkSettings, which is global per display. The
+  // user's chosen system theme (set via the desktop's "Appearance"
+  // panel or AdwStyleManager on libadwaita systems) feeds it.
+  bindMethod(rt,
+             rnLinux,
+             "getColorScheme",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               GtkSettings* settings = gtk_settings_get_default();
+               if (!settings)
+                 return jsi::String::createFromUtf8(rt, "light");
+               gboolean dark = FALSE;
+               g_object_get(settings, "gtk-application-prefer-dark-theme", &dark, nullptr);
+               return jsi::String::createFromUtf8(rt, dark ? "dark" : "light");
+             });
+
   // Dimensions.get('window') backing — returns the surface size of
   // the root view's window in logical pixels, plus the GDK scale
   // factor. Default RN apps call this from layout hooks; pre-fix we
