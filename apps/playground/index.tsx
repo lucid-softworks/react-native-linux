@@ -1,4 +1,4 @@
-// react-native-linux playground app — Fabric edition.
+// react-native-linux playground app — Fabric edition, TypeScript.
 //
 // This file is the entire user-facing React surface. Everything that
 // makes JSX → Fabric → GTK possible (Hermes shims, react-reconciler
@@ -13,10 +13,10 @@
 // defaults to 'absolute' in the host config — explicit top/left is
 // the unit of layout for now.
 
-const {useEffect, useState} = require('react');
-const {renderFabric, View, Text} = require('./runtime');
+import {useEffect, useState} from 'react';
+import {renderFabric, View, Text} from './runtime';
 
-function App() {
+function App(): JSX.Element {
   const [count, setCount] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setCount((c) => c + 1), 1000);
@@ -28,7 +28,7 @@ function App() {
           backgroundColor="#1e293b">
       <Text top={20} left={20} width={880} height={36}
             color="#f8fafc" fontSize={22} fontWeight="700">
-        Hello from JSX → Fabric!  count = {count}
+        Hello from TSX → Fabric!  count = {count}
       </Text>
       <Text top={60} left={20} width={880} height={24}
             color="#94a3b8" fontSize={14} fontStyle="italic">
@@ -63,7 +63,7 @@ function App() {
       </Text>
       <Text top={252} left={20} width={880} height={24}
             color="#94a3b8" fontSize={13}>
-        edit apps/playground/index.jsx, run `pnpm watch` — hot reload reboots the runtime.
+        edit apps/playground/index.tsx — Fast Refresh keeps useState alive.
       </Text>
     </View>
   );

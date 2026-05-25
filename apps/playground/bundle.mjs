@@ -4,7 +4,7 @@
 //   vendor.bundle  — React + react-reconciler + react-refresh + our
 //                    runtime (shims, hostConfig, fabric, components).
 //                    Loaded ONCE on cold start, never re-evaluated.
-//   index.linux.bundle (a.k.a. app bundle) — index.jsx + any user
+//   index.linux.bundle (a.k.a. app bundle) — index.tsx + any user
 //                    code. Re-evaluated on every save; Fast Refresh
 //                    picks up the new component types and reconciles
 //                    against the same React tree, preserving state.
@@ -109,7 +109,7 @@ const vendorOpts = {
 
 const appOpts = {
   ...baseOpts,
-  entryPoints: [resolve(here, 'index.jsx')],
+  entryPoints: [resolve(here, 'index.tsx')],
   outfile: appOut,
   // These resolve at runtime from globalThis.__rnv (see banner).
   external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime',
@@ -213,7 +213,7 @@ async function watchMode() {
   };
   const ctx = await context({...appOpts, plugins: [...appOpts.plugins, hmrPlugin]});
   await ctx.watch();
-  console.log(`👀 watching ${resolve(here, 'index.jsx')} → ${appOut}`);
+  console.log(`👀 watching ${resolve(here, 'index.tsx')} → ${appOut}`);
   console.log(`📡 HMR push: ${hmrSocketPath()}`);
 }
 
