@@ -11,6 +11,9 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Clipboard,
+  Dimensions,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -132,6 +135,19 @@ function ModulesScreen(): JSX.Element {
       />
       <Row k="expo-symbols" v={'★ ⌂ → ⌕ ⚙'} />
 
+      <Text style={styles.h1}>Platform APIs</Text>
+      <DimensionsRow />
+      <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>
+        <Pressable
+          style={styles.linkBtn}
+          onPress={() => {
+            Linking.openURL('https://reactnative.dev').catch(() => {});
+          }}>
+          <Text style={styles.linkBtnText}>Linking.openURL → reactnative.dev</Text>
+        </Pressable>
+      </View>
+      <ClipboardDemo />
+
       <Text style={styles.h1}>Refs &amp; measure</Text>
       <View ref={measuredRef as React.Ref<View>} style={styles.row}>
         <Text style={styles.rowKey}>measureInWindow(this row)</Text>
@@ -214,6 +230,36 @@ function RouterScreen(): JSX.Element {
         </Pressable>
       </View>
     </ScrollView>
+  );
+}
+
+function DimensionsRow() {
+  const w = Dimensions.get('window');
+  return <Row k="Dimensions.get('window')" v={`${w.width}×${w.height} @${w.scale}x`} />;
+}
+
+function ClipboardDemo() {
+  const [last, setLast] = useState('—');
+  return (
+    <View style={[styles.row, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>
+      <Pressable
+        style={styles.linkBtn}
+        onPress={() => {
+          const s = `from rn-linux at ${new Date().toISOString()}`;
+          Clipboard.setString(s);
+          setLast('set: ' + s);
+        }}>
+        <Text style={styles.linkBtnText}>Clipboard.setString</Text>
+      </Pressable>
+      <Pressable
+        style={styles.btn}
+        onPress={() => {
+          Clipboard.getString().then(s => setLast('got: ' + (s || '∅')));
+        }}>
+        <Text style={styles.btnText}>getString</Text>
+      </Pressable>
+      <Text style={styles.rowVal}>{last}</Text>
+    </View>
   );
 }
 

@@ -989,6 +989,133 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::Value::undefined();
              });
 
+  // Linking.openURL backing. Hands the URI to GIO, which fans out to
+  // xdg-open-equivalent app launchers (xdg-mime / desktop-entry MIME
+  // handlers). Returns true on success. Async-shaped only to match
+  // the RN API surface — the GIO call itself returns synchronously.
+  bindMethod(
+      rt,
+      rnLinux,
+      "openURL",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString())
+          return jsi::Value(false);
+        const auto uri = args[0].asString(rt).utf8(rt);
+        GError* err = nullptr;
+        const gboolean ok = g_app_info_launch_default_for_uri(uri.c_str(), nullptr, &err);
+        if (!ok) {
+          RNL_LOGW("rnLinux") << "openURL failed: "
+                              << (err && err->message ? err->message : "(unknown)");
+        }
+        if (err)
+          g_error_free(err);
+        return jsi::Value(static_cast<bool>(ok));
+      });
+
+  // canOpenURL: GIO can answer "is there a default app for this
+  // scheme" via g_app_info_get_default_for_uri_scheme. We split the
+  // scheme out manually since the input is the full URI.
+  bindMethod(
+      rt,
+      rnLinux,
+      "canOpenURL",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString())
+          return jsi::Value(false);
+        const auto uri = args[0].asString(rt).utf8(rt);
+        const auto colon = uri.find(':');
+        if (colon == std::string::npos)
+          return jsi::Value(false);
+        const auto scheme = uri.substr(0, colon);
+        GAppInfo* info = g_app_info_get_default_for_uri_scheme(scheme.c_str());
+        const bool ok = info != nullptr;
+        if (info)
+          g_object_unref(info);
+        return jsi::Value(ok);
+      });
+
+  // Clipboard backing. GTK4 exposes the display-level clipboard via
+  // gdk_display_get_clipboard; we set/read UTF-8 text on it. Reads
+  // are async (GTK fires a callback when the selection holder
+  // responds), so getString returns a Promise.
+  bindMethod(rt,
+             rnLinux,
+             "clipboardSetString",
+             1,
+             [rootView](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count)
+                 -> jsi::Value {
+               if (count < 1 || !args[0].isString())
+                 return jsi::Value::undefined();
+               const auto text = args[0].asString(rt).utf8(rt);
+               GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+               if (cb) {
+                 gdk_clipboard_set_text(cb, text.c_str());
+               }
+               return jsi::Value::undefined();
+             });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardGetStringSync",
+      0,
+      [rootView](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+        // Pragmatic synchronous read of the clipboard's own write
+        // history — covers the common "set then immediately get"
+        // round-trip. Cross-app pastes need the async
+        // read_text_async + callback path; falls back to "" here.
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb)
+          return jsi::String::createFromUtf8(rt, "");
+        GdkContentProvider* provider = gdk_clipboard_get_content(cb);
+        if (!provider)
+          return jsi::String::createFromUtf8(rt, "");
+        GValue v = G_VALUE_INIT;
+        g_value_init(&v, G_TYPE_STRING);
+        if (!gdk_content_provider_get_value(provider, &v, nullptr)) {
+          g_value_unset(&v);
+          return jsi::String::createFromUtf8(rt, "");
+        }
+        const char* s = g_value_get_string(&v);
+        std::string out = s ? s : "";
+        g_value_unset(&v);
+        return jsi::String::createFromUtf8(rt, out);
+      });
+
+  // Dimensions.get('window') backing — returns the surface size of
+  // the root view's window in logical pixels, plus the GDK scale
+  // factor. Default RN apps call this from layout hooks; pre-fix we
+  // returned a hardcoded 1024x860 which is wrong as soon as the user
+  // resizes.
+  bindMethod(
+      rt,
+      rnLinux,
+      "getWindowDimensions",
+      0,
+      [rootView](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+        int w = 0, h = 0;
+        int scale = 1;
+        if (rootView) {
+          GtkNative* nat = gtk_widget_get_native(rootView);
+          if (nat) {
+            GdkSurface* surface = gtk_native_get_surface(nat);
+            if (surface) {
+              w = gdk_surface_get_width(surface);
+              h = gdk_surface_get_height(surface);
+              scale = gdk_surface_get_scale_factor(surface);
+            }
+          }
+        }
+        jsi::Object obj(rt);
+        obj.setProperty(rt, "width", jsi::Value(static_cast<double>(w)));
+        obj.setProperty(rt, "height", jsi::Value(static_cast<double>(h)));
+        obj.setProperty(rt, "scale", jsi::Value(static_cast<double>(scale)));
+        obj.setProperty(rt, "fontScale", jsi::Value(1.0));
+        return obj;
+      });
+
   rt.global().setProperty(rt, "rnLinux", rnLinux);
   RNL_LOGI("rnLinux") << "JSI bindings installed";
 }

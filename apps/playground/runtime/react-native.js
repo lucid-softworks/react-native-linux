@@ -77,11 +77,22 @@ const Platform = {
   },
 };
 
+// Dimensions.get('window'|'screen') queries the active surface via
+// rnLinux.getWindowDimensions. 'screen' degrades to 'window' because
+// GTK doesn't surface a separate "screen" rect from JS-accessible
+// state in a windowed app (multi-monitor display info would require
+// reading the GdkMonitor list).
+const _zeroDim = {width: 0, height: 0, scale: 1, fontScale: 1};
 const Dimensions = {
-  get: kind =>
-    kind === 'screen' || kind === 'window'
-      ? {width: 1024, height: 860, scale: 1, fontScale: 1}
-      : {width: 0, height: 0, scale: 1, fontScale: 1},
+  get: kind => {
+    if (kind !== 'screen' && kind !== 'window') return _zeroDim;
+    if (typeof rnLinux === 'undefined' || !rnLinux.getWindowDimensions) return _zeroDim;
+    const d = rnLinux.getWindowDimensions();
+    return d || _zeroDim;
+  },
+  // RN's API includes a change listener for orientation/resize. Apps
+  // wire onLayout against their root View for this; we don't fire
+  // change events yet, so return a no-op subscription.
   addEventListener: () => ({remove: () => {}}),
   removeEventListener: () => {},
 };
@@ -97,10 +108,46 @@ function useColorScheme() {
 
 // Promise-based (not async) so hermesc can compile the bundle —
 // the hermes -emit-binary path doesn't accept async function syntax.
+// Both methods route through GIO's g_app_info_launch_default_for_uri
+// equivalents; canOpenURL only checks for a registered scheme handler
+// (no GET-style verification).
 const Linking = {
-  openURL: () => Promise.reject(new Error('Linking.openURL not wired yet on react-native-linux')),
-  canOpenURL: () => Promise.resolve(false),
+  openURL: url => {
+    if (typeof rnLinux === 'undefined' || !rnLinux.openURL) {
+      return Promise.reject(new Error('Linking unavailable'));
+    }
+    const ok = rnLinux.openURL(String(url));
+    return ok ? Promise.resolve() : Promise.reject(new Error('Linking.openURL failed for ' + url));
+  },
+  canOpenURL: url => {
+    if (typeof rnLinux === 'undefined' || !rnLinux.canOpenURL) {
+      return Promise.resolve(false);
+    }
+    return Promise.resolve(!!rnLinux.canOpenURL(String(url)));
+  },
+  getInitialURL: () => Promise.resolve(null),
   addEventListener: () => ({remove: () => {}}),
+};
+
+// RN's classic Clipboard module ships via @react-native-clipboard/clipboard
+// today, but apps still import a Clipboard object from 'react-native'
+// for legacy paths. Expose the small surface both shapes use.
+const Clipboard = {
+  setString: s => {
+    if (typeof rnLinux !== 'undefined' && rnLinux.clipboardSetString) {
+      rnLinux.clipboardSetString(String(s));
+    }
+  },
+  getString: () => {
+    if (typeof rnLinux === 'undefined' || !rnLinux.clipboardGetStringSync) {
+      return Promise.resolve('');
+    }
+    try {
+      return Promise.resolve(String(rnLinux.clipboardGetStringSync() ?? ''));
+    } catch (_e) {
+      return Promise.resolve('');
+    }
+  },
 };
 
 // SafeAreaView from 'react-native' itself (vs. react-native-safe-area-context).
@@ -136,5 +183,6 @@ module.exports = {
   Appearance,
   useColorScheme,
   Linking,
+  Clipboard,
   AppRegistry,
 };
