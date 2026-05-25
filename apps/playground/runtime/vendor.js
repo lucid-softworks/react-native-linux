@@ -55,6 +55,7 @@ const expoLinkingMod = require('./expo-linking');
 const safeAreaCtxMod = require('./react-native-safe-area-context');
 const screensMod = require('./react-native-screens');
 const reanimatedMod = require('./react-native-reanimated');
+const expoRouterMod = require('./expo-router');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -79,6 +80,7 @@ globalThis.__rnv = {
   safeAreaContext: safeAreaCtxMod,
   screens: screensMod,
   reanimated: reanimatedMod,
+  expoRouter: expoRouterMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,

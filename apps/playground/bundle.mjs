@@ -130,6 +130,7 @@ const appOpts = {
              'react-native-safe-area-context',
              'react-native-screens',
              'react-native-reanimated',
+             'expo-router',
              './runtime'],
   banner: {
     js:
@@ -154,6 +155,7 @@ const appOpts = {
       '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +
       '  if (id === "react-native-screens") return rnv.screens;\n' +
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
+      '  if (id === "expo-router") return rnv.expoRouter;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +

@@ -1,0 +1,450 @@
+'use strict';
+
+// Minimal expo-router shim.
+//
+// What's plumbed here:
+//   * <Stack>, <Stack.Screen>, <Tabs>, <Tabs.Screen>, <Link>, <Slot>
+//     <Redirect>, <ErrorBoundary>, <ThemeProvider> + DarkTheme/DefaultTheme
+//   * useRouter, useNavigation, useLocalSearchParams, useGlobalSearchParams,
+//     useSegments, usePathname, useFocusEffect, useRootNavigationState
+//   * router singleton (.push / .replace / .back / .setParams)
+//
+// What's NOT here (and would need a build-time plugin to do honestly):
+//   * File-based route discovery. Real expo-router scans app/**/*.tsx
+//     during the bundle phase and generates a route map. We don't.
+//   * To compensate, our <Stack.Screen> / <Tabs.Screen> accept a
+//     `component` prop. Apps written for real expo-router will need a
+//     wrapper layout that registers each screen's component manually.
+//
+// Navigation state lives in a single RouterContext with {pathname,
+// params, history, navigate, back, setParams}. Both Stack and Tabs
+// read from it; Link writes to it.
+
+const React = require('react');
+const {Pressable, Text, View} = require('./components');
+
+const DefaultTheme = {
+  dark: false,
+  colors: {
+    primary: '#2563eb',
+    background: '#fff',
+    card: '#fff',
+    text: '#0f172a',
+    border: '#e4e6eb',
+    notification: '#ef4444',
+  },
+  fonts: {regular: {}, medium: {}, bold: {}, heavy: {}},
+};
+
+const DarkTheme = {
+  dark: true,
+  colors: {
+    primary: '#3b82f6',
+    background: '#0f172a',
+    card: '#1e293b',
+    text: '#f8fafc',
+    border: '#334155',
+    notification: '#ef4444',
+  },
+  fonts: {regular: {}, medium: {}, bold: {}, heavy: {}},
+};
+
+// Module-level singleton — populated by the first <Stack>/<Tabs> that
+// mounts, used by the imperative `router` export so apps can call
+// `router.push('/foo')` from outside the React tree.
+let activeNav = null;
+function withNav(name, args) {
+  if (activeNav) return activeNav[name](...args);
+  // eslint-disable-next-line no-console
+  if (typeof rnLinux !== 'undefined') {
+    rnLinux.log('warn', '[expo-router] no active navigator for ' + name);
+  }
+  return undefined;
+}
+
+const router = {
+  push: (...a) => withNav('navigate', a),
+  replace: (...a) => withNav('replace', a),
+  back: (...a) => withNav('back', a),
+  setParams: (...a) => withNav('setParams', a),
+  canGoBack: () => (activeNav ? activeNav.canGoBack() : false),
+  navigate: (...a) => withNav('navigate', a),
+};
+
+const RouterContext = React.createContext({
+  pathname: '/',
+  params: {},
+  history: ['/'],
+  navigate: () => {},
+  replace: () => {},
+  back: () => {},
+  setParams: () => {},
+  canGoBack: () => false,
+});
+
+const NavigationContext = React.createContext(null);
+const ThemeContext = React.createContext(DefaultTheme);
+
+function parseHref(href) {
+  if (typeof href !== 'string') {
+    return {pathname: '/', params: {}};
+  }
+  const [path, query = ''] = href.split('?');
+  const params = {};
+  if (query) {
+    for (const pair of query.split('&')) {
+      const [k, v = ''] = pair.split('=');
+      try {
+        params[decodeURIComponent(k)] = decodeURIComponent(v);
+      } catch {
+        params[k] = v;
+      }
+    }
+  }
+  return {pathname: path || '/', params};
+}
+
+function makeRouter(initial = '/') {
+  const [pathname, setPathname] = React.useState(initial);
+  const [params, setParams] = React.useState({});
+  const [history, setHistory] = React.useState([initial]);
+  const navigate = React.useCallback(href => {
+    const {pathname: p, params: q} = parseHref(href);
+    setPathname(p);
+    setParams(q);
+    setHistory(h => [...h, p]);
+  }, []);
+  const replace = React.useCallback(href => {
+    const {pathname: p, params: q} = parseHref(href);
+    setPathname(p);
+    setParams(q);
+    setHistory(h => (h.length ? [...h.slice(0, -1), p] : [p]));
+  }, []);
+  const back = React.useCallback(() => {
+    setHistory(h => {
+      if (h.length <= 1) return h;
+      const next = h.slice(0, -1);
+      setPathname(next[next.length - 1]);
+      return next;
+    });
+  }, []);
+  const merge = React.useCallback(extra => {
+    setParams(p => ({...p, ...extra}));
+  }, []);
+  const canGoBack = React.useCallback(() => history.length > 1, [history.length]);
+  const ctx = React.useMemo(
+    () => ({
+      pathname,
+      params,
+      history,
+      navigate,
+      replace,
+      back,
+      setParams: merge,
+      canGoBack,
+    }),
+    [pathname, params, history, navigate, replace, back, merge, canGoBack],
+  );
+  React.useEffect(() => {
+    activeNav = ctx;
+    return () => {
+      if (activeNav === ctx) activeNav = null;
+    };
+  }, [ctx]);
+  return ctx;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Stack — renders the screen whose `name` matches the current
+// pathname segment. Stack.Screen is config-only (no own render).
+
+function Stack({children, screenOptions}) {
+  const ctx = makeRouter('/');
+  const screens = collectScreens(children, Stack.Screen);
+  const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || 'index';
+  const match = screens.find(s => s.name === seg) ?? screens[0];
+  const headerShown = match?.options?.headerShown ?? screenOptions?.headerShown ?? true;
+  return React.createElement(
+    RouterContext.Provider,
+    {value: ctx},
+    React.createElement(
+      View,
+      {style: {flex: 1}},
+      headerShown && match?.options?.title
+        ? React.createElement(
+            View,
+            {style: stackStyles.header},
+            React.createElement(Text, {style: stackStyles.headerTitle}, match.options.title),
+          )
+        : null,
+      React.createElement(View, {style: {flex: 1}}, renderScreen(match)),
+    ),
+  );
+}
+Stack.Screen = function StackScreen(_props) {
+  return null;
+};
+
+const stackStyles = {
+  header: {
+    paddingTop: 16,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: DefaultTheme.colors.border,
+    backgroundColor: DefaultTheme.colors.card,
+  },
+  headerTitle: {fontSize: 22, fontWeight: '700', color: DefaultTheme.colors.text},
+};
+
+// ────────────────────────────────────────────────────────────────
+// Tabs — bottom tab bar + active screen content.
+
+function Tabs({children, screenOptions}) {
+  const ctx = makeRouter('/');
+  const screens = collectScreens(children, Tabs.Screen);
+  // Tab selection = first segment of pathname (or first screen if no
+  // match). Tapping a tab navigates to that screen's name.
+  const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || screens[0]?.name;
+  const active = screens.find(s => s.name === seg) ?? screens[0];
+  const activeColor =
+    active?.options?.tabBarActiveTintColor ?? screenOptions?.tabBarActiveTintColor ?? '#2563eb';
+  const inactiveColor =
+    active?.options?.tabBarInactiveTintColor ?? screenOptions?.tabBarInactiveTintColor ?? '#9ca3af';
+  return React.createElement(
+    RouterContext.Provider,
+    {value: ctx},
+    React.createElement(
+      View,
+      {style: {flex: 1}},
+      // Optional header
+      active?.options?.title && active?.options?.headerShown !== false
+        ? React.createElement(
+            View,
+            {style: stackStyles.header},
+            React.createElement(Text, {style: stackStyles.headerTitle}, active.options.title),
+          )
+        : null,
+      React.createElement(View, {style: {flex: 1}}, renderScreen(active)),
+      React.createElement(
+        View,
+        {style: tabsStyles.bar},
+        screens.map(s => {
+          const isActive = s === active;
+          const color = isActive ? activeColor : inactiveColor;
+          return React.createElement(
+            Pressable,
+            {key: s.name, style: tabsStyles.tab, onPress: () => ctx.navigate('/' + s.name)},
+            s.options?.tabBarIcon
+              ? s.options.tabBarIcon({color, focused: isActive, size: 24})
+              : null,
+            React.createElement(
+              Text,
+              {style: [tabsStyles.label, {color}]},
+              s.options?.title ?? s.name,
+            ),
+          );
+        }),
+      ),
+    ),
+  );
+}
+Tabs.Screen = function TabsScreen(_props) {
+  return null;
+};
+
+const tabsStyles = {
+  bar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: DefaultTheme.colors.border,
+    backgroundColor: DefaultTheme.colors.card,
+    paddingVertical: 8,
+  },
+  tab: {flex: 1, alignItems: 'center', paddingVertical: 6, gap: 2},
+  label: {fontSize: 11, fontWeight: '600'},
+};
+
+// ────────────────────────────────────────────────────────────────
+// Helpers
+
+// Walk the children, picking up <Type name=… component=… options=…/>
+// entries. Skips anything that isn't a screen of the requested type.
+function collectScreens(children, Type) {
+  const out = [];
+  React.Children.forEach(children, child => {
+    if (!child) return;
+    if (child.type === Type) {
+      out.push({
+        name: child.props.name,
+        options: child.props.options ?? {},
+        // `component` is OUR extension — real expo-router resolves the
+        // component from a same-named file under `app/`.
+        component: child.props.component,
+        // Children can be inline content; real expo-router renders the
+        // matched file.
+        children: child.props.children,
+      });
+    }
+  });
+  return out;
+}
+
+function renderScreen(match) {
+  if (!match) {
+    return React.createElement(
+      View,
+      {style: {flex: 1, alignItems: 'center', justifyContent: 'center'}},
+      React.createElement(Text, null, '404'),
+    );
+  }
+  if (match.component) {
+    return React.createElement(match.component);
+  }
+  if (match.children) {
+    return match.children;
+  }
+  return React.createElement(
+    View,
+    {style: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24}},
+    React.createElement(
+      Text,
+      {style: {color: DefaultTheme.colors.text, textAlign: 'center'}},
+      'No component for "' +
+        match.name +
+        '". Pass <…Screen component={...} /> or wrap in a layout.',
+    ),
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Link — Pressable that navigates.
+
+function Link(props) {
+  const {href, asChild, replace, children, style, onPress, ...rest} = props;
+  const ctx = React.useContext(RouterContext);
+  const handle = e => {
+    if (onPress) onPress(e);
+    if (e && e.defaultPrevented) return;
+    (replace ? ctx.replace : ctx.navigate)(href);
+  };
+  // asChild: real expo-router clones its child to attach onPress
+  // (Radix-style). We approximate: if asChild, render the child with
+  // onPress merged in.
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(children, {
+      onPress: handle,
+      ...rest,
+    });
+  }
+  // Don't theme text unless the Link has no parent style — apps that
+  // pass their own style for the Pressable wrapper expect to control
+  // the text colour themselves (real expo-router's <Link> just renders
+  // the child as text without imposing a theme colour).
+  const styledChild =
+    typeof children === 'string'
+      ? React.createElement(
+          Text,
+          {
+            style: style
+              ? {color: '#fff', fontWeight: '600'}
+              : {color: DefaultTheme.colors.primary, fontWeight: '600'},
+          },
+          children,
+        )
+      : children;
+  return React.createElement(Pressable, {style, onPress: handle, ...rest}, styledChild);
+}
+
+// ────────────────────────────────────────────────────────────────
+// Misc
+
+function Slot({children}) {
+  return children ?? null;
+}
+
+function Redirect({href}) {
+  const ctx = React.useContext(RouterContext);
+  React.useEffect(() => {
+    ctx.replace(href);
+  }, [href]);
+  return null;
+}
+
+function ErrorBoundaryProvider({children}) {
+  return React.createElement(React.Fragment, null, children);
+}
+
+function ThemeProvider({value, children}) {
+  return React.createElement(ThemeContext.Provider, {value: value ?? DefaultTheme}, children);
+}
+
+function useRouter() {
+  return React.useContext(RouterContext);
+}
+function useNavigation() {
+  return React.useContext(RouterContext);
+}
+function useLocalSearchParams() {
+  return React.useContext(RouterContext).params;
+}
+function useGlobalSearchParams() {
+  return React.useContext(RouterContext).params;
+}
+function useSegments() {
+  return (React.useContext(RouterContext).pathname || '/')
+    .replace(/^\//, '')
+    .split('/')
+    .filter(Boolean);
+}
+function usePathname() {
+  return React.useContext(RouterContext).pathname;
+}
+function useRootNavigationState() {
+  const ctx = React.useContext(RouterContext);
+  return {
+    key: 'root',
+    index: ctx.history.length - 1,
+    routeNames: [],
+    routes: ctx.history.map((p, i) => ({key: 'r' + i, name: p})),
+    type: 'stack',
+    stale: false,
+  };
+}
+function useFocusEffect(cb) {
+  React.useEffect(() => {
+    const cleanup = cb();
+    return cleanup;
+  }, [cb]);
+}
+
+module.exports = {
+  // Components
+  Stack,
+  Tabs,
+  Link,
+  Slot,
+  Redirect,
+  ThemeProvider,
+  ErrorBoundary: ErrorBoundaryProvider,
+
+  // Hooks
+  useRouter,
+  useNavigation,
+  useLocalSearchParams,
+  useGlobalSearchParams,
+  useSegments,
+  usePathname,
+  useRootNavigationState,
+  useFocusEffect,
+
+  // Imperative
+  router,
+
+  // Theme
+  DarkTheme,
+  DefaultTheme,
+
+  default: Stack,
+  __esModule: true,
+};
