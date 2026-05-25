@@ -2,329 +2,191 @@
 
 Decisions locked in (2026-05-21):
 - **UI toolkit:** GTK4 (via `gtk4` + optionally `libadwaita-1` later)
-- **JS engine:** Hermes
-- **Architecture:** Fabric-ready from day one (new renderer + TurboModules)
+- **JS engine:** Hermes (vendor bundle pre-compiled to `.hbc` for fast cold start)
+- **Architecture:** Fabric (Scheduler + cloneNodeWithNewProps persistent mode)
 - **Repo layout:** Monorepo, mirroring `microsoft/react-native-windows` (`vnext/` + `packages/*`)
-- **Target RN version:** pin to a specific recent release (decide: 0.76 vs 0.77 — see Phase 0)
+- **Target RN version:** `^0.76`
 
-> "MVP working" = `npx ... init` produces a Linux app that, when built and run, opens a
-> GTK4 window showing a JS-rendered `<View><Text>Hello from React Native on Linux</Text></View>`,
-> with Metro reload, via Fabric mounting onto real GTK widgets.
+> "MVP working" target hit (2026-05-25): standard `import {View, Text, …} from 'react-native'` JSX renders into a GTK4 window via Fabric, with state-preserving Fast Refresh in ≈135 ms edit→visible.
 
 ---
 
-## Phase 0 — Decisions to lock before writing code
+## Status snapshot (2026-05-25)
 
-- [x] Pin react-native peer dep version: `^0.76` (set in both package.jsons; Hermes verification still pending first end-to-end VM build).
-- [x] Pick package manager: **pnpm 9** (chosen 2026-05-22 over yarn 3; faster + simpler workspace model).
-- [x] npm scope: `@lucid-softworks/*` (chosen 2026-05-22). All packages live under that scope: `@lucid-softworks/react-native-linux`, `@lucid-softworks/react-native-linux-cli`.
-- [x] License: MIT (chosen 2026-05-22). `LICENSE` is present; copyright-header policy: not required (use SPDX `// SPDX-License-Identifier: MIT` only if a contributor opts in).
-- [x] Author/org metadata for `package.json` files (`author`, `repository`, `bugs`, `homepage` on root + both published packages).
-- [x] CI provider: GitHub Actions, Linux-only runners are sufficient (`.github/workflows/ci.yml`).
-- [x] Distro support matrix: Ubuntu 22.04 LTS + 24.04 LTS (CI matrix). Stretch: Fedora 40, Arch (post-MVP).
-- [x] Hermes acquisition strategy: **Option A** (build from source via CMake `FetchContent`, pinned to the RN-vendored tag). Implemented in `vnext/cmake/FetchHermes.cmake`. Option B (prebuilt vendor) deferred.
-- [x] Codegen strategy: use stock `@react-native/codegen` and emit linux-platform specs (no fork). Documented in `docs/native-modules.md`.
+Working end-to-end, verified live in the playground:
 
-## Phase 1 — Repo + tooling foundation
+- **Components:** View, ScrollView, Image (file:// + HTTP via libsoup3), Text (Pango-backed measurement), TextInput (GtkText + onChangeText), Pressable, Button, FlatList (header / footer / separators / numColumns), Modal (in-window overlay).
+- **Styling:** `style={…}` / `style={[a, b]}` / `StyleSheet.create`. backgroundColor, color, fontSize, fontFamily, fontWeight, fontStyle, textAlign, borderRadius (per corner), borderWidth (per side), borderColor, opacity.
+- **Layout:** Yoga flexbox — flex, flexDirection, flexWrap, gap, justifyContent, alignItems / Self / Content, padding, margin, position absolute.
+- **Events:** onClick / onPress via GtkGestureClick → `dispatchFabricClick(tag)` registry; onChangeText via `dispatchFabricChangeText(tag, s)`.
+- **State + effects:** useState, useEffect, setInterval, requestAnimationFrame (~60 fps `g_timeout_add`). Hermes microtask drain wired after evaluate and after surface.start.
+- **Animated:** Animated.Value / timing / sequence / parallel / loop / interpolate / Easing; Animated.View / Text / Image / ScrollView. JS driver only.
+- **Persistence:** AsyncStorage (XDG JSON file, atomic save). `@react-native-async-storage/async-storage` import works.
+- **`react-native` module shim:** importable as `from 'react-native'` — Platform (`OS = 'linux'`), Dimensions, Appearance, useColorScheme, Linking (stub).
+- **Dev loop:** Edit → Fast Refresh ≈135 ms. swc-driven react-refresh transform on user files; Hermes-bytecode vendor for ≈10 ms cold-start JS eval; HMR push over Unix socket (no filesystem hop); the file monitor stays as a fallback.
 
-- [x] Root `package.json` declares JS-only packages via `pnpm-workspace.yaml` (`packages/@lucid-softworks/*`, `template`, `apps/*`). vnext is C++, not a workspace.
-- [x] `.editorconfig`, `.prettierrc`, `.eslintrc.js` (extend `@react-native`).
-- [x] `clang-format` config for C++ (LLVM-derived, RN style).
-- [x] `tsconfig.base.json` consumed by each TS package.
-- [x] `LICENSE` (MIT).
-- [x] `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
-- [x] `CODEOWNERS`.
-- [x] Pre-commit: husky + lint-staged running eslint + prettier + clang-format on staged files.
-- [x] Commit-message convention (Conventional Commits, documented in `CONTRIBUTING.md`). Replacing `changesets` with `release-please` (already configured in `release-please-config.json`).
-- [x] Dependabot config (`.github/dependabot.yml`) — weekly npm + GitHub Actions, grouped (eslint, typescript, jest, react-native).
-- [x] Top-level `README.md` with quick-start + repo layout (architecture diagram lives in `docs/architecture.md`).
-- [x] `docs/` directory:
-  - [x] `docs/architecture.md`
-  - [x] `docs/getting-started.md`
-  - [x] `docs/native-modules.md`
-  - [x] `docs/component-support.md` (matrix)
-  - [x] `docs/troubleshooting.md`
-  - [x] `docs/dev-vm.md` (bonus: Lima VM workflow for macOS contributors)
+What's broken right now:
 
-## Phase 2 — JS package (`packages/@lucid-softworks/react-native-linux`)
+- **Window resize:** the tick callback queries `gtk_widget_get_height(window)`, which returns content request (≈5446 px when the FlatList expands its content) instead of the viewport. Layout grows past the monitor. Pick a different signal source (probably `gtk_widget_get_allocated_height` on the GtkFixed after subtracting decorations, or hook `GdkSurface::layout`).
 
-- [x] `package.json`:
-  - [x] `peerDependencies`: `react`, `react-native`
-  - [x] `main: index.js`
-  - [x] `react-native.config.js` for autolinking + platform registration
-- [x] `index.js` re-exports RN core + Linux-specific extensions.
-- [x] `Libraries/Utilities/Platform.linux.js` setting `Platform.OS = 'linux'`.
-- [x] `Libraries/Components/View/View.linux.js` (native host component, codegen).
-- [x] `Libraries/Components/Text/Text.linux.js`.
-- [x] `Libraries/Components/UnimplementedViews/UnimplementedNativeView.linux.js`.
-- [ ] `Libraries/AppRegistry/AppRegistry.linux.js` shim — decided: rely on stock for now.
-- [x] Codegen specs (`*NativeComponent.{ts,js}`) for View, Text.
-- [x] TypeScript types (`index.d.ts`) re-exporting RN types with linux-only additions.
-- [x] Jest setup (`jest.config.js`) + `jest-preset` so consumers can run tests.
-- [x] Snapshot of supported APIs vs RN core (table in [docs/component-support.md](./docs/component-support.md)).
+Honest gaps for arbitrary RN apps to drop in:
 
-## Phase 3 — CLI package (`packages/@lucid-softworks/cli`)
+- Inline nested `<Text>` for mixed-style runs (Fabric collapses our intermediate Text shadow nodes; one Paragraph per outer `<Text>` today).
+- `tintColor` on Image (needs a custom GdkPaintable subclass).
+- `numberOfLines` / `ellipsizeMode` plumbed from Paragraph props (TextLayoutManager already accepts them).
+- `Animated.useNativeDriver` — silently ignored.
+- `Switch` / `ActivityIndicator` / `RefreshControl` / `KeyboardAvoidingView` / `SafeAreaView` — not wired yet.
+- TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
+- Clipboard / real Linking / Alert / AT-SPI2 accessibility.
 
-- [x] `package.json` depending on `@react-native-community/cli-types`.
-- [x] `src/index.ts` exporting `commands`, `platforms` for RN CLI config.
-- [x] Commands:
-  - [x] `run-linux` — cmake configure + build + launch executable.
-    - [x] `--release` flag
-    - [x] `--no-packager` flag
-    - [x] `--build-dir` flag
-  - [x] `bundle-linux` — wraps Metro with `platform=linux`.
-  - [x] `init-linux` — bootstraps a Linux project inside an existing RN app (idempotent).
-  - [x] `log-linux` — tail journalctl / app's stderr log file.
-  - [x] `autolink-linux` — generate CMake includes for linked native deps.
-- [x] Platform registration object (`platforms.linux`).
-- [x] Dependency-config schema for third-party native modules:
-  - [x] CMake target name
-  - [x] Sourceset path
-  - [ ] Include dirs (deferred; not currently propagated through the generated `autolinked.cmake`).
-- [x] Tests (jest + ts-jest).
-- [ ] Help text / `--help` output for each command (covered by RN CLI; each command's `description` + `options[].description` populate `--help` automatically — verify once first end-to-end run lands).
-
-## Phase 4 — Template (`template/`)
-
-- [x] `template/App.tsx` — minimal `<View><Text>Hello</Text></View>`.
-- [x] `template/index.js` — `AppRegistry.registerComponent('App', () => App)`.
-- [x] `template/package.json` with deps on `react`, `react-native`, `@lucid-softworks/react-native-linux`.
-- [x] `template/tsconfig.json`.
-- [x] `template/metro.config.js` (linux platform extension).
-- [x] `template/linux/CMakeLists.txt` — calls into vnext, builds an executable, includes `autolinked.cmake`.
-- [x] `template/linux/main.cpp` — boots `RNLinuxHost`, loads `index.linux.bundle`.
-- [x] `template/linux/CMakePresets.json` (debug + release).
-- [x] `template/linux/app.desktop` (.desktop entry).
-- [ ] `template/linux/icons/` (PNG 16/32/64/128/256 + scalable SVG) — binary assets, deferred until visual identity exists.
-- [x] `template/.gitignore`.
-
-## Phase 5 — Native runtime (`vnext/`) — the hard part
+## Phase 5 — Native runtime (`vnext/`)
 
 ### 5.1 — Build system
 
-- [x] `vnext/CMakeLists.txt` top-level (`cmake_minimum_required 3.25`, project, C++20).
-- [x] `vnext/CMakePresets.json` (debug-x86_64, release-x86_64, debug-aarch64).
-- [x] `vnext/cmake/` helper modules:
-  - [x] `FindGTK4.cmake` (prefer pkg-config)
-  - [x] `FetchHermes.cmake`
-  - [x] `FetchFolly.cmake`, `FetchGlog.cmake`, `FetchFmt.cmake`, `FetchDoubleConversion.cmake`, `FetchBoost.cmake` (Boost: header-only subset for RN's needs)
-  - [x] `ReactNativeHeaders.cmake` — locate `node_modules/react-native/ReactCommon/**`
-- [x] Install rules + `react-native-linux.pc` pkg-config file. Downstream consumers use `add_subdirectory(...)` (the template) or pkg-config; a real `find_package` config is deferred because Hermes is FetchContent-built and cannot be included in an exported targets file.
-- [x] First **green `cmake --build`** on Ubuntu 24.04 aarch64 inside the Lima dev VM (2026-05-22). `libreact_native_linux.so.0.0.1` (~2.4 MB) links cleanly against the FetchContent-built Hermes + Folly; all 829 `rnlinux::*` public symbols are exported. Ubuntu 22.04 build + a hermes-inspector-enabled build are the remaining sub-gates.
+- [x] vnext/CMakeLists.txt, presets, dep modules, pkg-config exports
+- [x] First green build on Ubuntu 24.04 aarch64 (Lima)
+- [x] Pango + libsoup3 (soft dep) + Hermes via FetchContent
 
 ### 5.2 — Host / instance plumbing
 
-- [x] `vnext/include/react-native-linux/RNLinuxHost.h`
-  - [x] Constructor takes bundle URL (assets path TBD — Phase 9 `Image` work).
-  - [x] `start()`, `stop()`, `reload()`.
-  - [ ] `attachSurface(SurfaceHandler&)` — Phase 5.3.
-- [ ] `vnext/src/RNLinuxHost.cpp`
-  - [ ] Owns `ReactInstance` (`react/runtime/ReactInstance.h`).
-  - [x] Owns Hermes runtime via `hermes::makeHermesRuntime` (through `HermesRuntimeHolder`).
-  - [ ] Owns `JSExecutorFactory` wrapping Hermes.
-  - [ ] Owns `Scheduler` for Fabric — Phase 5.3.
-  - [ ] Owns `RuntimeExecutor` — pending the JS thread.
-  - [x] Bundle loader (file:// works; http:// still stubbed pending libcurl/libsoup3).
-- [x] `vnext/src/jsi/HermesRuntimeFactory.cpp` — adapter: `makeHermesRuntimeHolder()` returns a holder exposing `evaluate()` + `runtime()` (jsi::Runtime&).
-- [ ] Threading model:
-  - [ ] JS thread: dedicated `std::thread` with folly executor — current code is single-threaded (host evaluates on its caller's thread).
-  - [ ] UI thread: GTK4 `GMainContext` (the main loop owns it).
-  - [ ] Cross-thread dispatch: `g_idle_add` for JS→UI, `JSExecutor::invokeAsync` for UI→JS.
+- [x] `RNLinuxHost::start / stop / reload / reloadFromSource`
+- [x] HermesRuntimeFactory + `withMicrotaskQueue(true)` + explicit drain after evaluate
+- [x] Bundle loader (file:// works; http:// stub remains — for the bundle, not for `<Image>`)
+- [x] Vendor + app two-bundle split; vendor pre-compiled to Hermes `.hbc`
+- [ ] Dedicated JS thread (still single-threaded — `Runtime::executor` is synchronous)
+- [ ] folly executor + g_idle_add cross-thread plumbing (single-threaded path covers MVP)
 
 ### 5.3 — Fabric integration
 
-- [x] `LinuxComponentDescriptorRegistry` registering core descriptors:
-  - [x] `ViewComponentDescriptor` (reused from `react/renderer/components/view`)
-  - [x] `ParagraphComponentDescriptor` (text)
-  - [x] `RawTextComponentDescriptor`
-  - [x] `TextComponentDescriptor`
-  - [ ] (later) `ScrollViewComponentDescriptor`
-  - [ ] (later) `ImageComponentDescriptor`
-- [x] `LinuxSchedulerDelegate` (implements `SchedulerDelegate` — all six pure-virtuals):
-  - [x] `schedulerDidFinishTransaction` → posts `MountingCoordinator::Shared` to the UI thread via `g_idle_add`, pulls the transaction there, hands to `LinuxMountingManager`.
-  - [x] `schedulerShouldRenderTransactions` (treats same as didFinish for MVP).
-  - [x] `schedulerDidRequestPreliminaryViewAllocation` (no-op; GTK widget alloc is cheap).
-  - [x] `schedulerDidDispatchCommand` (logs; routing to component views is Phase 9).
-  - [x] `schedulerDidSendAccessibilityEvent` (logs; AT-SPI2 hookup is Phase 9).
-  - [x] `schedulerDidSetIsJSResponder` (no-op; GTK gesture controllers own grab state).
-- [x] `SurfaceHandler` lifecycle — `RNLinuxHost::{createSurface,startSurface,stopSurface}` build a real `facebook::react::SurfaceHandler(moduleName, surfaceId)`, set props, register with the Scheduler via `registerSurface()` + `SurfaceHandler::start()`.
-- [x] `LayoutContext` — point-scale factor + initial window size threaded into `SurfaceHandler::constraintLayout()`. Live `gdk_monitor_get_scale_factor` lookup lands once we wire the monitor signal.
-- [x] `Scheduler` itself: `RNLinuxHost` owns a `facebook::react::Scheduler` built from a SchedulerToolbox carrying `ContextContainer` (with `EmptyReactNativeConfig`), `ComponentRegistryFactory`, synchronous `RuntimeExecutor`, and a noop `EventBeat` factory.
-- [x] Renderer + Yoga + telemetry + runtime-scheduler + mounting + featureflags sources compiled into a static `react_native_rn_renderer` library, link-included with `-Wl,--whole-archive` so descriptor-provider statics survive dead-strip.
+- [x] Descriptors: View, Paragraph, RawText, Text, ScrollView, Image, TextInput (our own cross-platform shadow node)
+- [x] LinuxSchedulerDelegate (all six pure-virtuals)
+- [x] SurfaceHandler lifecycle; `resizeRootSurface(w, h)` updates LayoutConstraints
+- [x] Scheduler from a SchedulerToolbox (ContextContainer, ComponentRegistryFactory, RuntimeExecutor, noop EventBeat)
+- [x] react_native_rn_renderer static lib with `-Wl,--whole-archive`
 
 ### 5.4 — Mounting layer (GTK4)
 
-- [ ] `LinuxMountingManager`:
-  - [ ] Subscribes to `MountingCoordinator`.
-  - [ ] On UI thread, pulls `MountingTransaction`, executes mutations.
-- [ ] `LinuxComponentViewRegistry`: `Tag → ComponentView*`.
-- [ ] `LinuxComponentView` base class:
-  - [ ] Wraps a `GtkWidget*`.
-  - [ ] `updateProps(oldProps, newProps)`.
-  - [ ] `updateLayoutMetrics(metrics)` → `gtk_fixed_move` + `gtk_widget_set_size_request`.
-  - [ ] `updateEventEmitter`.
-  - [ ] `updateState`.
-  - [ ] `mountChildComponentView` / `unmountChildComponentView`.
-- [ ] Concrete views:
-  - [ ] `ViewComponentView` → `GtkFixed` (children get absolute frames).
-    - [ ] Background color via CSS provider per widget.
-    - [ ] Border radius via CSS.
-    - [ ] Opacity via `gtk_widget_set_opacity`.
-    - [ ] Transform: matrix → GTK4 has no first-class matrix on widgets; use `GtkSnapshot` + custom widget subclass or fall back to CSS for translate/rotate.
-  - [ ] `ParagraphComponentView` → `GtkLabel`.
-    - [ ] Text content from attributed string fragments.
-    - [ ] Font family/size/weight/color via PangoAttrList.
-    - [ ] Multi-line + wrap mode.
-- [ ] Root view: a `GtkFixed` inside a `GtkApplicationWindow`.
-- [ ] CSS provider lifecycle (one global `GtkCssProvider`, per-widget classes for unique styles).
+- [x] LinuxMountingManager: `performTransaction` walks `ShadowViewMutation`s; `postLayoutPass()` runs at end of transaction
+- [x] LinuxComponentViewRegistry with virtual `postLayoutPass` hook
+- [x] LinuxComponentView base: widget_, updateProps, updateLayoutMetrics (gtk_fixed_move + set_size_request), mountChild / unmountChild
+- [x] ViewComponentView (GtkFixed) — backgroundColor, borderRadius (per-corner), borderWidth (per-side), borderColor, opacity, all composed into one CSS load_from_string per update; GtkGestureClick wired to dispatchFabricClick
+- [x] ParagraphComponentView (GtkLabel) — Pango markup from AttributedString fragments; textAlign → gtk_label_set_xalign
+- [x] ScrollViewComponentView (GtkScrolledWindow + inner GtkFixed) — children mount into inner; postLayoutPass sizes the inner from children's bounding box; horizontal / showsScrollIndicator
+- [x] ImageComponentView (GtkPicture) — file:// via gdk_texture_new_from_file; http(s) async via libsoup3; resizeMode → GtkContentFit
+- [x] TextInputComponentView (GtkText) — placeholder, value, maxLength; "changed" signal → dispatchFabricChangeText; suppress signal during programmatic set
+- [x] Root view: GtkFixed inside GtkApplicationWindow
+- [x] Per-widget CSS provider; combined per-View stylesheet so background + radius + border coexist
 
 ### 5.5 — Event pipeline
 
-- [ ] `GestureRecognizer` equivalents using `GtkGestureClick`, `GtkGestureLongPress`, `GtkEventControllerMotion`, `GtkEventControllerScroll`.
-- [ ] Hit testing: rely on GTK propagation (children-first) — verify it matches RN semantics.
-- [ ] Event dispatch:
-  - [ ] Pointer events: `onPressIn`, `onPressOut`, `onPress`, `onLongPress`.
-  - [ ] Touch events: synthesize from pointer if needed (Linux mostly mouse/trackpad).
-  - [ ] Keyboard events: `onKeyDown` / `onKeyUp` for `<TextInput>` later.
-- [ ] `EventEmitter::dispatch` from UI thread → JS thread via runtime executor.
+- [x] GtkGestureClick on every View — `dispatchFabricClick(tag)` JSI registry
+- [x] GtkText "changed" → `dispatchFabricChangeText(tag, text)` JSI registry
+- [ ] Long-press / motion / scroll events
+- [ ] Keyboard events on `<TextInput>` (onKeyPress, onSubmitEditing)
+- [ ] Touch events synthesized from pointer
+- [ ] Real Fabric `EventEmitter` plumbing (we use JSI registries keyed by tag — fine for MVP, won't survive nested gestures)
 
 ### 5.6 — TurboModule infrastructure
 
-- [ ] `TurboModuleManager` setup on the runtime.
-- [ ] CxxModule registration hook for autolinking.
-- [ ] One sample TurboModule shipped in core (e.g. `PlatformConstants` returning OS info from `uname` + `/etc/os-release`).
-- [ ] Codegen integration:
-  - [ ] Run `@react-native/codegen` against `linux` platform — driver scaffold present (`scripts/codegen/run.js`); actual `linux` generator pending an `@react-native/codegen` fork in the style of `@react-native-windows/codegen`.
-  - [ ] Emit C++ spec headers under `vnext/codegen/` — emits `Markers.h` + a `.codegen-stamp.json` manifest today; real `Props.h` / `ComponentDescriptors.h` blocked on the previous item.
-  - [x] CMake target for codegen step (`react_native_linux_codegen`, wired into `vnext/CMakeLists.txt` and added to the include path).
+- [ ] `TurboModuleManager` setup on the runtime
+- [ ] CxxModule registration hook for autolinking
+- [x] PlatformConstants returning Linux info (in `src/modules/PlatformConstants.cpp`)
+- [x] AsyncStorage via JSI bindings (XDG JSON-on-disk, atomic save) — not a TurboModule yet
+- [ ] Codegen integration — `Markers.h` stamp exists; real Props.h / ComponentDescriptors.h blocked on `@react-native/codegen` linux generator fork
 
 ### 5.7 — Logging + diagnostics
 
-- [ ] `LinuxLogger` wired into `LogBox` JS-side via `RCTLog` equivalent.
-- [x] stderr backend by default (`src/Logging.cpp`). Opt-in journald via `libsystemd` still pending.
-- [x] Crash handler (`std::set_terminate` + `sigaction` for SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS, backtrace via `<execinfo.h>`). Installed automatically by `RNLinuxApplication`.
+- [x] stderr backend
+- [x] Crash handler (`std::set_terminate` + sigaction backtrace)
+- [ ] LogBox / RedBox UI in GTK
+- [ ] LinuxLogger wired into LogBox JS-side
 
 ### 5.8 — DevTools / DX
 
-- [ ] Metro WebSocket client for live reload.
-- [ ] Hermes inspector: open port 8081-debug, document Chrome DevTools URL.
-- [ ] `Cmd+R` / `Ctrl+R` keybinding triggers reload (intercept at GTK level).
-- [ ] LogBox / RedBox UI: render with GTK4 (`GtkWindow` + `GtkTextView`) — punt to phase 6 if needed.
-- [ ] Performance overlay (FPS) — punt.
+- [x] Smooth hot reload: re-eval in same Hermes runtime (no GTK flash, no init delay)
+- [x] Fast Refresh — `react-refresh` runtime + swc `jsc.transform.react.refresh = true`; state preserved across edits
+- [x] HMR push socket — esbuild watch's onEnd pushes the new bundle directly to the playground over `$XDG_RUNTIME_DIR/rn-linux.<app-id>.sock`; the file-monitor reload is kept as fallback and suppressed for 500 ms after a socket push
+- [x] esbuild bundler + per-file swc transform; tsx entry; sourcemaps inline
+- [x] react-refresh global hook (`__REACT_DEVTOOLS_GLOBAL_HOOK__`) injected before reconciler loads; rewritten via esbuild `define` so the bare-identifier check inside react-reconciler's strict-mode IIFE sees it
+- [x] Hermes bytecode pre-compile for the vendor bundle (≈10 ms cold-start vendor eval)
+- [ ] Metro WebSocket client (we use the HMR socket instead — same outcome)
+- [ ] Hermes inspector port
+- [ ] Cmd/Ctrl+R reload keybinding at the GTK level
+- [ ] Performance overlay (FPS)
 
-## Phase 6 — Sample app (`apps/playground/`)
+## Phase 9 — Component coverage
 
-- [x] Built from the template + a richer screen tree (`apps/playground/`).
-- [x] Showcases: View nesting, Text styles, basic flex layout, dynamic `Platform.constants`.
-- [ ] Used as the integration target for CI smoke tests (smoke job wired up once a full build succeeds; today the playground only builds where the runtime does).
+In priority order — `[x]` = wired today, `[~]` = present but with known gaps, `[ ]` = not started.
 
-## Phase 7 — Testing
-
-### 7.1 — JS-side
-
-- [x] Jest config; mirror RN's `jest-preset` (`packages/@lucid-softworks/react-native-linux/jest.config.js`).
-- [ ] Snapshot tests for codegen output (needs the codegen CMake step from §5.6 first).
-- [x] Unit tests for CLI commands (`platformConfig`, `autolinkLinux`).
-
-### 7.2 — Native-side
-
-- [x] GoogleTest under `vnext/tests/` — fetched via FetchContent v1.15.2; first test in `ComponentViewRegistryTest.cpp`.
-- [x] CMake `add_test` integration with `ctest` — via `gtest_discover_tests`, gated by `-DREACT_NATIVE_LINUX_BUILD_TESTS=ON`.
-- [x] Coverage: lcov in CI. Today the `coverage` job aggregates JS-side jest lcov reports and uploads them as a workflow artifact. Native-side lcov flips on once the full `cmake --build` lands.
-
-### 7.3 — Integration / e2e
-
-- [x] `xvfb-run` harness for headless GTK4 (`scripts/test/e2e.sh`).
-- [x] Screenshot via ImageMagick `import -window root` + optional `compare`-based diff against a golden (fuzz tolerance + pixel threshold configurable).
-- [ ] Smoke test gate in CI — flips on once the playground actually builds. Today the harness is callable from inside the Lima VM but not wired into the workflow.
-
-### 7.4 — CI
-
-- [x] GitHub Actions workflow `.github/workflows/ci.yml`:
-  - [x] Matrix: ubuntu-22.04, ubuntu-24.04 (`configure-vnext` job).
-  - [x] Install GTK4 + Hermes build deps
-  - [ ] Configure + build + test — configure-only for now (full build blocked on Fabric headers).
-  - [x] Cache `vnext/build/_deps` and Hermes build output
-- [x] Lint workflow: `lint-js` (eslint + prettier + jest), `lint-cpp` (clang-format --dry-run --Werror). clang-tidy still pending — needs a successful build first.
-- [x] Codegen drift check via `react-native autolink-linux --check` in the `autolink-drift` job. Currently non-fatal; flips to a hard gate once Phase 6 introduces native deps.
-
-## Phase 8 — Distribution
-
-- [x] `npm publish` workflow on tag push (`publish` job in `release-please.yml`, with npm provenance + `paths_released` filter so we only publish bumped packages). Needs `NPM_TOKEN` repo secret.
-- [x] Versioning policy (`docs/versioning.md`): track RN minor versions — `0.X.Y` where `X` mirrors the targeted RN minor.
-- [x] AppImage packaging (linuxdeploy + appimagetool) — `scripts/package/appimage.sh`. Fetches the tools on demand, stages an AppDir, and emits a single-file AppImage. Linux-only (use the Lima dev VM on macOS).
-- [ ] Flatpak manifest (`org.reactnative.Linux.Sample.yaml`) — stretch.
-- [ ] Debian package (.deb) — stretch.
-- [ ] Snap (snapcraft.yaml) — stretch.
-
-## Phase 9 — Post-MVP component coverage
-
-In rough priority order:
-
-- [ ] `ScrollView` → `GtkScrolledWindow`
-- [ ] `Image` → `GtkPicture` + libsoup3 for network fetches + gdk-pixbuf for decode
-- [ ] `TextInput` → `GtkEntry` / `GtkTextView`
-- [ ] `Pressable` (mostly JS; just needs hit testing)
+- [x] `View` / `Text` / `ScrollView` / `Image` / `TextInput` / `Pressable` / `Button` / `FlatList` / `Modal` (see status snapshot above)
+- [x] `StyleSheet.create / flatten / compose / hairlineWidth / absoluteFill`
+- [x] `Animated` (Value / timing / sequence / parallel / loop / interpolate / Easing) + `Animated.View / Text / Image / ScrollView` — JS driver only
+- [x] Platform.OS = 'linux', Platform.select; Dimensions / Appearance / useColorScheme stubs
+- [x] HTTP image loading via libsoup-3 async fetch (process-wide SoupSession, dedup-by-uri via g_object_set_data tag)
+- [x] AsyncStorage (`@react-native-async-storage/async-storage` import works) — full API as Promise-returning wrappers over synchronous rnLinux.storage* JSI bindings
+- [~] Inline `<Text>` styling — only one fontSize/color/etc. per Paragraph; mixed-style runs collapse
+- [~] `numberOfLines` / `ellipsizeMode` — TextLayoutManager accepts them, host config doesn't pass them through yet
+- [~] Window resize — initial render fits, larger window grows the constraint but tick callback returns content size not viewport (see Status snapshot)
+- [ ] `tintColor` on Image (needs a custom GdkPaintable that colour-tints)
 - [ ] `Switch` → `GtkSwitch`
 - [ ] `ActivityIndicator` → `GtkSpinner`
-- [ ] `Modal` → second `GtkWindow` with `transient-for`
-- [ ] `RefreshControl` → custom (no direct GTK4 equivalent)
-- [ ] `FlatList` / `SectionList` (JS-only, but verify perf on top of ScrollView)
-- [ ] `Animated` (mostly JS; ensure `useNativeDriver` path or document its absence)
-- [ ] `Linking` → `g_app_info_launch_default_for_uri`
-- [ ] `Clipboard` → `gdk_clipboard_set_text`
-- [ ] `Dimensions` → `gdk_monitor_*`
-- [ ] `Appearance` (light/dark) → `gtk-application-prefer-dark-theme` / `AdwStyleManager`
-- [ ] `AccessibilityInfo` → AT-SPI2 via ATK bridge
-- [ ] `StatusBar` (no-op on Linux desktop; document)
-- [ ] `KeyboardAvoidingView` (no-op on desktop, mostly)
-- [ ] `Alert` → `GtkAlertDialog` (GTK 4.10+)
+- [ ] `RefreshControl`
+- [ ] `KeyboardAvoidingView` (mostly no-op on desktop)
+- [ ] `SafeAreaView` (no-op on desktop, but apps import it so a passthrough wrapper helps)
+- [ ] `Modal` as a separate `GtkWindow` with `transient-for` instead of in-window overlay
+- [ ] `FlatList` virtualization (today the JS shim renders all items inline)
+- [ ] `Animated.useNativeDriver` — silently ignored; either implement on the C++ side or warn loudly
+- [ ] `Linking.openURL` — `g_app_info_launch_default_for_uri`
+- [ ] `Clipboard` — `gdk_clipboard_set_text`
+- [ ] Real Dimensions backed by `gdk_monitor_*`
+- [ ] Real Appearance (`gtk-application-prefer-dark-theme` / `AdwStyleManager`)
+- [ ] `AccessibilityInfo` via AT-SPI2
+- [ ] `Alert` → `GtkAlertDialog`
 
 ## Phase 10 — Stretch / nice-to-haves
 
-- [ ] libadwaita integration for native-feeling widgets.
-- [ ] Wayland-specific polish: client-side decorations, IME via `GtkIMContext`.
-- [ ] X11 fallback (mostly automatic via GTK, just verify).
-- [ ] Multi-window via multiple `SurfaceHandler` instances.
-- [ ] D-Bus TurboModule (notifications via `org.freedesktop.Notifications`, secrets via `org.freedesktop.secrets`).
-- [ ] Native file dialogs (`GtkFileDialog`).
-- [ ] System tray (libayatana-appindicator).
-- [ ] Auto-update (consider electron-updater equivalents or custom).
-- [ ] Hardware video decode for `<Video>` (gstreamer).
-- [ ] WebView (`WebKitGTK`).
-- [ ] Maps (Mapbox GL native).
-- [ ] Reanimated 3 compatibility audit.
-- [ ] Skia integration (drop GTK, render directly) — long-term alternative architecture.
+- [ ] libadwaita widgets
+- [ ] Wayland CSD + GtkIMContext IME
+- [ ] Multi-window via multiple `SurfaceHandler` instances
+- [ ] D-Bus TurboModule (notifications, secrets)
+- [ ] GtkFileDialog
+- [ ] System tray (libayatana-appindicator)
+- [ ] Auto-update
+- [ ] gstreamer `<Video>`
+- [ ] WebKitGTK `<WebView>`
+- [ ] Reanimated 3 audit
+- [ ] Skia path (drop GTK, render directly) — long-term alternative
 
-## Open questions to revisit
+## Immediate next actions
 
-- [x] **RN headers that assume Android/iOS?** Use upstream RN's ReactCommon as-is and `#ifdef RNL_PLATFORM_LINUX` where we need to diverge. Patches stay in the form of additive `*.linux.cpp` files under `vnext/src/`; upstream PRs only when something is clearly cross-platform.
-- [ ] Does Hermes need any patches for glibc / musl? (Decide once the first VM build runs end-to-end.)
-- [x] **Hermes prebuilt as OCI artifact?** Not now — `FetchHermes.cmake` builds from source per the Phase 0 decision. Revisit if Ubuntu CI build times exceed ~20 min after caching.
-- [x] **Native modules that already exist for iOS/Android?** We require a new linux port per module. A shim layer over Android's JNI is out of scope. Documented in `docs/native-modules.md`.
-- [ ] **Threading: single-threaded `RuntimeExecutor` for MVP?** (Decide after first GTK window draws.) Current code path spawns a JS thread; could collapse to single-thread for MVP if folly setup is painful.
-- [ ] **Yoga CMake export when consumed externally?** (Verify once first build runs — RN's Yoga `add_library` may need re-exporting from `vnext/CMakeLists.txt`.)
-- [x] **Codegen: stock or fork @react-native/codegen?** Need a fork to add a `linux` generator (mirroring `@react-native-windows/codegen`). Scaffolded in `scripts/codegen/run.js`; tracked in Phase 5.6.
+In priority order, what would move the needle most for "real apps drop in":
 
-## Status snapshot (2026-05-22)
+1. **Fix window resize**: tick callback queries the wrong widget. Probably swap to `gtk_widget_get_allocated_width / height` on the rootView (GtkFixed) but pin its `set_size_request` to (0, 0) so the WIDGET allocation reflects the window's viewport rather than its content's natural size. Or hook GdkSurface's `layout` signal on `gtk_native_get_surface(window)`.
+2. **`numberOfLines` plumbing**: forward from Paragraph props to GtkLabel's `set_lines` / `set_ellipsize`. The TextLayoutManager already honours ParagraphAttributes.maximumNumberOfLines.
+3. **`SafeAreaView`** as a passthrough View (3 lines of JS); apps import it but on desktop it can be a no-op.
+4. **Inline nested `<Text>` styling**: figure out why Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates in the mutation stream. Probably a `LeafYogaNode` trait or `Trait::FormsView` thing on TextShadowNode that we're missing — re-read the BaseTextShadowNode dynamic_cast path.
+5. **`Switch` + `ActivityIndicator`**: small, direct GTK wrappers.
+6. **TurboModule manager**: replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules.
+7. **`tintColor`**: custom GdkPaintable that delegates to source paintable but masks with a colour.
+8. **Try a real app**: pull `react-native-paper` or a basic Expo screen and see what's left to add.
 
-What's in the tree, ready to build on:
+## Open questions
 
-- ✅ **Phases 0, 1, 2, 3, 4** essentially complete (only `template/linux/icons/` and the `--help` smoke test outstanding).
-- ✅ **Phase 5.1** build system done (CMake, all dep helpers, install rules, pkg-config).
-- ✅ **Phase 5.7** stderr logger + crash handler with backtrace.
-- 🚧 **Phase 5.2–5.6, 5.8** scaffolded but stubbed against Fabric/Hermes — wakes up once the dev VM is provisioned and RN headers compile in.
-- ✅ **Phase 6** playground app in `apps/playground/`.
-- ✅ **Phase 7.1, 7.2, 7.3** jest preset + jest coverage + xvfb e2e harness all in place.
-- ✅ **Phase 7.4** CI runs lint + typecheck + tests + format checks across Ubuntu 22.04/24.04, plus autolink drift, plus an aggregated jest lcov artifact.
-- ✅ **Phase 8** npm publish on release-please tag + AppImage script + versioning doc.
+- [ ] Does Hermes need any patches for glibc / musl? (Decide once a non-Lima build runs.)
+- [ ] Yoga CMake export when consumed externally? (Verify when the template builds against a published `@lucid-softworks/react-native-linux` rather than via add_subdirectory.)
+- [x] JS thread model — single-threaded works for the MVP; revisit if/when an app spawns long-running JS work.
 
-Gating items for "MVP working":
+---
 
-1. ~~Boot the Lima dev VM~~ ✅ (2026-05-22 — `scripts/vm/start.sh`).
-2. ~~First `cmake --build vnext/build` finishes~~ ✅ (2026-05-22 — libreact_native_linux.so links).
-3. ~~Playground binary runs end-to-end against a JS bundle~~ ✅ (2026-05-22 — Hermes evaluates `print("hello…")` under xvfb; GTK window constructs, RNLinuxHost spins up, BundleLoader file:// works, jsi::Runtime::evaluateJavaScript returns clean).
-4. Real RN bundle (via Metro or `react-native bundle`) — blocked on the pnpm hoist / RN CLI plugin discovery issue (`react-native bundle` not registered when invoked from a hoisted workspace).
-5. First **visible** `<View><Text>` driven by Fabric — Phase 5.3 work (Scheduler + descriptors + mounting).
-6. `scripts/test/e2e.sh` captures a non-empty screenshot of that.
-7. Wire that screenshot diff as a hard gate in CI.
+## Phase 0–4 (locked in, all done)
+
+Build system / repo / template / CLI / JS package — all the bootstrap work landed during the first wave. See git log up to commit `66fd9050` for the historical sequence; the live status above is what matters now.
+
+- [x] All Phase 0 decisions
+- [x] All Phase 1 repo + tooling (lint, format, husky, dependabot, docs)
+- [x] All Phase 2 JS package (Platform.linux.js, View.linux.js, Text.linux.js, codegen specs, types, jest)
+- [x] All Phase 3 CLI (`run-linux`, `bundle-linux`, `init-linux`, `log-linux`, `autolink-linux`)
+- [x] All Phase 4 template (sans `template/linux/icons/` placeholders)
+- [x] All Phase 6 playground (rich demo; see `apps/playground/index.tsx`)
+- [x] All Phase 7 testing (jest preset, googletest, xvfb e2e harness, CI matrix)
+- [x] All Phase 8 distribution (release-please + npm publish + AppImage script)
