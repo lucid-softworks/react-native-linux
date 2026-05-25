@@ -8,11 +8,29 @@
 namespace rnlinux {
 
 LinuxComponentView::~LinuxComponentView() {
-  if (widget_) {
-    GtkWidget* parent = gtk_widget_get_parent(widget_);
-    if (parent && GTK_IS_FIXED(parent)) {
-      gtk_fixed_remove(GTK_FIXED(parent), widget_);
+  // The widget_ pointer is only safe to dereference if we took a
+  // strong ref on it (via takeWidgetRef from subclasses). Without
+  // that, GTK's container may have already destroyed it when the
+  // parent was removed in a prior mutation. G_IS_OBJECT is the
+  // cheap "is this still a live GObject" guard.
+  if (widget_ && G_IS_OBJECT(widget_)) {
+    if (GTK_IS_WIDGET(widget_)) {
+      GtkWidget* parent = gtk_widget_get_parent(widget_);
+      if (parent && GTK_IS_FIXED(parent)) {
+        gtk_fixed_remove(GTK_FIXED(parent), widget_);
+      }
     }
+    g_object_unref(widget_);
+  }
+}
+
+void LinuxComponentView::takeWidgetRef() {
+  if (widget_) {
+    // ref_sink takes a strong ref AND sinks the floating ref GTK4
+    // widgets start with. Net result: our class is the sole owner;
+    // gtk_fixed_remove from a parent now decrements toward us, not
+    // toward destruction. The destructor's g_object_unref balances.
+    g_object_ref_sink(widget_);
   }
 }
 

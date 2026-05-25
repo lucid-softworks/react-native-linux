@@ -38,6 +38,7 @@ std::string colorToCss(const facebook::react::SharedColor& color) {
 ViewComponentView::ViewComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_fixed_new();
+  takeWidgetRef();
   // Tag every widget with a unique CSS name so per-instance style rules
   // (background, border) can target it without affecting siblings.
   std::string cssName = "rnl-view-" + std::to_string(tag);

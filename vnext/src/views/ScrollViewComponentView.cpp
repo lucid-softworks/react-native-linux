@@ -15,6 +15,7 @@ namespace rnlinux {
 ScrollViewComponentView::ScrollViewComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_scrolled_window_new();
+  takeWidgetRef();
   gtk_scrolled_window_set_policy(
       GTK_SCROLLED_WINDOW(widget_), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   // Force visible scrollbars (no overlay fade) — helpful in VNC

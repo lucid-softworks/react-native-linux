@@ -76,6 +76,7 @@ void onActivate(GtkText* /*entry*/, gpointer userData) {
 TextInputComponentView::TextInputComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_text_new();
+  takeWidgetRef();
   // Connect the "changed" signal — fires after every character
   // typed / pasted / deleted. We dispatch text values to JS via
   // dispatchFabricChangeText(tag, text).

@@ -15,6 +15,7 @@ namespace rnlinux {
 ParagraphComponentView::ParagraphComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_label_new("");
+  takeWidgetRef();
   gtk_label_set_wrap(GTK_LABEL(widget_), TRUE);
   gtk_label_set_xalign(GTK_LABEL(widget_), 0.0f);
   gtk_label_set_yalign(GTK_LABEL(widget_), 0.0f);

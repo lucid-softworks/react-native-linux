@@ -10,6 +10,7 @@ namespace rnlinux {
 SwitchComponentView::SwitchComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_switch_new();
+  takeWidgetRef();
   // notify::active fires whenever the switch's bound `active` property
   // changes — covers user clicks, drags, keyboard activation, and
   // programmatic gtk_switch_set_active calls (we guard the last via

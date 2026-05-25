@@ -149,6 +149,13 @@ class ErrorBoundary extends React.Component {
   }
   render() {
     if (this.state.error) {
+      if (typeof rnLinux !== 'undefined') {
+        rnLinux.log(
+          'info',
+          '[ErrorBoundary] rendering ErrorPanel for: ' +
+            (this.state.error.message || String(this.state.error)),
+        );
+      }
       return React.createElement(ErrorPanel, {
         error: this.state.error,
         info: this.state.info,

@@ -9,6 +9,7 @@ namespace rnlinux {
 ActivityIndicatorComponentView::ActivityIndicatorComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_spinner_new();
+  takeWidgetRef();
   // Default RN behavior: animating=true on mount.
   gtk_spinner_start(GTK_SPINNER(widget_));
 }

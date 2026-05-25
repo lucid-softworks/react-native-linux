@@ -10,7 +10,7 @@ class EventEmitter;
 class Props;
 class State;
 struct LayoutMetrics;
-}  // namespace facebook::react
+} // namespace facebook::react
 
 namespace rnlinux {
 
@@ -24,20 +24,26 @@ using Tag = int32_t;
 // vnext/src/views/.
 class LinuxComponentView {
  public:
-  explicit LinuxComponentView(Tag tag) : tag_(tag) {}
+  explicit LinuxComponentView(Tag tag)
+      : tag_(tag) {}
   virtual ~LinuxComponentView();
 
   Tag tag() const { return tag_; }
   GtkWidget* widget() const { return widget_; }
 
-  virtual void updateProps(
-      facebook::react::Props const& oldProps,
-      facebook::react::Props const& newProps) = 0;
+  // Subclasses MUST call this after assigning widget_ in their
+  // constructor. Ref-sinks the widget so its lifetime is tied to the
+  // LinuxComponentView, not to whatever GtkFixed container it lands
+  // in. Without this, gtk_fixed_remove on a parent (during teardown
+  // of an unmounted subtree) destroys the widget out from under us
+  // and the next dereference assertion-fails.
+  void takeWidgetRef();
+
+  virtual void updateProps(facebook::react::Props const& oldProps,
+                           facebook::react::Props const& newProps) = 0;
   virtual void updateState(facebook::react::State const& state) {}
-  virtual void updateLayoutMetrics(
-      facebook::react::LayoutMetrics const& metrics);
-  virtual void updateEventEmitter(
-      std::shared_ptr<facebook::react::EventEmitter const> ee) {
+  virtual void updateLayoutMetrics(facebook::react::LayoutMetrics const& metrics);
+  virtual void updateEventEmitter(std::shared_ptr<facebook::react::EventEmitter const> ee) {
     eventEmitter_ = std::move(ee);
   }
 
@@ -55,7 +61,7 @@ class LinuxComponentView {
 
  protected:
   Tag tag_;
-  GtkWidget* widget_ = nullptr;  // Owned by GTK; set by subclass constructor.
+  GtkWidget* widget_ = nullptr; // Owned by GTK; set by subclass constructor.
   std::shared_ptr<facebook::react::EventEmitter const> eventEmitter_;
 
   // Cached layout from the last updateLayoutMetrics call (logical px).
@@ -65,4 +71,4 @@ class LinuxComponentView {
   float layoutHeight_ = 0;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

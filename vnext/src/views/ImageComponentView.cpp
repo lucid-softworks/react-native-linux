@@ -1,17 +1,17 @@
 #include "ImageComponentView.h"
+
 #include "react-native-linux/Logging.h"
 
+#include <gtk/gtk.h>
 #include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/imagemanager/primitives.h>
-
-#include <gtk/gtk.h>
 
 // libsoup-3 is optional at build time (HAVE_LIBSOUP3 is defined by
 // the CMake config when pkg-config found it). When absent we still
 // accept http(s) URIs but warn and render nothing.
 #if __has_include(<libsoup/soup.h>)
-  #include <libsoup/soup.h>
-  #define RNL_HAVE_LIBSOUP3 1
+#include <libsoup/soup.h>
+#define RNL_HAVE_LIBSOUP3 1
 #endif
 
 #include <cstring>
@@ -51,18 +51,18 @@ struct ImageFetch {
 void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
   auto* fetch = static_cast<ImageFetch*>(user);
   GError* err = nullptr;
-  GBytes* bytes = soup_session_send_and_read_finish(
-      SOUP_SESSION(source), result, &err);
+  GBytes* bytes = soup_session_send_and_read_finish(SOUP_SESSION(source), result, &err);
   if (!bytes) {
     RNL_LOGW("Image") << "http fetch failed for " << fetch->uri << ": "
-                       << (err ? err->message : "(unknown)");
-    if (err) g_error_free(err);
+                      << (err ? err->message : "(unknown)");
+    if (err)
+      g_error_free(err);
     delete fetch;
     return;
   }
   // Skip if the widget moved on to a different uri while we waited.
-  const char* current = static_cast<const char*>(
-      g_object_get_data(G_OBJECT(fetch->picture), "rnl-current-uri"));
+  const char* current =
+      static_cast<const char*>(g_object_get_data(G_OBJECT(fetch->picture), "rnl-current-uri"));
   if (!current || fetch->uri != current) {
     g_bytes_unref(bytes);
     delete fetch;
@@ -73,8 +73,9 @@ void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
   g_bytes_unref(bytes);
   if (!tex) {
     RNL_LOGW("Image") << "decode failed for " << fetch->uri << ": "
-                       << (texErr ? texErr->message : "(unknown)");
-    if (texErr) g_error_free(texErr);
+                      << (texErr ? texErr->message : "(unknown)");
+    if (texErr)
+      g_error_free(texErr);
     delete fetch;
     return;
   }
@@ -85,8 +86,7 @@ void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
 
 void startHttpFetch(GtkPicture* picture, const std::string& uri) {
   // Stash the in-flight uri so the callback can detect supersession.
-  g_object_set_data_full(G_OBJECT(picture), "rnl-current-uri",
-                         g_strdup(uri.c_str()), g_free);
+  g_object_set_data_full(G_OBJECT(picture), "rnl-current-uri", g_strdup(uri.c_str()), g_free);
   SoupMessage* msg = soup_message_new(SOUP_METHOD_GET, uri.c_str());
   if (!msg) {
     RNL_LOGW("Image") << "bad uri: " << uri;
@@ -94,27 +94,33 @@ void startHttpFetch(GtkPicture* picture, const std::string& uri) {
   }
   auto* fetch = new ImageFetch{picture, uri};
   soup_session_send_and_read_async(
-      sharedSession(), msg, G_PRIORITY_DEFAULT, nullptr,
-      onImageBytes, fetch);
+      sharedSession(), msg, G_PRIORITY_DEFAULT, nullptr, onImageBytes, fetch);
   g_object_unref(msg);
 }
-#endif  // RNL_HAVE_LIBSOUP3
+#endif // RNL_HAVE_LIBSOUP3
 
 GtkContentFit toContentFit(facebook::react::ImageResizeMode mode) {
   switch (mode) {
-    case facebook::react::ImageResizeMode::Cover:   return GTK_CONTENT_FIT_COVER;
-    case facebook::react::ImageResizeMode::Contain: return GTK_CONTENT_FIT_CONTAIN;
-    case facebook::react::ImageResizeMode::Stretch: return GTK_CONTENT_FIT_FILL;
-    case facebook::react::ImageResizeMode::Center:  return GTK_CONTENT_FIT_SCALE_DOWN;
-    case facebook::react::ImageResizeMode::Repeat:  return GTK_CONTENT_FIT_FILL;
+  case facebook::react::ImageResizeMode::Cover:
+    return GTK_CONTENT_FIT_COVER;
+  case facebook::react::ImageResizeMode::Contain:
+    return GTK_CONTENT_FIT_CONTAIN;
+  case facebook::react::ImageResizeMode::Stretch:
+    return GTK_CONTENT_FIT_FILL;
+  case facebook::react::ImageResizeMode::Center:
+    return GTK_CONTENT_FIT_SCALE_DOWN;
+  case facebook::react::ImageResizeMode::Repeat:
+    return GTK_CONTENT_FIT_FILL;
   }
   return GTK_CONTENT_FIT_CONTAIN;
 }
 
-}  // namespace
+} // namespace
 
-ImageComponentView::ImageComponentView(Tag tag) : LinuxComponentView(tag) {
+ImageComponentView::ImageComponentView(Tag tag)
+    : LinuxComponentView(tag) {
   widget_ = gtk_picture_new();
+  takeWidgetRef();
   // GtkPicture defaults to expand=TRUE which lets it grow into its
   // allocation — we want it to fill whatever frame Yoga gives us.
   gtk_widget_set_hexpand(widget_, TRUE);
@@ -126,9 +132,8 @@ ImageComponentView::ImageComponentView(Tag tag) : LinuxComponentView(tag) {
 
 ImageComponentView::~ImageComponentView() = default;
 
-void ImageComponentView::updateProps(
-    facebook::react::Props const& /*oldProps*/,
-    facebook::react::Props const& newProps) {
+void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
+                                     facebook::react::Props const& newProps) {
   const auto& ip = static_cast<const facebook::react::ImageProps&>(newProps);
 
   // resizeMode is independent of source loading; apply on every pass.
@@ -165,8 +170,7 @@ void ImageComponentView::updateProps(
 
   const auto path = fileSchemePath(uri);
   if (path.empty()) {
-    RNL_LOGW("Image") << "unsupported uri scheme (tag=" << tag_
-                       << "): " << uri;
+    RNL_LOGW("Image") << "unsupported uri scheme (tag=" << tag_ << "): " << uri;
     gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
     return;
   }
@@ -176,9 +180,9 @@ void ImageComponentView::updateProps(
   GdkTexture* tex = gdk_texture_new_from_file(gfile, &err);
   g_object_unref(gfile);
   if (!tex) {
-    RNL_LOGW("Image") << "load failed (tag=" << tag_ << "): "
-                       << (err ? err->message : "(unknown)");
-    if (err) g_error_free(err);
+    RNL_LOGW("Image") << "load failed (tag=" << tag_ << "): " << (err ? err->message : "(unknown)");
+    if (err)
+      g_error_free(err);
     gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
     return;
   }
@@ -186,4 +190,4 @@ void ImageComponentView::updateProps(
   g_object_unref(tex);
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux
