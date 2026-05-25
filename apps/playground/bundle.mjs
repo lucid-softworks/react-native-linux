@@ -128,6 +128,8 @@ const appOpts = {
              'expo-constants',
              'expo-linking',
              'react-native-safe-area-context',
+             'react-native-screens',
+             'react-native-reanimated',
              './runtime'],
   banner: {
     js:
@@ -150,6 +152,8 @@ const appOpts = {
       '  if (id === "expo-constants") return rnv.expoConstants;\n' +
       '  if (id === "expo-linking") return rnv.expoLinking;\n' +
       '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +
+      '  if (id === "react-native-screens") return rnv.screens;\n' +
+      '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +

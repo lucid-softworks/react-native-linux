@@ -53,6 +53,8 @@ const expoSymbolsMod = require('./expo-symbols');
 const expoConstantsMod = require('./expo-constants');
 const expoLinkingMod = require('./expo-linking');
 const safeAreaCtxMod = require('./react-native-safe-area-context');
+const screensMod = require('./react-native-screens');
+const reanimatedMod = require('./react-native-reanimated');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -75,6 +77,8 @@ globalThis.__rnv = {
   expoConstants: expoConstantsMod,
   expoLinking: expoLinkingMod,
   safeAreaContext: safeAreaCtxMod,
+  screens: screensMod,
+  reanimated: reanimatedMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,
