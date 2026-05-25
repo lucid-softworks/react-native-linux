@@ -200,6 +200,32 @@ const SafeAreaView = React.forwardRef(function SafeAreaView(props, ref) {
   return React.createElement(View, {...props, ref}, props.children);
 });
 
+// KeyboardAvoidingView pushes content up when an on-screen keyboard
+// rises on iOS/Android. Desktop windows have a hardware keyboard that
+// doesn't displace the layout, so this is a pure passthrough. Accept
+// (and discard) the iOS-specific props so apps don't crash on import.
+const KeyboardAvoidingView = React.forwardRef(function KeyboardAvoidingView(props, ref) {
+  const {
+    behavior: _b,
+    keyboardVerticalOffset: _o,
+    contentContainerStyle: _c,
+    enabled: _e,
+    ...rest
+  } = props;
+  return React.createElement(View, {...rest, ref}, props.children);
+});
+
+// RefreshControl is the pull-to-refresh affordance on mobile
+// ScrollViews. Desktop has no pull gesture, so this is a no-op shim:
+// the component renders nothing, swallows props (onRefresh, refreshing,
+// tintColor, colors). ScrollView passes it via the `refreshControl`
+// prop which our scrollview host doesn't currently honor either.
+// Future: route to a Ctrl+R-style reload or hook the edge-reached
+// signal of GtkScrolledWindow.
+function RefreshControl(_props) {
+  return null;
+}
+
 module.exports = {
   // Components
   View,
@@ -214,6 +240,8 @@ module.exports = {
   FlatList,
   Modal,
   SafeAreaView,
+  KeyboardAvoidingView,
+  RefreshControl,
   // Animated
   Animated,
   Easing,
