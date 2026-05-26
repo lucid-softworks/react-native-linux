@@ -69,7 +69,11 @@ function tryMount() {
     // Wrap the user's tree in an ErrorBoundary so JS exceptions during
     // render / commit / lifecycle land on an in-window RedBox instead
     // of leaving the user staring at a blank surface.
-    const elementToCommit = React.createElement(ErrorBoundary, null, pendingElement);
+    const elementToCommit = React.createElement(
+      ErrorBoundary,
+      {scope: 'app', catchAsync: true},
+      pendingElement,
+    );
     pendingElement = null;
     reconciler.updateContainer(elementToCommit, root, null, () => {
       rnLinux.log('info', '[fabric-render] JSX commit done (cold)');
@@ -85,26 +89,41 @@ function tryMount() {
 
   // Hot reload path. The app bundle just re-evaluated; its top-level
   // re-ran $RefreshReg$ for every component (registering the new
-  // function objects under the SAME family ids). pendingElement here
-  // is <NewApp/>, BUT calling updateContainer with it would compare
-  // OldApp vs NewApp by referential equality — and isCompatibleFamily
-  // ForHotReloading needs resolveFamily to be set first, otherwise it
-  // returns false ("Hot reloading is disabled") and React unmounts.
-  // Solution: call performReactRefresh BEFORE updateContainer.
-  // performReactRefresh installs resolveFamily on the reconciler and
-  // schedules a refresh on every mounted root — that single call is
-  // enough to swap the type and preserve hook state, no
-  // updateContainer needed.
-  pendingElement = null;
-  // If the user just reloaded from the LogBox, the boundary stashed a
-  // reset function. Fire it BEFORE performReactRefresh so the cleared
-  // state lands in the same commit batch as the family swap — the
-  // panel disappears and the freshly-evaluated children mount.
-  if (typeof globalThis.__rnLinuxBoundaryReset === 'function') {
-    const reset = globalThis.__rnLinuxBoundaryReset;
-    globalThis.__rnLinuxBoundaryReset = null;
-    reset();
+  // function objects under the SAME family ids).
+  //
+  // Two sub-paths:
+  //
+  // 1. Post-error recovery: the ErrorBoundary just caught a render
+  //    throw and set __rnLinuxRecoveredFromError. performReactRefresh
+  //    against the live fiber tree here deadlocks the JS thread for
+  //    tens of seconds — it sees a "stale" family and tries to
+  //    remount it on top of a tree the boundary's fallback just
+  //    detached/reattached, allocating in Object.freeze /
+  //    setPrototypeForEach forever. Skip Fast Refresh and do a
+  //    full updateContainer remount with the freshly-evaluated
+  //    pendingElement instead. State is lost, but the panel goes
+  //    away and the new bundle's components mount cleanly.
+  //
+  // 2. Normal hot reload (file save, no error in the loop):
+  //    performReactRefresh installs resolveFamily on the reconciler
+  //    and schedules a refresh on every mounted root — that single
+  //    call swaps types in place and preserves hook state.
+  //    pendingElement isn't consumed; React rediscovers the new
+  //    types via family lookup during the scheduled refresh.
+  if (globalThis.__rnLinuxRecoveredFromError) {
+    globalThis.__rnLinuxRecoveredFromError = false;
+    const elementToCommit = React.createElement(
+      ErrorBoundary,
+      {scope: 'app', catchAsync: true},
+      pendingElement,
+    );
+    pendingElement = null;
+    reconciler.updateContainer(elementToCommit, root, null, () => {
+      rnLinux.log('info', '[hot-reload] post-error full remount done');
+    });
+    return;
   }
+  pendingElement = null;
   const refreshed = RefreshRuntime.performReactRefresh();
   if (refreshed) {
     rnLinux.log(

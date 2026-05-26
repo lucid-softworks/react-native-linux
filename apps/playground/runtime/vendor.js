@@ -56,6 +56,7 @@ const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-n
 const screensMod = require('@lucid-softworks/react-native-linux-expo/react-native-screens');
 const reanimatedMod = require('@lucid-softworks/react-native-linux-expo/react-native-reanimated');
 const expoRouterMod = require('@lucid-softworks/react-native-linux-expo/expo-router');
+const errorBoundaryMod = require('@lucid-softworks/react-native-linux-expo/error-boundary');
 const hostConfigMod = require('./fabricHostConfig');
 
 const reactJsxRuntime = require('react/jsx-runtime');
@@ -81,6 +82,7 @@ globalThis.__rnv = {
   screens: screensMod,
   reanimated: reanimatedMod,
   expoRouter: expoRouterMod,
+  errorBoundary: errorBoundaryMod,
   runtime: {
     ...fabricMod,
     ...componentsMod,

@@ -22,6 +22,7 @@
 
 const React = require('react');
 const {Pressable, Text, View} = require('react-native');
+const {ErrorBoundary} = require('./error-boundary');
 
 const DefaultTheme = {
   dark: false,
@@ -283,6 +284,18 @@ function collectScreens(children, Type) {
 }
 
 function renderScreen(match) {
+  // Per-screen ErrorBoundary: a render throw inside this screen
+  // unmounts only the screen subtree. Tabs/Stack stay mounted, their
+  // pathname useState survives, and Dismiss re-mounts on the same
+  // route. Anything above the router (the router itself, the safe-
+  // area wrappers, the runtime's outer App element) still falls
+  // through to the backstop boundary in apps/playground/runtime/
+  // fabric.js.
+  const scope = match ? 'route /' + match.name : '404';
+  return React.createElement(ErrorBoundary, {scope}, renderScreenBody(match));
+}
+
+function renderScreenBody(match) {
   if (!match) {
     return React.createElement(
       View,

@@ -28,7 +28,13 @@ const StyleSheet = require('./stylesheet');
 const {FlatList} = require('./flatlist');
 const {Modal} = require('./modal');
 const {Animated, Easing} = require('./animated');
-const {renderFabric} = require('./fabric');
+// NB: ./fabric is required lazily inside registerComponent rather
+// than at module load. The shared ErrorBoundary lives in the umbrella
+// shim package and pulls in 'react-native' (i.e. THIS module) during
+// its own evaluation. Top-loading ./fabric here turned that into a
+// circular: vendor → fabric → errorOverlay → error-boundary →
+// react-native → fabric (still mid-eval) → renderFabric undefined →
+// registerComponent later crashes with "undefined is not a function".
 
 // AppRegistry — minimal surface for Expo's registerRootComponent
 // path. registerComponent immediately mounts via renderFabric since
@@ -41,6 +47,7 @@ const AppRegistry = {
   registerComponent(appKey, factory) {
     registrations.set(appKey, factory);
     const Component = factory();
+    const {renderFabric} = require('./fabric');
     renderFabric(React.createElement(Component));
     return appKey;
   },
