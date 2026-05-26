@@ -3,9 +3,11 @@
 #include "../jsi/RnLinuxBindings.h"
 #include "react-native-linux/Logging.h"
 
+#include <cstdio>
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
 #include <react/renderer/components/textinput/BaseTextInputProps.h>
+#include <react/renderer/graphics/HostPlatformColor.h>
 #include <string>
 
 namespace rnlinux {
@@ -77,6 +79,17 @@ TextInputComponentView::TextInputComponentView(Tag tag)
     : LinuxComponentView(tag) {
   widget_ = gtk_text_new();
   takeWidgetRef();
+  // Per-instance CSS provider — targets a unique name so each entry
+  // can have its own placeholder-color rule (Paper sets the active
+  // input's placeholder to 'transparent' while the inactive ones use
+  // the theme default).
+  std::string cssName = "rnl-input-" + std::to_string(tag);
+  gtk_widget_set_name(widget_, cssName.c_str());
+  auto* provider = gtk_css_provider_new();
+  cssProvider_ = provider;
+  gtk_style_context_add_provider_for_display(gtk_widget_get_display(widget_),
+                                             GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   // Connect the "changed" signal — fires after every character
   // typed / pasted / deleted. We dispatch text values to JS via
   // dispatchFabricChangeText(tag, text).
@@ -107,7 +120,11 @@ TextInputComponentView::TextInputComponentView(Tag tag)
   gtk_widget_add_controller(widget_, keyCtl);
 }
 
-TextInputComponentView::~TextInputComponentView() = default;
+TextInputComponentView::~TextInputComponentView() {
+  if (cssProvider_) {
+    g_object_unref(static_cast<GtkCssProvider*>(cssProvider_));
+  }
+}
 
 void TextInputComponentView::onTextChanged(GtkWidget* editable, gpointer userData) {
   auto* self = static_cast<TextInputComponentView*>(userData);
@@ -127,9 +144,32 @@ void TextInputComponentView::updateProps(facebook::react::Props const& /*oldProp
                                          facebook::react::Props const& newProps) {
   const auto& tp = static_cast<const facebook::react::BaseTextInputProps&>(newProps);
 
-  // Placeholder text + colour (the latter via GtkText's
-  // placeholder-text property — color is a separate concern).
+  // Placeholder text + colour. GtkText draws the placeholder via a
+  // child "placeholder" CSS node — we style it with a per-widget
+  // stylesheet rather than setting empty text when the colour is
+  // transparent, so Paper's animated cross-fade (alpha → 0 then back
+  // to opaque) still has something to fade against.
   gtk_text_set_placeholder_text(GTK_TEXT(widget_), tp.placeholder.c_str());
+
+  std::string css;
+  if (tp.placeholderTextColor) {
+    const auto v = static_cast<unsigned int>(*tp.placeholderTextColor);
+    char buf[120];
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "#%s > placeholder { color: rgba(%u,%u,%u,%.3f); opacity: %.3f; }",
+                  gtk_widget_get_name(widget_),
+                  (v >> 16) & 0xff,
+                  (v >> 8) & 0xff,
+                  v & 0xff,
+                  ((v >> 24) & 0xff) / 255.0,
+                  ((v >> 24) & 0xff) / 255.0);
+    css = buf;
+  }
+  if (css != lastCss_) {
+    gtk_css_provider_load_from_string(static_cast<GtkCssProvider*>(cssProvider_), css.c_str());
+    lastCss_ = std::move(css);
+  }
 
   // maxLength: 0/unset means no limit. GtkText takes a positive int.
   gtk_text_set_max_length(GTK_TEXT(widget_), tp.maxLength > 0 ? tp.maxLength : 0);

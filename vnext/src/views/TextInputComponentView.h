@@ -25,8 +25,14 @@ class TextInputComponentView final : public LinuxComponentView {
   // doesn't re-enter and recurse via the changed signal.
   bool suppressChangeSignal_ = false;
   std::string lastText_;
+  // Per-instance CSS provider so we can style the placeholder colour
+  // (and text colour) per-widget — GtkText draws the placeholder via
+  // a separate "placeholder" CSS node child, so the only way to honour
+  // RN's `placeholderTextColor` is a stylesheet that targets it.
+  void* cssProvider_ = nullptr; // GtkCssProvider*
+  std::string lastCss_;
 
   static void onTextChanged(GtkWidget* editable, gpointer userData);
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux
