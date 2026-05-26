@@ -94,9 +94,24 @@ const Text = React.forwardRef(function Text(props, ref) {
 // the public surface (matches react-native's API) and translate to
 // `onClick` on the underlying host tag, which is what the Fabric
 // host config registers with the C++ side.
+//
+// `children` can be either a ReactNode (the common case) OR a
+// function (state) => ReactNode — the latter is RN's render-prop
+// form that exposes the {pressed, hovered, focused} state to the
+// caller (used by react-native-paper's TouchableRipple, react-
+// navigation's pressable links, every theme-aware button library).
+// Without unwrapping it React throws "Functions are not valid as a
+// React child" and the whole subtree blanks out. We don't yet track
+// pressed/hovered state plumbed back from GTK, so the state arg is
+// {pressed: false, hovered: false, focused: false} — apps get
+// rendering, just no visual press feedback yet.
 const Pressable = React.forwardRef(function Pressable(props, ref) {
-  const {onPress, ...rest} = props;
-  return React.createElement('view', {...rest, ref, onClick: onPress}, props.children);
+  const {onPress, children, ...rest} = props;
+  const resolvedChildren =
+    typeof children === 'function'
+      ? children({pressed: false, hovered: false, focused: false})
+      : children;
+  return React.createElement('view', {...rest, ref, onClick: onPress}, resolvedChildren);
 });
 
 // <Switch value={bool} onValueChange={fn} disabled={bool} /> — backed
