@@ -22,10 +22,25 @@ using OnDone = std::function<void()>;
 using OnPdfDone = std::function<void(int pageCount)>;
 using OnError = std::function<void(const std::string&)>;
 
+// Layout options threaded into the Pango pipeline. Defaults match
+// the previous hardcoded values (Sans 11pt, 50pt margins, A4
+// portrait); callers override via the corresponding expo-print
+// `options.*` keys.
+struct LayoutOptions {
+  std::string fontFamily = "Sans";
+  int fontPointSize = 11;
+  double marginPts = 50.0;
+  bool landscape = false;
+};
+
 // Show the print dialog. Returns immediately; callbacks fire on
 // the main loop after the user prints or cancels (cancel is
 // treated as success in expo's API).
-void printText(GtkWidget* parent, const std::string& text, OnDone onDone, OnError onError);
+void printText(GtkWidget* parent,
+               const std::string& text,
+               const LayoutOptions& layout,
+               OnDone onDone,
+               OnError onError);
 
 // Render to a PDF file. Same Pango layout pipeline as printText,
 // but the output is a cairo PDF surface instead of a print
@@ -33,6 +48,7 @@ void printText(GtkWidget* parent, const std::string& text, OnDone onDone, OnErro
 // so the JS shim can surface it as expo-print's `numberOfPages`.
 void exportToPdf(const std::string& text,
                  const std::string& outPath,
+                 const LayoutOptions& layout,
                  OnPdfDone onDone,
                  OnError onError);
 

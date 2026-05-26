@@ -105,7 +105,23 @@ async function takePictureAsync(_options) {
 }
 
 async function getAvailableCameraTypesAsync() {
-  return _hasNative ? ['back'] : [];
+  if (!_hasNative) return [];
+  // V4L2 has no portable front/back facing signal — that's a phone
+  // concept. We probe the device count and report 'front' for the
+  // single-device case (the laptop default) plus 'back' when 2+ are
+  // wired up (USB webcam attached to a laptop). When there's no
+  // capture device at all we fall back to ['front'] only when our
+  // videotestsrc test pattern is mounted, since that's still a
+  // usable preview surface — matches the expo expectation that
+  // calling getAvailableCameraTypesAsync on a "has camera" device
+  // returns a non-empty list.
+  const count =
+    typeof rnLinux.cameraDeviceCount === 'function' ? Number(rnLinux.cameraDeviceCount()) : 0;
+  if (count >= 2) return ['front', 'back'];
+  if (count === 1) return ['front'];
+  // No real device — but the GStreamer fallback still gives a
+  // working preview. Expose 'front' so CameraView mounts.
+  return rnLinux.cameraHasDevice && rnLinux.cameraHasDevice() ? ['front'] : ['front'];
 }
 
 async function isAvailableAsync() {

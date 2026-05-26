@@ -78,6 +78,11 @@ function _toLocationObject(fix) {
 
 function _fanFix(fix) {
   const loc = _toLocationObject(fix);
+  // Persist every fix to disk so getLastKnownPositionAsync has
+  // something to return between app launches. Writes happen on the
+  // JS thread but the C++ side uses an atomic rename so a crash
+  // mid-write can't truncate the cache to zero bytes.
+  _persistLastKnown(loc);
   for (const s of _subs.values()) {
     try {
       s.onFix(loc);
@@ -185,11 +190,61 @@ async function getCurrentPositionAsync(_options) {
   });
 }
 
-async function getLastKnownPositionAsync() {
-  // No cache on the Linux side — GeoClue doesn't surface a "last
-  // known" without an active client. Return null per upstream's
-  // contract when no fix has been observed.
-  return null;
+// Per-process memoized snapshot so successive calls inside the same
+// JS lifetime don't bounce through fsReadString. Loaded lazily on
+// first read; written to on every persisted fix via _persistLastKnown.
+let _lastKnownCache;
+let _lastKnownLoaded = false;
+
+function _cachePath() {
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.fsConstants !== 'function') return null;
+  const dir = rnLinux.fsConstants().cacheDirectory || '';
+  if (!dir) return null;
+  return dir.replace('file://', '') + 'expo-location-last.json';
+}
+
+function _persistLastKnown(loc) {
+  _lastKnownCache = loc;
+  _lastKnownLoaded = true;
+  const path = _cachePath();
+  if (!path || typeof rnLinux.fsWriteString !== 'function') return;
+  try {
+    rnLinux.fsWriteString(path, JSON.stringify(loc), 'utf8');
+  } catch (_) {
+    // Cache writes are best-effort; an EBUSY / ENOSPC shouldn't
+    // poison the live stream the caller cares about.
+  }
+}
+
+function _loadLastKnown() {
+  if (_lastKnownLoaded) return _lastKnownCache;
+  _lastKnownLoaded = true;
+  const path = _cachePath();
+  if (!path || typeof rnLinux.fsReadString !== 'function') return undefined;
+  try {
+    const raw = rnLinux.fsReadString(path, 'utf8');
+    if (!raw) return undefined;
+    _lastKnownCache = JSON.parse(raw);
+    return _lastKnownCache;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+async function getLastKnownPositionAsync(options) {
+  const cached = _loadLastKnown();
+  if (!cached) return null;
+  const maxAge = options && typeof options.maxAge === 'number' ? options.maxAge : null;
+  if (maxAge !== null && typeof cached.timestamp === 'number') {
+    if (Date.now() - cached.timestamp > maxAge) return null;
+  }
+  const requiredAccuracy =
+    options && typeof options.requiredAccuracy === 'number' ? options.requiredAccuracy : null;
+  if (requiredAccuracy !== null) {
+    const acc = cached.coords && cached.coords.accuracy;
+    if (typeof acc !== 'number' || acc > requiredAccuracy) return null;
+  }
+  return cached;
 }
 
 // ─── Continuous watch ──────────────────────────────────────────────

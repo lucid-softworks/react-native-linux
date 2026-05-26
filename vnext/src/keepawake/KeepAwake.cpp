@@ -69,7 +69,10 @@ bool isAvailable() {
   return owned;
 }
 
-bool activate(const std::string& tag, const std::string& reason) {
+bool activate(const std::string& tag,
+              const std::string& reason,
+              const std::string& who,
+              const std::string& mode) {
   if (tag.empty())
     return false;
   // Idempotent — JS components remount during Fast Refresh and
@@ -81,7 +84,7 @@ bool activate(const std::string& tag, const std::string& reason) {
   if (!bus)
     return false;
 
-  // Inhibit("idle", who, why, "block") — block the idle timer
+  // Inhibit("idle", who, why, mode) — block the idle timer
   // (display blanking, screen lock). We deliberately don't ask
   // for "sleep" inhibit too: logind requires a polkit policy
   // (org.freedesktop.login1.inhibit-block-sleep) for non-root
@@ -89,6 +92,14 @@ bool activate(const std::string& tag, const std::string& reason) {
   // AccessDenied without it. Idle inhibit is the part
   // expo-keep-awake actually maps to — preventing screen blank
   // / lock during long-running tasks — and works for any user.
+  //
+  // `who` is whatever the caller wants surfaced in
+  // `systemd-inhibit --list`; fallback identifies us
+  // unambiguously. `mode` is "block" (hard inhibit) or "delay"
+  // (soft — system can proceed after a timeout); logind rejects
+  // anything else so we clamp.
+  const std::string whoArg = who.empty() ? std::string{"react-native-linux"} : who;
+  const std::string modeArg = (mode == "delay") ? std::string{"delay"} : std::string{"block"};
   GError* err = nullptr;
   GUnixFDList* fdList = nullptr;
   GVariant* reply = g_dbus_connection_call_with_unix_fd_list_sync(
@@ -99,9 +110,9 @@ bool activate(const std::string& tag, const std::string& reason) {
       "Inhibit",
       g_variant_new("(ssss)",
                     "idle",
-                    "react-native-linux",
+                    whoArg.c_str(),
                     reason.empty() ? "App requested keep-awake" : reason.c_str(),
-                    "block"),
+                    modeArg.c_str()),
       G_VARIANT_TYPE("(h)"),
       G_DBUS_CALL_FLAGS_NONE,
       2000,

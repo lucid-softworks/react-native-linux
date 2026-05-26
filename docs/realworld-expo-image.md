@@ -65,23 +65,23 @@ The expo-image section renders a sample HTTPS PNG via
 
 ## API surface
 
-| API                                                                                 | Behavior on Linux                                                      |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `<Image source={uri/object/array}>`                                                 | Real — string / {uri} / array (first entry) / RN asset id              |
-| `contentFit`                                                                        | Mapped to `resizeMode` (cover/contain/fill/center; scale-down→contain) |
-| `onLoadStart / onLoad / onLoadEnd / onError`                                        | Forwarded to RN.Image                                                  |
-| `placeholder` / `placeholderContentFit`                                             | Accepted, ignored (no cross-fade support)                              |
-| `transition`                                                                        | Accepted, ignored                                                      |
-| `cachePolicy`                                                                       | Accepted, ignored (libsoup has its own HTTP cache)                     |
-| `priority` / `recyclingKey` / `responsivePolicy`                                    | Accepted, ignored                                                      |
-| `blurRadius`                                                                        | Accepted, ignored                                                      |
-| `autoplay` / `allowDownscaling`                                                     | Accepted, ignored                                                      |
-| `<ImageBackground>`                                                                 | Real — Image nested under absolutely-positioned children               |
-| `Image.prefetch(uri)`                                                               | Warms libsoup cache via downloadAsync + delete                         |
-| `Image.clearMemoryCache / clearDiskCache`                                           | Real — wipes the SoupCache under XDG_CACHE_HOME/.../soup-image-cache   |
-| `Image.getCachePathAsync(uri)`                                                      | Returns the cache directory path (entries are SHA-1-keyed, not stable) |
-| `useImage(source)` hook                                                             | Resolves source to `{uri}` (width/height stay unknown)                 |
-| `ImageContentFit / ImageContentPosition / ImageCachePolicy / ImageTransition` enums | Match upstream string/object values                                    |
+| API                                                                                 | Behavior on Linux                                                                                               |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `<Image source={uri/object/array}>`                                                 | Real — string / {uri} / array (first entry) / RN asset id                                                       |
+| `contentFit`                                                                        | Mapped to `resizeMode` (cover/contain/fill/center; scale-down→contain)                                          |
+| `onLoadStart / onLoad / onLoadEnd / onError`                                        | Forwarded to RN.Image                                                                                           |
+| `placeholder` / `placeholderContentFit`                                             | Accepted, ignored (no cross-fade support)                                                                       |
+| `transition`                                                                        | Accepted, ignored                                                                                               |
+| `cachePolicy`                                                                       | Accepted, ignored (libsoup has its own HTTP cache)                                                              |
+| `priority` / `recyclingKey` / `responsivePolicy`                                    | Accepted, ignored                                                                                               |
+| `blurRadius`                                                                        | Accepted, ignored                                                                                               |
+| `autoplay` / `allowDownscaling`                                                     | Accepted, ignored                                                                                               |
+| `<ImageBackground>`                                                                 | Real — Image nested under absolutely-positioned children                                                        |
+| `Image.prefetch(uri)`                                                               | Warms libsoup cache via downloadAsync + delete                                                                  |
+| `Image.clearMemoryCache / clearDiskCache`                                           | Real — wipes the SoupCache under XDG_CACHE_HOME/.../soup-image-cache                                            |
+| `Image.getCachePathAsync(uri)`                                                      | Returns the cache directory path (entries are SHA-1-keyed, not stable)                                          |
+| `useImage(source)` hook + `Image.getSize` / `getSizeAsync`                          | Real — `gdk_pixbuf_get_file_info` for file://, libsoup download + probe for http(s)://, base64 decode for data: |
+| `ImageContentFit / ImageContentPosition / ImageCachePolicy / ImageTransition` enums | Match upstream string/object values                                                                             |
 
 ## Known gaps
 
@@ -100,10 +100,14 @@ The expo-image section renders a sample HTTPS PNG via
   any lingering files; `Image.getCachePathAsync()` returns the
   cache directory. Per-URL cache lookup isn't surfaced because
   SoupCache keys by a SHA-1 hash that isn't a stable contract.
-- **`useImage` returns only `{uri}`.** No width / height
-  resolution since that would mean either parsing the image
-  header (gdk-pixbuf) or fully loading it. `Image.getSize` from
-  RN exists but isn't routed yet.
+- **`useImage` width / height** — **DONE.** Backed by a new
+  `imageGetFileSize` JSI binding that calls
+  `gdk_pixbuf_get_file_info` on the underlying path (header read,
+  no decode). The shim downloads http(s):// to a temp file via
+  `fsDownload` first, decodes data: URIs through `fsWriteString`,
+  and treats file:// as direct. `Image.getSize` (RN-style
+  callback) and `Image.getSizeAsync` (Promise) route through the
+  same probe.
 - **No `responsivePolicy`-driven source selection** beyond
   picking the first array entry. Picking based on display scale
   - pixel density would need the Dimensions hook + a per-render

@@ -123,14 +123,44 @@ async function _payloadText(options) {
   return '';
 }
 
+// Map expo-print's option keys into our LayoutOptions shape.
+// expo's options carry margins as either an object {left,right,
+// top,bottom} or a single `margin` in points and an orientation
+// string ("portrait"/"landscape"); we translate to the font +
+// margin + landscape knobs our Pango pipeline honors.
+function _layoutFromOptions(options) {
+  const out = {};
+  if (options && typeof options.fontFamily === 'string' && options.fontFamily) {
+    out.fontFamily = options.fontFamily;
+  }
+  if (options && typeof options.fontSize === 'number' && options.fontSize > 0) {
+    out.fontPointSize = options.fontSize;
+  }
+  // Pango treats all four margins equally for plain text, so we
+  // collapse `margins: {...}` to the largest specified value.
+  // Asymmetric margins would need a richer renderer (WebKitGTK).
+  if (options && options.margins && typeof options.margins === 'object') {
+    const m = options.margins;
+    const ms = [m.top, m.right, m.bottom, m.left].filter(v => typeof v === 'number' && v >= 0);
+    if (ms.length > 0) out.marginPts = Math.max(...ms);
+  }
+  if (options && typeof options.margin === 'number' && options.margin >= 0) {
+    out.marginPts = options.margin;
+  }
+  if (options && options.orientation === 'landscape') out.landscape = true;
+  return out;
+}
+
 async function printAsync(options) {
   if (!_hasNative) {
     throw new Error('expo-print: native rnLinux.printText not bound');
   }
   const text = await _payloadText(options);
+  const layout = _layoutFromOptions(options);
   return new Promise((resolve, reject) => {
     rnLinux.printText(
       text,
+      layout,
       () => resolve(),
       msg => reject(new Error(msg)),
     );
@@ -142,11 +172,11 @@ async function printToFileAsync(options) {
     throw new Error('expo-print: native rnLinux.printExportPdf not bound');
   }
   const text = await _payloadText(options);
+  const layout = _layoutFromOptions(options);
   // expo-print returns a Promise<{uri, numberOfPages, base64?}>.
-  // We don't compute base64 (would mean reading the file back +
-  // encoding — cheap, but adds latency); the caller can read it
-  // via expo-file-system if needed. numberOfPages is reported by
-  // the native side from Pango's pagination result.
+  // base64 is opt-in via `options.base64=true` because it doubles
+  // the per-call cost. numberOfPages comes from Pango's pagination
+  // result.
   let dir = '/tmp/';
   if (typeof rnLinux !== 'undefined' && typeof rnLinux.fsConstants === 'function') {
     const c = rnLinux.fsConstants();
@@ -155,19 +185,28 @@ async function printToFileAsync(options) {
     }
   }
   const path = `${dir}print-${Date.now()}.pdf`;
-  return new Promise((resolve, reject) => {
+  const written = await new Promise((resolve, reject) => {
     rnLinux.printExportPdf(
       text,
       path,
+      layout,
       (uri, numberOfPages) =>
         resolve({
           uri,
           numberOfPages: typeof numberOfPages === 'number' && numberOfPages > 0 ? numberOfPages : 1,
-          base64: undefined,
         }),
       msg => reject(new Error(msg)),
     );
   });
+  if (options && options.base64 === true && typeof rnLinux.fsReadString === 'function') {
+    try {
+      written.base64 = String(rnLinux.fsReadString(path, 'base64'));
+    } catch (_) {
+      // Reading the just-written file shouldn't fail in practice;
+      // leave base64 unset rather than reject the whole call.
+    }
+  }
+  return written;
 }
 
 // expo-print's iOS-only printer-picker call. Unsupported on

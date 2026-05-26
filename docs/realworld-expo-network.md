@@ -60,7 +60,7 @@ The expo-network section auto-fetches state on mount and exposes a
 | `getMacAddressAsync()`         | Real — `/sys/class/net/<iface>/address` of the active interface                           |
 | `useNetworkState()` hook       | Real — re-renders on `GNetworkMonitor::network-changed`                                   |
 | `addNetworkStateListener()`    | Real — fan-out over the single native trampoline; auto-tears down on last unsubscribe     |
-| `isAirplaneModeEnabledAsync()` | Returns `false` — no portable Linux signal                                                |
+| `isAirplaneModeEnabledAsync()` | Real — `true` iff every wireless rfkill node is soft-blocked (`/sys/class/rfkill/*/soft`) |
 | `getCellularGenerationAsync()` | Returns `UNKNOWN` — Android-only concept                                                  |
 | `NetworkStateType` enum        | `NONE / UNKNOWN / WIFI / CELLULAR / ETHERNET / BLUETOOTH / VPN / WIMAX / OTHER` (strings) |
 | `CellularGeneration` enum      | Exported as numeric constants for cross-platform branching                                |
@@ -84,7 +84,11 @@ The expo-network section auto-fetches state on mount and exposes a
   "VPN status separately" would need a richer binding — common
   enough that listing every iface with type/state should be a
   follow-up.
-- **`isAirplaneModeEnabledAsync` always false.** Could be wired
-  to `rfkill list` (system-level) or NetworkManager's
-  `WirelessEnabled` property (when NM is running). Skipped for
-  the first cut.
+- **`isAirplaneModeEnabledAsync`** — **DONE.** Walks
+  `/sys/class/rfkill/rfkill*` and returns `true` iff every
+  wireless `type` (wlan/bluetooth/wwan/gps/wimax/uwb) has
+  `soft == 1`. Hardware blocks (`hard`) aren't required because
+  most laptops only toggle soft blocks via the airplane key.
+  Returns `false` on systems without rfkill (servers / VMs
+  without virtual radios) since the user can't be "in airplane
+  mode" on a system that has no radios.

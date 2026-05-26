@@ -74,17 +74,17 @@ token, reads it back, deletes it, reads again, reports
 
 ## API surface
 
-| API                               | Behavior on Linux                                                      |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `isAvailableAsync()`              | Real — checks if `org.freedesktop.secrets` is owned on the session bus |
-| `setItemAsync(key, value)` / sync | Real — `secret_password_store_sync`; falls back to session collection  |
-| `getItemAsync(key)` / sync        | Real — `secret_password_lookup_sync`; returns `null` for missing       |
-| `deleteItemAsync(key)` / sync     | Real — `secret_password_clear_sync`; idempotent                        |
-| `options.keychainService`         | Accepted, discarded — iOS-only entry grouping                          |
-| `options.keychainAccessible`      | Accepted, discarded — locking is daemon-controlled, not per-call       |
-| `options.requireAuthentication`   | Accepted, discarded — daemon decides whether to prompt                 |
-| `canUseBiometricAuthentication()` | Returns `false` — no portable biometric API across keyring daemons     |
-| `WHEN_UNLOCKED` etc. constants    | Exported as strings; cross-platform code branching on them still works |
+| API                               | Behavior on Linux                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `isAvailableAsync()`              | Real — checks if `org.freedesktop.secrets` is owned on the session bus       |
+| `setItemAsync(key, value)` / sync | Real — `secret_password_store_sync`; falls back to session collection        |
+| `getItemAsync(key)` / sync        | Real — `secret_password_lookup_sync`; returns `null` for missing             |
+| `deleteItemAsync(key)` / sync     | Real — `secret_password_clear_sync`; idempotent                              |
+| `options.keychainService`         | Real — stored as a libsecret `service` attribute so namespaces don't collide |
+| `options.keychainAccessible`      | Accepted, discarded — locking is daemon-controlled, not per-call             |
+| `options.requireAuthentication`   | Accepted, discarded — daemon decides whether to prompt                       |
+| `canUseBiometricAuthentication()` | Returns `false` — no portable biometric API across keyring daemons           |
+| `WHEN_UNLOCKED` etc. constants    | Exported as strings; cross-platform code branching on them still works       |
 
 ## Known gaps
 
@@ -100,11 +100,12 @@ token, reads it back, deletes it, reads again, reports
   via PAM, but no portable API exists across daemons.
   `canUseBiometricAuthentication` returns `false` so cross-platform
   code that gates on it skips the biometric path.
-- **Multiple keychain services.** iOS's `keychainService` option
-  groups entries under a Keychain Sharing identifier; on Linux,
-  entries are global to the keyring per-schema. If two app builds
-  need isolated storage, they'd need to use different schema ids
-  (compile-time constant in our code, not yet runtime-configurable).
+- **Multiple keychain services** — **DONE.** The libsecret schema
+  carries a second `service` attribute; when callers pass
+  `options.keychainService`, the value is stored alongside the
+  entry's `name` and required on lookup/delete, so two consumers
+  sharing the same key don't collide. Omit the option to share
+  the default (empty-string) namespace.
 - **Sync variant signatures.** Some SDK versions of
   expo-secure-store have `setItem`/`getItem` returning `void`,
   others return `Promise<void>`. We follow the older `void` shape

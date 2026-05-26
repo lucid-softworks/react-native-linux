@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <dirent.h>
+#include <fstream>
 #include <gst/app/gstappsink.h>
 #include <gst/gst.h>
 #include <gst/video/video-info.h>
@@ -69,6 +71,45 @@ std::string snapPath() {
 bool hasV4l2Device() {
   struct stat st;
   return stat(kV4l2Device, &st) == 0;
+}
+
+int v4l2CaptureDeviceCount() {
+  // /sys/class/video4linux/ has one symlink per V4L2 device node, with
+  // a `name` attribute the kernel populates from the driver. We use
+  // that to skip metadata-only nodes (vbi, radio, swradio share the
+  // namespace but aren't capture devices). Cheap — sysfs reads only,
+  // no device opens or VIDIOC ioctls.
+  DIR* d = opendir("/sys/class/video4linux");
+  if (!d)
+    return 0;
+  int count = 0;
+  struct dirent* ent;
+  while ((ent = readdir(d))) {
+    const std::string name = ent->d_name;
+    if (name == "." || name == "..")
+      continue;
+    // The entry name itself encodes the device type: video* are
+    // capture/output, vbi* are vertical-blank, radio* are tuners,
+    // swradio* are software-defined-radio. Only video* are camera-like.
+    if (name.rfind("video", 0) != 0)
+      continue;
+    // A few drivers (e.g. v4l2-loopback) and some encoder/decoder
+    // hardware (Intel VAAPI, etc.) expose video* nodes that aren't
+    // capture. Filter those out by reading the device name: anything
+    // with "decoder"/"encoder"/"output" in it is not what we want.
+    std::ifstream f("/sys/class/video4linux/" + name + "/name");
+    std::string devName;
+    if (f.is_open())
+      std::getline(f, devName);
+    auto contains = [&devName](const char* needle) {
+      return devName.find(needle) != std::string::npos;
+    };
+    if (contains("decoder") || contains("encoder") || contains("output"))
+      continue;
+    ++count;
+  }
+  closedir(d);
+  return count;
 }
 
 // ─── snap (one-shot capture) ──────────────────────────────────────

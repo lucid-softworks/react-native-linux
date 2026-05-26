@@ -106,9 +106,13 @@ calendars = gregory
   system. We always report `gregory` — apps that need
   buddhist/persian/hebrew/etc. should let the user pick in their
   settings rather than auto-detect.
-- **`firstWeekday` is hardcoded to Monday** (ISO-8601). CLDR has
-  per-region tables; the right backend is a small lookup, just
-  not done yet.
+- **`firstWeekday`** — **DONE.** Per-region CLDR table baked into
+  the native snapshot: 1=Sunday across the Americas + East Asia
+  - much of South/Southeast Asia, 7=Saturday across the Arabian
+    peninsula, 2=Monday everywhere else (ISO-8601 default).
+    `getCalendars()` plumbs this through, so a fr-CA locale reports
+    Sunday and an ar-EG locale reports Saturday without any app
+    config.
 - **Live subscription** to locale changes — **DONE.** A pair of
   GFileMonitors on `/etc/locale.conf` (freedesktop /
   systemd-localed) and `/etc/default/locale` (Debian / Ubuntu)

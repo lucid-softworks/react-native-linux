@@ -29,6 +29,10 @@ struct LocaleSnapshot {
   std::string temperatureUnit;   // "celsius" | "fahrenheit"
   bool isRTL = false;
   std::string timezone; // IANA, e.g. "America/Los_Angeles"
+  // CLDR-based first day of the week, in expo's numbering:
+  // 1=Sunday, 2=Monday, 7=Saturday. Defaults to Monday (ISO-8601)
+  // when the region isn't in our table.
+  int firstWeekday = 2;
 };
 
 // Collect everything we can today. Reads of LC_ALL, LANG, etc. are

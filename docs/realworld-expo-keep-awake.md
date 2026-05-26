@@ -89,14 +89,16 @@ Click **release** to drop the inhibit.
   prevent system suspend too; for now we only block the
   display-blank / lock-screen path that expo-keep-awake's
   contract actually maps to.
-- **Delay vs block mode.** logind supports `mode="delay"` (allow
-  sleep but wait up to 5s for the inhibitor to release first) in
-  addition to `mode="block"` (hard prevent). We always block;
-  delay would be a small extra option if real apps need it.
-- **Inhibitor naming.** The `who` field on Inhibit is hardcoded to
-  `"react-native-linux"`. Apps with their own bundle id should
-  thread it through `options.reason` (which already maps to `why`)
-  or we'd need a new option for `who`. Not yet wired.
+- **Delay vs block mode** — **DONE.** `activateKeepAwakeAsync` /
+  `activateKeepAwake` accept an `options.mode` of `"block"` (the
+  default, hard inhibit) or `"delay"` (soft — system can proceed
+  after a short timeout but the app gets a chance to react
+  first). Anything else clamps back to `"block"` since logind
+  rejects unknown modes.
+- **Inhibitor naming** — **DONE.** `options.who` is threaded
+  through to the logind `who` arg so each app surfaces a
+  meaningful name in `systemd-inhibit --list`. Falls back to
+  `"react-native-linux"` when blank.
 - **No equivalent on non-systemd Linux.** Devuan, Void, Alpine
   without elogind, and other systemd-free distros don't run
   `org.freedesktop.login1`. `isAvailableAsync` returns `false`

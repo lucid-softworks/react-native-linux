@@ -41,6 +41,13 @@ struct NetworkState {
 // GNetworkMonitor query.
 NetworkState getState();
 
+// True iff every wireless rfkill node (`type` ∈ {wlan, bluetooth,
+// wwan, gps, wimax, …}) is soft-blocked, AND at least one such
+// node exists. Approximates the "airplane mode" toggle most
+// desktops surface in their quick-settings shade. Returns false
+// on systems without rfkill (some servers, virtualized hosts).
+bool isAirplaneModeEnabled();
+
 // Convert NetType to the lowercase string expo-network's
 // NetworkStateType enum uses on the JS side.
 const char* typeString(NetType t);

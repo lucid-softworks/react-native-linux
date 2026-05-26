@@ -61,11 +61,15 @@ async function getMacAddressAsync(_interfaceName) {
 }
 
 // Airplane mode is an Android-only signal. Linux doesn't have a
-// universal "rfkill all" toggle that's visible at the JS layer;
-// return false rather than fake-positive so cross-platform code
-// that gates on it skips the airplane-mode path.
+// Backed by /sys/class/rfkill — true iff every wireless radio
+// (wlan/bluetooth/wwan/gps/wimax/uwb) is soft-blocked AND at
+// least one such device exists. Returns false on systems
+// without rfkill (some servers, VMs without virtual radios).
 async function isAirplaneModeEnabledAsync() {
-  return false;
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.networkAirplaneMode !== 'function') {
+    return false;
+  }
+  return Boolean(rnLinux.networkAirplaneMode());
 }
 
 // CellularGeneration is Android-only; no equivalent on desktop.

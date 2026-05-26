@@ -1989,6 +1989,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
     o.setProperty(rt, "textDirection", jsi::String::createFromUtf8(rt, s.isRTL ? "rtl" : "ltr"));
     o.setProperty(rt, "isRTL", jsi::Value(s.isRTL));
     o.setProperty(rt, "timezone", jsi::String::createFromUtf8(rt, s.timezone));
+    o.setProperty(rt, "firstWeekday", jsi::Value(s.firstWeekday));
     return o;
   };
   bindMethod(rt,
@@ -2106,17 +2107,22 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::Value(rnlinux::securestore::isAvailable());
              });
 
+  // The third arg on all three is the keychainService — expo's
+  // per-app namespace inside the shared user keyring. Empty string
+  // selects the default unscoped namespace.
   bindMethod(
       rt,
       rnLinux,
       "secureStoreSetItem",
-      2,
+      3,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 2)
           return jsi::Value::undefined();
+        const std::string service =
+            (count >= 3 && args[2].isString()) ? args[2].asString(rt).utf8(rt) : std::string{};
         try {
-          rnlinux::securestore::setItem(args[0].asString(rt).utf8(rt),
-                                        args[1].asString(rt).utf8(rt));
+          rnlinux::securestore::setItem(
+              args[0].asString(rt).utf8(rt), args[1].asString(rt).utf8(rt), service);
         } catch (const std::exception& e) {
           throw jsi::JSError(rt, e.what());
         }
@@ -2127,12 +2133,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
       rt,
       rnLinux,
       "secureStoreGetItem",
-      1,
+      2,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 1)
           return jsi::Value::null();
+        const std::string service =
+            (count >= 2 && args[1].isString()) ? args[1].asString(rt).utf8(rt) : std::string{};
         try {
-          auto v = rnlinux::securestore::getItem(args[0].asString(rt).utf8(rt));
+          auto v = rnlinux::securestore::getItem(args[0].asString(rt).utf8(rt), service);
           if (!v)
             return jsi::Value::null();
           return jsi::String::createFromUtf8(rt, *v);
@@ -2145,12 +2153,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
       rt,
       rnLinux,
       "secureStoreDeleteItem",
-      1,
+      2,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 1)
           return jsi::Value::undefined();
+        const std::string service =
+            (count >= 2 && args[1].isString()) ? args[1].asString(rt).utf8(rt) : std::string{};
         try {
-          rnlinux::securestore::deleteItem(args[0].asString(rt).utf8(rt));
+          rnlinux::securestore::deleteItem(args[0].asString(rt).utf8(rt), service);
         } catch (const std::exception& e) {
           throw jsi::JSError(rt, e.what());
         }
@@ -2520,6 +2530,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::Value(rnlinux::camera::hasV4l2Device());
              });
 
+  bindMethod(rt,
+             rnLinux,
+             "cameraDeviceCount",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               return jsi::Value(rnlinux::camera::v4l2CaptureDeviceCount());
+             });
+
   bindMethod(
       rt,
       rnLinux,
@@ -2584,6 +2602,33 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::String::createFromUtf8(rt, rnlinux::imageCacheDir());
              });
 
+  // Reads only the image header via gdk_pixbuf_get_file_info, so
+  // it stays cheap on multi-MB images. The JS shim wraps it so
+  // expo-image's `useImage` and `Image.getSize` can resolve
+  // {width, height} without loading the full pixels. Returns
+  // {width: 0, height: 0} when the path doesn't exist or the
+  // format isn't recognized.
+  bindMethod(
+      rt,
+      rnLinux,
+      "imageGetFileSize",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        jsi::Object out(rt);
+        out.setProperty(rt, "width", jsi::Value(0));
+        out.setProperty(rt, "height", jsi::Value(0));
+        if (count < 1 || !args[0].isString())
+          return out;
+        const std::string path = args[0].asString(rt).utf8(rt);
+        int w = 0;
+        int h = 0;
+        if (gdk_pixbuf_get_file_info(path.c_str(), &w, &h)) {
+          out.setProperty(rt, "width", jsi::Value(w));
+          out.setProperty(rt, "height", jsi::Value(h));
+        }
+        return out;
+      });
+
   bindMethod(rt,
              rnLinux,
              "reloadApp",
@@ -2607,25 +2652,59 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   // plaintext on the JS side (full HTML rendering would need
   // WebKitGTK, see docs/realworld-expo-print.md).
 
+  // Build a LayoutOptions from a JS opts object. Missing keys keep
+  // the defaults from the struct (Sans 11pt, 50pt margin, portrait).
+  auto layoutFromObj = [](jsi::Runtime& rt, const jsi::Value& v) -> rnlinux::print::LayoutOptions {
+    rnlinux::print::LayoutOptions out;
+    if (!v.isObject())
+      return out;
+    auto o = v.asObject(rt);
+    if (o.hasProperty(rt, "fontFamily")) {
+      auto p = o.getProperty(rt, "fontFamily");
+      if (p.isString())
+        out.fontFamily = p.asString(rt).utf8(rt);
+    }
+    if (o.hasProperty(rt, "fontPointSize")) {
+      auto p = o.getProperty(rt, "fontPointSize");
+      if (p.isNumber())
+        out.fontPointSize = static_cast<int>(p.asNumber());
+    }
+    if (o.hasProperty(rt, "marginPts")) {
+      auto p = o.getProperty(rt, "marginPts");
+      if (p.isNumber())
+        out.marginPts = p.asNumber();
+    }
+    if (o.hasProperty(rt, "landscape")) {
+      auto p = o.getProperty(rt, "landscape");
+      if (p.isBool())
+        out.landscape = p.getBool();
+    }
+    return out;
+  };
+
   bindMethod(
       rt,
       rnLinux,
       "printText",
-      3,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+      4,
+      [layoutFromObj](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 1)
           return jsi::Value::undefined();
         const auto text = args[0].asString(rt).utf8(rt);
-        auto okCb = count >= 2 && args[1].isObject() && args[1].asObject(rt).isFunction(rt)
-                        ? std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt))
+        const auto layout =
+            count >= 2 ? layoutFromObj(rt, args[1]) : rnlinux::print::LayoutOptions{};
+        auto okCb = count >= 3 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)
+                        ? std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt))
                         : nullptr;
-        auto errCb = count >= 3 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)
-                         ? std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt))
+        auto errCb = count >= 4 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
                          : nullptr;
         GtkWidget* parent = state().rootView;
         rnlinux::print::printText(
             parent,
             text,
+            layout,
             [okCb]() {
               auto& s = state();
               if (!s.runtime || !okCb)
@@ -2657,21 +2736,25 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
       rt,
       rnLinux,
       "printExportPdf",
-      4,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+      5,
+      [layoutFromObj](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 2)
           return jsi::Value::undefined();
         const auto text = args[0].asString(rt).utf8(rt);
         const auto outPath = args[1].asString(rt).utf8(rt);
-        auto okCb = count >= 3 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)
-                        ? std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt))
+        const auto layout =
+            count >= 3 ? layoutFromObj(rt, args[2]) : rnlinux::print::LayoutOptions{};
+        auto okCb = count >= 4 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)
+                        ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
                         : nullptr;
-        auto errCb = count >= 4 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)
-                         ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
+        auto errCb = count >= 5 && args[4].isObject() && args[4].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[4].asObject(rt).asFunction(rt))
                          : nullptr;
         rnlinux::print::exportToPdf(
             text,
             outPath,
+            layout,
             [okCb, outPath](int pageCount) {
               auto& s = state();
               if (!s.runtime || !okCb)
@@ -2832,6 +2915,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
 
   bindMethod(rt,
              rnLinux,
+             "networkAirplaneMode",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               return jsi::Value(rnlinux::network::isAirplaneModeEnabled());
+             });
+
+  bindMethod(rt,
+             rnLinux,
              "networkSetStateListener",
              1,
              [stateToJs](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count)
@@ -2870,18 +2961,24 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::Value(rnlinux::keepawake::isAvailable());
              });
 
+  // Optional 3rd / 4th args: `who` (string shown in
+  // `systemd-inhibit --list`) and `mode` ("block" | "delay").
   bindMethod(
       rt,
       rnLinux,
       "keepAwakeActivate",
-      2,
+      4,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 1)
           return jsi::Value(false);
         const auto tag = args[0].asString(rt).utf8(rt);
         const auto reason =
             count >= 2 && args[1].isString() ? args[1].asString(rt).utf8(rt) : std::string{};
-        return jsi::Value(rnlinux::keepawake::activate(tag, reason));
+        const auto who =
+            count >= 3 && args[2].isString() ? args[2].asString(rt).utf8(rt) : std::string{};
+        const auto mode =
+            count >= 4 && args[3].isString() ? args[3].asString(rt).utf8(rt) : std::string{};
+        return jsi::Value(rnlinux::keepawake::activate(tag, reason, who, mode));
       });
 
   bindMethod(

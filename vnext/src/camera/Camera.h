@@ -27,6 +27,14 @@ namespace rnlinux::camera {
 // whether we'll get test pattern or real frames.
 bool hasV4l2Device();
 
+// Count V4L2 capture devices the kernel exposes. Used by
+// getAvailableCameraTypesAsync to decide whether to report ['front']
+// (single device, the laptop case) or ['front', 'back'] (2+ devices).
+// Walks /sys/class/video4linux/ and filters to entries whose name
+// suggests a capture device (skipping vbi/radio/swradio metadata
+// nodes that share the v4l2 namespace).
+int v4l2CaptureDeviceCount();
+
 // Result handed back to JS for takePictureAsync. `uri` is a file://
 // URL so the RN Image component can load it directly via libsoup.
 struct SnapResult {

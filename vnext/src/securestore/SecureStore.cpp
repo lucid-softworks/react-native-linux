@@ -15,11 +15,16 @@ namespace {
 // every previously-stored value (they still live in the keyring
 // but our lookup won't find them).
 const SecretSchema* getSchema() {
+  // Two attributes: "name" (the JS key) and "service" (the
+  // keychainService scope; empty string for the unscoped default).
+  // libsecret with SECRET_SCHEMA_NONE matches on every attribute we
+  // pass at lookup time.
   static SecretSchema schema{
       "works.lucidsoft.RNLinuxPlayground.SecureStore",
       SECRET_SCHEMA_NONE,
       {
           {"name", SECRET_SCHEMA_ATTRIBUTE_STRING},
+          {"service", SECRET_SCHEMA_ATTRIBUTE_STRING},
           {nullptr, static_cast<SecretSchemaAttributeType>(0)},
       },
       // Reserved padding fields — zero them so future libsecret
@@ -83,34 +88,51 @@ bool isAvailable() {
   return owned;
 }
 
-void setItem(const std::string& key, const std::string& value) {
+namespace {
+
+// Compose the entry label shown in keyring browsers (seahorse,
+// kwalletmanager). The scope makes it obvious which app+service
+// owns an entry without having to inspect attributes.
+std::string makeLabel(const std::string& key, const std::string& service) {
+  if (service.empty())
+    return "rn-linux-secure-store: " + key;
+  return "rn-linux-secure-store [" + service + "]: " + key;
+}
+
+gboolean storeIn(const char* collection,
+                 const std::string& key,
+                 const std::string& value,
+                 const std::string& service,
+                 const std::string& label,
+                 GError** err) {
+  return secret_password_store_sync(getSchema(),
+                                    collection,
+                                    label.c_str(),
+                                    value.c_str(),
+                                    /*cancellable=*/nullptr,
+                                    err,
+                                    "name",
+                                    key.c_str(),
+                                    "service",
+                                    service.c_str(),
+                                    nullptr);
+}
+
+} // namespace
+
+void setItem(const std::string& key, const std::string& value, const std::string& service) {
   // Try the default collection first, then session. The DEFAULT
   // alias resolves at the daemon side, so we can't always know up
   // front whether it'll work — running it and observing the error
   // is cheaper than introspecting collections first.
   GError* err = nullptr;
-  gboolean ok = secret_password_store_sync(getSchema(),
-                                           primaryCollection(),
-                                           /*label=*/("rn-linux-secure-store: " + key).c_str(),
-                                           value.c_str(),
-                                           /*cancellable=*/nullptr,
-                                           &err,
-                                           "name",
-                                           key.c_str(),
-                                           nullptr);
+  const std::string label = makeLabel(key, service);
+  gboolean ok = storeIn(primaryCollection(), key, value, service, label, &err);
   if (!ok) {
     if (err)
       g_error_free(err);
     err = nullptr;
-    ok = secret_password_store_sync(getSchema(),
-                                    fallbackCollection(),
-                                    ("rn-linux-secure-store: " + key).c_str(),
-                                    value.c_str(),
-                                    nullptr,
-                                    &err,
-                                    "name",
-                                    key.c_str(),
-                                    nullptr);
+    ok = storeIn(fallbackCollection(), key, value, service, label, &err);
   }
   if (!ok) {
     std::string msg = err && err->message ? err->message : "secret_password_store_sync failed";
@@ -120,13 +142,15 @@ void setItem(const std::string& key, const std::string& value) {
   }
 }
 
-std::optional<std::string> getItem(const std::string& key) {
+std::optional<std::string> getItem(const std::string& key, const std::string& service) {
   GError* err = nullptr;
   gchar* raw = secret_password_lookup_sync(getSchema(),
                                            /*cancellable=*/nullptr,
                                            &err,
                                            "name",
                                            key.c_str(),
+                                           "service",
+                                           service.c_str(),
                                            nullptr);
   if (err) {
     std::string msg = err->message ? err->message : "secret_password_lookup_sync failed";
@@ -140,7 +164,7 @@ std::optional<std::string> getItem(const std::string& key) {
   return out;
 }
 
-void deleteItem(const std::string& key) {
+void deleteItem(const std::string& key, const std::string& service) {
   GError* err = nullptr;
   // Returns FALSE both when nothing matches AND when something
   // matches and was removed — the distinguishing test is `err`.
@@ -151,6 +175,8 @@ void deleteItem(const std::string& key) {
                              &err,
                              "name",
                              key.c_str(),
+                             "service",
+                             service.c_str(),
                              nullptr);
   if (err) {
     std::string msg = err->message ? err->message : "secret_password_clear_sync failed";

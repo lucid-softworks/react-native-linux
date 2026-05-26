@@ -109,19 +109,19 @@ The shim mirrors the full upstream surface so consumers don't have to
 platform-branch. Where Linux has no equivalent the behavior degrades
 predictably:
 
-| API                                           | Behavior on Linux                                                       |
-| --------------------------------------------- | ----------------------------------------------------------------------- |
-| `requestForegroundPermissionsAsync`           | Returns `granted` — authorization is config-driven, not per-call        |
-| `requestBackgroundPermissionsAsync`           | Same — no app-state gate on desktop                                     |
-| `hasServicesEnabledAsync`                     | Pings GeoClue's bus name; true if installed and the daemon is reachable |
-| `getCurrentPositionAsync`                     | One-shot fix from GeoClue (start → first signal → stop)                 |
-| `watchPositionAsync`                          | Subscribes to `LocationUpdated`; returns `{remove()}`                   |
-| `getLastKnownPositionAsync`                   | Returns `null` (no native cache yet)                                    |
-| `watchHeadingAsync` / `getHeadingAsync`       | No-op subscription / zeroed heading — no compass on desktop             |
-| `geocodeAsync` / `reverseGeocodeAsync`        | Returns `[]` — upstream uses Apple/Google services we don't bundle      |
-| `startLocationUpdatesAsync` (background task) | No-op                                                                   |
-| `startGeofencingAsync`                        | No-op                                                                   |
-| `Accuracy` / `PermissionStatus` enums         | Numeric values match upstream                                           |
+| API                                           | Behavior on Linux                                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `requestForegroundPermissionsAsync`           | Returns `granted` — authorization is config-driven, not per-call                             |
+| `requestBackgroundPermissionsAsync`           | Same — no app-state gate on desktop                                                          |
+| `hasServicesEnabledAsync`                     | Pings GeoClue's bus name; true if installed and the daemon is reachable                      |
+| `getCurrentPositionAsync`                     | One-shot fix from GeoClue (start → first signal → stop)                                      |
+| `watchPositionAsync`                          | Subscribes to `LocationUpdated`; returns `{remove()}`                                        |
+| `getLastKnownPositionAsync`                   | Real — reads `$XDG_CACHE_HOME/expo-location-last.json`; honors `maxAge` / `requiredAccuracy` |
+| `watchHeadingAsync` / `getHeadingAsync`       | No-op subscription / zeroed heading — no compass on desktop                                  |
+| `geocodeAsync` / `reverseGeocodeAsync`        | Returns `[]` — upstream uses Apple/Google services we don't bundle                           |
+| `startLocationUpdatesAsync` (background task) | No-op                                                                                        |
+| `startGeofencingAsync`                        | No-op                                                                                        |
+| `Accuracy` / `PermissionStatus` enums         | Numeric values match upstream                                                                |
 
 ## Known gaps
 
@@ -134,5 +134,10 @@ predictably:
   for the smoke demo.
 - **Background tasks** are stubbed. There's no expo-task-manager equivalent
   on the Linux side yet.
-- **Last-known position cache** would be a small JSON file under
-  `XDG_CACHE_HOME`, written on each fix. Skipped for the first pass.
+- **Last-known position cache** — **DONE.** Every fix the watch
+  delivers is written to `$XDG_CACHE_HOME/expo-location-last.json`
+  through `fsWriteString` (atomic temp+rename), and
+  `getLastKnownPositionAsync` reads it back. Honors expo's
+  `options.maxAge` (returns `null` if the cached fix is older
+  than that) and `options.requiredAccuracy` (returns `null` if
+  the cached accuracy is worse than the threshold).

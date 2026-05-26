@@ -14,8 +14,6 @@ namespace {
 
 constexpr double kPdfPageWidth = 595.0; // A4 in pts (1pt = 1/72")
 constexpr double kPdfPageHeight = 842.0;
-constexpr double kMarginPts = 50.0;
-constexpr int kBodyFontPt = 11;
 
 // Lay out the text into a Pango layout sized for the printable
 // area (page minus margins). Returns the number of pages the
@@ -81,13 +79,14 @@ void renderPage(
 
 // Build a fresh PangoLayout sized for the printable area, with
 // the supplied text laid out and word-wrapped.
-PangoLayout* buildLayout(cairo_t* cr, const std::string& text, double pageWidth, double margin) {
+PangoLayout*
+buildLayout(cairo_t* cr, const std::string& text, double pageWidth, const LayoutOptions& opts) {
   PangoLayout* layout = pango_cairo_create_layout(cr);
-  PangoFontDescription* font = pango_font_description_from_string("Sans");
-  pango_font_description_set_size(font, kBodyFontPt * PANGO_SCALE);
+  PangoFontDescription* font = pango_font_description_from_string(opts.fontFamily.c_str());
+  pango_font_description_set_size(font, opts.fontPointSize * PANGO_SCALE);
   pango_layout_set_font_description(layout, font);
   pango_font_description_free(font);
-  pango_layout_set_width(layout, static_cast<int>((pageWidth - 2 * margin) * PANGO_SCALE));
+  pango_layout_set_width(layout, static_cast<int>((pageWidth - 2 * opts.marginPts) * PANGO_SCALE));
   pango_layout_set_wrap(layout, PANGO_WRAP_WORD_CHAR);
   pango_layout_set_text(layout, text.c_str(), -1);
   return layout;
@@ -95,6 +94,7 @@ PangoLayout* buildLayout(cairo_t* cr, const std::string& text, double pageWidth,
 
 struct PrintCtx {
   std::string text;
+  LayoutOptions layoutOpts;
   LayoutResult layoutResult;
   PangoLayout* layout = nullptr; // owned by the cairo context for the print op
   OnDone onDone;
@@ -108,8 +108,8 @@ void onBeginPrint(GtkPrintOperation* op, GtkPrintContext* context, gpointer user
   // A4 by default but the user's printer settings can override.
   const double w = gtk_print_context_get_width(context);
   const double h = gtk_print_context_get_height(context);
-  ctx->layout = buildLayout(cr, ctx->text, w, kMarginPts);
-  ctx->layoutResult = layoutForPage(ctx->layout, h, kMarginPts);
+  ctx->layout = buildLayout(cr, ctx->text, w, ctx->layoutOpts);
+  ctx->layoutResult = layoutForPage(ctx->layout, h, ctx->layoutOpts.marginPts);
   gtk_print_operation_set_n_pages(op, ctx->layoutResult.pageCount);
 }
 
@@ -121,7 +121,7 @@ void onDrawPage(GtkPrintOperation* /*op*/,
   cairo_t* cr = gtk_print_context_get_cairo_context(context);
   if (!ctx->layout)
     return;
-  renderPage(cr, ctx->layout, ctx->layoutResult, pageIndex, kMarginPts);
+  renderPage(cr, ctx->layout, ctx->layoutResult, pageIndex, ctx->layoutOpts.marginPts);
 }
 
 void onEndPrint(GtkPrintOperation* /*op*/, GtkPrintContext* /*context*/, gpointer userData) {
@@ -146,7 +146,11 @@ void onDone(GtkPrintOperation* /*op*/, GtkPrintOperationResult result, gpointer 
 
 } // namespace
 
-void printText(GtkWidget* parent, const std::string& text, OnDone onDoneCb, OnError onErrorCb) {
+void printText(GtkWidget* parent,
+               const std::string& text,
+               const LayoutOptions& layout,
+               OnDone onDoneCb,
+               OnError onErrorCb) {
   if (!parent) {
     if (onErrorCb)
       onErrorCb("print: no parent window");
@@ -158,7 +162,15 @@ void printText(GtkWidget* parent, const std::string& text, OnDone onDoneCb, OnEr
       onErrorCb("print: gtk_print_operation_new failed");
     return;
   }
-  auto* ctx = new PrintCtx{text, {}, nullptr, std::move(onDoneCb), std::move(onErrorCb)};
+  // Apply orientation up front; GtkPrintOperation keeps the
+  // current settings around and threads them into the dialog so
+  // the user sees the orientation we asked for as the default.
+  GtkPrintSettings* settings = gtk_print_settings_new();
+  gtk_print_settings_set_orientation(
+      settings, layout.landscape ? GTK_PAGE_ORIENTATION_LANDSCAPE : GTK_PAGE_ORIENTATION_PORTRAIT);
+  gtk_print_operation_set_print_settings(op, settings);
+  g_object_unref(settings);
+  auto* ctx = new PrintCtx{text, layout, {}, nullptr, std::move(onDoneCb), std::move(onErrorCb)};
   g_signal_connect(op, "begin-print", G_CALLBACK(onBeginPrint), ctx);
   g_signal_connect(op, "draw-page", G_CALLBACK(onDrawPage), ctx);
   g_signal_connect(op, "end-print", G_CALLBACK(onEndPrint), ctx);
@@ -176,11 +188,14 @@ void printText(GtkWidget* parent, const std::string& text, OnDone onDoneCb, OnEr
 
 void exportToPdf(const std::string& text,
                  const std::string& outPath,
+                 const LayoutOptions& layout,
                  OnPdfDone onDoneCb,
                  OnError onErrorCb) {
-  // Synchronous cairo PDF write — no dialog, no async dance.
-  cairo_surface_t* surface =
-      cairo_pdf_surface_create(outPath.c_str(), kPdfPageWidth, kPdfPageHeight);
+  // Swap dimensions for landscape — cairo PDFs don't carry an
+  // orientation tag separately, so we rotate the page itself.
+  const double pageWidth = layout.landscape ? kPdfPageHeight : kPdfPageWidth;
+  const double pageHeight = layout.landscape ? kPdfPageWidth : kPdfPageHeight;
+  cairo_surface_t* surface = cairo_pdf_surface_create(outPath.c_str(), pageWidth, pageHeight);
   if (!surface || cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
     if (surface)
       cairo_surface_destroy(surface);
@@ -189,13 +204,13 @@ void exportToPdf(const std::string& text,
     return;
   }
   cairo_t* cr = cairo_create(surface);
-  PangoLayout* layout = buildLayout(cr, text, kPdfPageWidth, kMarginPts);
-  LayoutResult lay = layoutForPage(layout, kPdfPageHeight, kMarginPts);
+  PangoLayout* pl = buildLayout(cr, text, pageWidth, layout);
+  LayoutResult lay = layoutForPage(pl, pageHeight, layout.marginPts);
   for (int p = 0; p < lay.pageCount; ++p) {
-    renderPage(cr, layout, lay, p, kMarginPts);
+    renderPage(cr, pl, lay, p, layout.marginPts);
     cairo_show_page(cr);
   }
-  g_object_unref(layout);
+  g_object_unref(pl);
   cairo_destroy(cr);
   cairo_surface_finish(surface);
   cairo_surface_destroy(surface);

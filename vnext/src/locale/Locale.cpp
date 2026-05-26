@@ -144,6 +144,45 @@ bool languageIsRTL(const std::string& lang) {
   return false;
 }
 
+// CLDR first-day-of-week per region (`supplementalData.xml`
+// weekData/firstDay). Encoded as the JS/expo numbering: 1=Sunday,
+// 2=Monday, 7=Saturday. ISO-8601 default is Monday (2). The list
+// here is intentionally short — it covers the regions where the
+// first day differs from Monday in a way users notice (Sunday
+// across the Americas + East Asia + much of South/Southeast Asia;
+// Saturday across the Arabian peninsula). Everything else falls
+// through to Monday.
+int regionFirstWeekday(const std::string& region) {
+  static const char* sundayRegions[] = {
+      "AG", "AS", "AU", "BD", "BR", "BS", "BT", "BW", "BZ", "CA", "CN", "CO", "DM", "DO",   "ET",
+      "GT", "GU", "HK", "HN", "ID", "IL", "IN", "JM", "JP", "KE", "KH", "KR", "LA", "MH",   "MM",
+      "MO", "MT", "MX", "MZ", "NI", "NP", "PA", "PE", "PH", "PK", "PR", "PT", "PY", "SA",   "SG",
+      "SV", "TH", "TT", "TW", "UM", "US", "VE", "VI", "WS", "YE", "ZA", "ZM", "ZW", nullptr};
+  static const char* saturdayRegions[] = {"AE",
+                                          "AF",
+                                          "BH",
+                                          "DJ",
+                                          "DZ",
+                                          "EG",
+                                          "IQ",
+                                          "IR",
+                                          "JO",
+                                          "KW",
+                                          "LY",
+                                          "OM",
+                                          "QA",
+                                          "SD",
+                                          "SY",
+                                          nullptr};
+  for (int i = 0; sundayRegions[i]; ++i)
+    if (region == sundayRegions[i])
+      return 1; // Sunday
+  for (int i = 0; saturdayRegions[i]; ++i)
+    if (region == saturdayRegions[i])
+      return 7; // Saturday
+  return 2;     // Monday — ISO-8601 default
+}
+
 std::string detectTimezone() {
   // Two reliable Linux signals, in order of preference:
   //   1. /etc/timezone (Debian/Ubuntu convention) — one line, IANA name.
@@ -214,6 +253,7 @@ LocaleSnapshot snapshotFor(const std::string& rawLocale) {
     s.measurementSystem = "metric";
   s.isRTL = languageIsRTL(parsed.language);
   s.timezone = detectTimezone();
+  s.firstWeekday = regionFirstWeekday(parsed.region);
   return s;
 }
 

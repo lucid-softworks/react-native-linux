@@ -206,6 +206,41 @@ void reset() {
   setStateListener(nullptr);
 }
 
+bool isAirplaneModeEnabled() {
+  // /sys/class/rfkill/rfkillN/{type,soft} is the kernel-exposed
+  // rfkill state. We treat "airplane mode" as "every wireless
+  // radio is soft-blocked". `hard` blocks (hardware switch) are
+  // intentionally NOT required — many laptops have only soft
+  // blocks toggled by the airplane key, and the user expectation
+  // matches that.
+  DIR* d = opendir("/sys/class/rfkill");
+  if (!d)
+    return false;
+  bool sawAny = false;
+  bool allBlocked = true;
+  struct dirent* ent;
+  while ((ent = readdir(d))) {
+    const std::string name = ent->d_name;
+    if (name.rfind("rfkill", 0) != 0)
+      continue;
+    const std::string base = std::string("/sys/class/rfkill/") + name + "/";
+    const std::string type = slurp(base + "type");
+    // Skip device types that aren't "wireless" in the user's
+    // sense. nfc is borderline but not part of airplane mode UX.
+    if (type != "wlan" && type != "bluetooth" && type != "wwan" && type != "gps" &&
+        type != "wimax" && type != "uwb")
+      continue;
+    sawAny = true;
+    const std::string soft = slurp(base + "soft");
+    if (soft != "1") {
+      allBlocked = false;
+      break;
+    }
+  }
+  closedir(d);
+  return sawAny && allBlocked;
+}
+
 NetworkState getState() {
   NetworkState s;
   ActiveInterface active = findActive();

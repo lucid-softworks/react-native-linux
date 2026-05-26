@@ -192,10 +192,72 @@ async function getCachePathAsync(_url) {
   return null;
 }
 
+// Resolve the pixel dimensions of an image URI. For file:// paths
+// we call gdk_pixbuf_get_file_info directly (header-only, no
+// decode). For http(s):// we download to a temp file via the
+// libsoup-backed fsDownload then probe the same way; the file is
+// unlinked after the probe so this doesn't grow the cache. Data
+// URIs decode the base64 body to a temp file first.
+async function _getImageSize(uri) {
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.imageGetFileSize !== 'function') {
+    return {width: 0, height: 0};
+  }
+  if (typeof uri !== 'string' || !uri) return {width: 0, height: 0};
+  if (uri.startsWith('file://')) {
+    return rnLinux.imageGetFileSize(uri.slice('file://'.length));
+  }
+  if (uri.startsWith('data:')) {
+    const comma = uri.indexOf(',');
+    if (comma < 0 || !uri.slice(5, comma).includes(';base64')) return {width: 0, height: 0};
+    let dir = '/tmp/';
+    if (typeof rnLinux.fsConstants === 'function') {
+      const c = rnLinux.fsConstants();
+      if (c && c.cacheDirectory) dir = c.cacheDirectory.replace('file://', '');
+    }
+    const dest = `${dir}image-size-${Date.now()}.bin`;
+    rnLinux.fsWriteString(dest, uri.slice(comma + 1), 'base64');
+    try {
+      return rnLinux.imageGetFileSize(dest);
+    } finally {
+      try {
+        rnLinux.fsDelete(dest, true);
+      } catch (_) {}
+    }
+  }
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    if (typeof rnLinux.fsDownload !== 'function') return {width: 0, height: 0};
+    let dir = '/tmp/';
+    if (typeof rnLinux.fsConstants === 'function') {
+      const c = rnLinux.fsConstants();
+      if (c && c.cacheDirectory) dir = c.cacheDirectory.replace('file://', '');
+    }
+    const dest = `${dir}image-size-${Date.now()}.bin`;
+    await new Promise((resolve, reject) => {
+      rnLinux.fsDownload(
+        uri,
+        dest,
+        () => resolve(),
+        msg => reject(new Error(msg)),
+      );
+    });
+    try {
+      return rnLinux.imageGetFileSize(dest);
+    } finally {
+      try {
+        rnLinux.fsDelete(dest, true);
+      } catch (_) {}
+    }
+  }
+  return {width: 0, height: 0};
+}
+
 function useImage(source, _options, _callbacks) {
-  // Resolve the source to {uri, width, height} once. For HTTP
-  // URIs that means an actual download to discover dimensions;
-  // for file:// URIs we can stat without loading the bytes.
+  // Resolve the source to {uri, width, height}. file:// reads the
+  // dimensions synchronously off the image header; http(s):// goes
+  // through the libsoup fetcher to a temp path first. The
+  // resolved state populates incrementally — uri first, then w/h
+  // when the probe lands — so consumers can render the placeholder
+  // box at the right ratio without waiting on a full decode.
   const [resolved, setResolved] = React.useState(null);
   React.useEffect(() => {
     let cancelled = false;
@@ -209,10 +271,13 @@ function useImage(source, _options, _callbacks) {
       setResolved(norm);
       return;
     }
-    // For now we only resolve a {uri}; width/height stay
-    // unknown unless caller supplies them. A real implementation
-    // would Image.getSize + cache the result.
     setResolved(norm);
+    _getImageSize(uri).then(({width, height}) => {
+      if (cancelled) return;
+      if (width > 0 && height > 0) {
+        setResolved(prev => ({...(prev || norm), width, height}));
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -253,12 +318,35 @@ const ImageTransition = {
   timing: 'ease-in-out',
 };
 
-// Attach prefetch / clear cache / getCachePathAsync as statics
-// on the Image component itself, matching upstream's shape.
+// Attach prefetch / clear cache / getCachePathAsync / getSize as
+// statics on the Image component itself, matching upstream's shape.
 Image.prefetch = prefetch;
 Image.clearMemoryCache = clearMemoryCache;
 Image.clearDiskCache = clearDiskCache;
 Image.getCachePathAsync = getCachePathAsync;
+// RN-style callback form and expo-image's Promise form. Both route
+// through the same gdk_pixbuf_get_file_info-backed probe.
+Image.getSize = function getSize(uri, onSuccess, onError) {
+  _getImageSize(uri).then(
+    ({width, height}) => {
+      if (width > 0 && height > 0) {
+        if (onSuccess) onSuccess(width, height);
+      } else if (onError) {
+        onError(new Error(`expo-image: getSize couldn't read ${uri}`));
+      }
+    },
+    err => {
+      if (onError) onError(err);
+    },
+  );
+};
+Image.getSizeAsync = async function getSizeAsync(uri) {
+  const {width, height} = await _getImageSize(uri);
+  if (width <= 0 || height <= 0) {
+    throw new Error(`expo-image: getSizeAsync couldn't read ${uri}`);
+  }
+  return {width, height};
+};
 
 const api = {
   Image,

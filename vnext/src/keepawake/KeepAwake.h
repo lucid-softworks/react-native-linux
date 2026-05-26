@@ -25,7 +25,19 @@ bool isAvailable();
 // Acquire an idle-inhibit handle and tag it. Idempotent per tag —
 // a second call with the same tag reuses the existing fd. Returns
 // false if logind isn't reachable or the inhibit call failed.
-bool activate(const std::string& tag, const std::string& reason);
+//
+// `who` shows up in `systemd-inhibit --list` and helps the user
+// identify which app holds an inhibit (defaults to
+// "react-native-linux" when blank).
+//
+// `mode` is "block" (default) or "delay". "delay" lets the system
+// continue with idle handling after a short timeout but gives the
+// app a chance to react first (handy for cleanup hooks); "block"
+// stops idle entirely until the fd is closed.
+bool activate(const std::string& tag,
+              const std::string& reason,
+              const std::string& who,
+              const std::string& mode);
 
 // Release the inhibit for `tag`. Closing the fd is the release
 // signal logind watches for; we then drop the tag from our map.

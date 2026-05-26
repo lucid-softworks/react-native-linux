@@ -28,8 +28,13 @@ bool isAvailable();
 // JS shim wraps them in Promise.resolve to preserve the upstream
 // async signature. Throws std::runtime_error on hard failures so
 // the JSI binding can translate into a rejected Promise.
-void setItem(const std::string& key, const std::string& value);
-std::optional<std::string> getItem(const std::string& key);
-void deleteItem(const std::string& key);
+//
+// `service` corresponds to expo-secure-store's `keychainService`
+// option — it scopes the entry inside the keyring so two consumers
+// sharing the same key name don't collide. Pass an empty string
+// for the default unscoped namespace.
+void setItem(const std::string& key, const std::string& value, const std::string& service);
+std::optional<std::string> getItem(const std::string& key, const std::string& service);
+void deleteItem(const std::string& key, const std::string& service);
 
 } // namespace rnlinux::securestore

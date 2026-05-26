@@ -81,13 +81,23 @@ The expo-print section has two buttons:
   fetched bytes are not HTML) still won't render correctly — that
   needs poppler-glib for PDFs and gdk-pixbuf onto the cairo
   context for images, which is the natural follow-up.
-- **No `base64`** in `printToFileAsync` result. Reading the
-  file back + base64-encoding doubles the per-call cost; the
-  caller can pull it via `expo-file-system.readAsStringAsync(uri,
-{encoding: 'base64'})` if they actually need it.
-- **No font customization** in the layout. Body is hardcoded to
-  Sans 11pt. Adding a few config options (font family, size,
-  margin, default orientation) is a small follow-up.
+- **`base64` in `printToFileAsync` result** — **DONE.** Opt-in via
+  `options.base64 = true` (off by default since it doubles the
+  per-call cost). When enabled, the shim reads the just-written
+  PDF back through `fsReadString(path, 'base64')` and attaches
+  the encoded string to the resolved object.
+- **Font / margin / orientation customization** — **DONE.** The
+  Pango layout pipeline now honors:
+  - `options.fontFamily` (string, default "Sans")
+  - `options.fontSize` (points, default 11)
+  - `options.margin` (uniform, in points) OR `options.margins`
+    object collapsed to its max value (default 50)
+  - `options.orientation === 'landscape'` to swap the cairo PDF
+    page dimensions and pre-set the print dialog's orientation
+    Pango treats all four margins equally for plain text, so the
+    `margins.{left,right,top,bottom}` object form is collapsed to
+    the largest specified value. Asymmetric margins would need a
+    richer renderer (WebKitGTK).
 - **`numberOfPages` in the printToFileAsync result** — **DONE.**
   Pango's pagination result is threaded back through the JSI
   callback so the resolved promise's `numberOfPages` is the real

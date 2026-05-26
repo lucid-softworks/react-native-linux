@@ -33,6 +33,7 @@ function _snap() {
       textDirection: 'ltr',
       isRTL: false,
       timezone: 'UTC',
+      firstWeekday: 1,
     };
   }
   return rnLinux.localeSnapshot();
@@ -85,14 +86,15 @@ function getCalendars() {
   // distinct from the Gregorian default; CLDR has alternatives
   // (japanese, hijri, persian) but no env var or D-Bus property
   // surfaces user choice. Report Gregorian + the real timezone +
-  // the standard ISO-8601 first-day-of-week (Monday) and let users
-  // override via their app config if they need otherwise.
+  // the CLDR per-region firstWeekday from our native snapshot
+  // (1=Sunday across the Americas / East Asia, 7=Saturday across
+  // the Arabian peninsula, 2=Monday everywhere else).
   return [
     {
       calendar: 'gregory',
       timeZone: _primary.timezone,
       uses24hourClock: true,
-      firstWeekday: 2, // Monday, ISO-8601
+      firstWeekday: typeof _primary.firstWeekday === 'number' ? _primary.firstWeekday : 2,
     },
   ];
 }

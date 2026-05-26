@@ -12,10 +12,13 @@
 // What's real vs not:
 //   * set/get/delete: real round-trip through the keyring daemon
 //   * isAvailableAsync: real bus-name check
-//   * options.keychainService / keychainAccessible / requireAuthentication:
-//     iOS-specific. Accepted and discarded — Linux secret service
-//     entries aren't grouped by an external service name, and the
-//     daemon decides locking behavior, not the calling app.
+//   * options.keychainService: real — scopes the entry inside the
+//     keyring so two consumers sharing the same key don't collide.
+//     Stored as a "service" attribute on the libsecret entry; omit
+//     to share the default (empty-string) namespace.
+//   * options.keychainAccessible / requireAuthentication: iOS-only.
+//     Accepted and discarded — the keyring daemon decides locking
+//     behavior, not the calling app.
 
 const _hasNative =
   typeof rnLinux !== 'undefined' && typeof rnLinux.secureStoreSetItem === 'function';
@@ -30,30 +33,37 @@ async function isAvailableAsync() {
   return _hasNative && Boolean(rnLinux.secureStoreIsAvailable());
 }
 
-async function setItemAsync(key, value, _options) {
+function _service(options) {
+  // Accept the upstream option name. Empty string is the default
+  // unscoped namespace.
+  const s = options?.keychainService;
+  return typeof s === 'string' ? s : '';
+}
+
+async function setItemAsync(key, value, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
     throw new TypeError('setItemAsync: key must be a non-empty string');
   }
-  rnLinux.secureStoreSetItem(key, String(value ?? ''));
+  rnLinux.secureStoreSetItem(key, String(value ?? ''), _service(options));
 }
 
-async function getItemAsync(key, _options) {
+async function getItemAsync(key, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
     throw new TypeError('getItemAsync: key must be a non-empty string');
   }
   // C++ side returns null for missing entries; preserve that so
   // consumers branching on `=== null` work unchanged.
-  return rnLinux.secureStoreGetItem(key);
+  return rnLinux.secureStoreGetItem(key, _service(options));
 }
 
-async function deleteItemAsync(key, _options) {
+async function deleteItemAsync(key, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
     throw new TypeError('deleteItemAsync: key must be a non-empty string');
   }
-  rnLinux.secureStoreDeleteItem(key);
+  rnLinux.secureStoreDeleteItem(key, _service(options));
 }
 
 // Sync variants — expo-secure-store ships these for some SDK
@@ -63,23 +73,23 @@ function setItem(key, value, options) {
   if (typeof key !== 'string' || !key) {
     throw new TypeError('setItem: key must be a non-empty string');
   }
-  rnLinux.secureStoreSetItem(key, String(value ?? ''));
+  rnLinux.secureStoreSetItem(key, String(value ?? ''), _service(options));
   // Match upstream signature — historically returned `void` but
   // newer SDKs return a Promise even from the "sync" variant.
   return options?._async ? Promise.resolve() : undefined;
 }
 
-function getItem(key) {
+function getItem(key, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
     throw new TypeError('getItem: key must be a non-empty string');
   }
-  return rnLinux.secureStoreGetItem(key);
+  return rnLinux.secureStoreGetItem(key, _service(options));
 }
 
-function deleteItem(key) {
+function deleteItem(key, options) {
   _assert();
-  rnLinux.secureStoreDeleteItem(key);
+  rnLinux.secureStoreDeleteItem(key, _service(options));
 }
 
 // expo-secure-store enums for iOS keychain-accessible flags. They

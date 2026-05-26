@@ -95,20 +95,20 @@ rendered inline via `<Image>`.
 
 ## API surface
 
-| API                                           | Behavior on Linux                                             |
-| --------------------------------------------- | ------------------------------------------------------------- |
-| `<CameraView />`                              | Real live preview via Fabric → GtkPicture + GStreamer appsink |
-| `<Camera />`                                  | Alias for `CameraView` (upstream's pre-v14 name)              |
-| `requestCameraPermissionsAsync`               | Returns `granted` — perms map to file-system access on Linux  |
-| `requestMicrophonePermissionsAsync`           | Same                                                          |
-| `getCameraPermissionsAsync` / `getMic…`       | Same                                                          |
-| `takePictureAsync({})`                        | Real PNG written to `$XDG_CACHE_HOME/rn-linux/snap-…png`      |
-| `getAvailableCameraTypesAsync`                | Returns `['back']` when native bindings are present           |
-| `isAvailableAsync`                            | True if `rnLinux.cameraSnap` is bound                         |
-| `recordAsync` / `stopRecording`               | Throws "not implemented" — no encoder pipeline yet            |
-| `getAvailableVideoStabilizationModesAsync`    | Returns `[]`                                                  |
-| `getAvailablePictureSizesAsync`               | Returns `['640x480']` (hardcoded — matches the snap pipeline) |
-| `Accuracy` / `FlashMode` / `CameraType` enums | Surface-only; preview pipeline doesn't react to them yet      |
+| API                                           | Behavior on Linux                                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `<CameraView />`                              | Real live preview via Fabric → GtkPicture + GStreamer appsink                                     |
+| `<Camera />`                                  | Alias for `CameraView` (upstream's pre-v14 name)                                                  |
+| `requestCameraPermissionsAsync`               | Returns `granted` — perms map to file-system access on Linux                                      |
+| `requestMicrophonePermissionsAsync`           | Same                                                                                              |
+| `getCameraPermissionsAsync` / `getMic…`       | Same                                                                                              |
+| `takePictureAsync({})`                        | Real PNG written to `$XDG_CACHE_HOME/rn-linux/snap-…png`                                          |
+| `getAvailableCameraTypesAsync`                | Real — probes `/sys/class/video4linux/`, returns `['front']` or `['front','back']` based on count |
+| `isAvailableAsync`                            | True if `rnLinux.cameraSnap` is bound                                                             |
+| `recordAsync` / `stopRecording`               | Throws "not implemented" — no encoder pipeline yet                                                |
+| `getAvailableVideoStabilizationModesAsync`    | Returns `[]`                                                                                      |
+| `getAvailablePictureSizesAsync`               | Returns `['640x480']` (hardcoded — matches the snap pipeline)                                     |
+| `Accuracy` / `FlashMode` / `CameraType` enums | Surface-only; preview pipeline doesn't react to them yet                                          |
 
 ## Known gaps
 
@@ -130,6 +130,13 @@ rendered inline via `<Image>`.
   `base64` would double the per-snap cost; EXIF would require an
   EXIF writer in the pipeline (`jpegenc + jifmux` instead of
   `pngenc`).
-- **No active device enumeration.** `getAvailableCameraTypesAsync`
-  always returns `['back']` instead of probing
-  `/sys/class/video4linux/`. Cheap to add when needed.
+- **Active device enumeration** — **DONE.** A new
+  `v4l2CaptureDeviceCount()` walks `/sys/class/video4linux/`,
+  filters out non-capture nodes (vbi/radio/swradio + driver
+  names containing "decoder"/"encoder"/"output"), and feeds
+  `getAvailableCameraTypesAsync`. Returns `['front']` for
+  single-device laptops, `['front','back']` for 2+, and
+  `['front']` on the VM test-source path so CameraView still
+  mounts. V4L2 has no portable facing signal, so the front/back
+  split is a count-based heuristic — fine for the laptop+USB
+  webcam case, not a real per-device classifier.
