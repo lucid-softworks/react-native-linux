@@ -401,6 +401,38 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-localization ───────────────────────────
+// Pure libc + sysfs reads — no daemon involved. Locale parsing
+// from LC_ALL/LANG, currency / separators via nl_langinfo, IANA
+// timezone from /etc/timezone, plus CLDR-equivalent region
+// heuristics for metric/imperial/RTL/temperature.
+function ExpoLocalizationDemo() {
+  const Localization = require('expo-localization');
+  const cals = Localization.getCalendars();
+  const lines = [
+    `locale = ${Localization.locale}`,
+    `locales = ${JSON.stringify(Localization.locales)}`,
+    `region = ${Localization.region ?? '(none)'}  currency = ${Localization.currency ?? '(none)'}`,
+    `decimal = "${Localization.decimalSeparator}"  grouping = "${Localization.digitGroupingSeparator}"`,
+    `measurement = ${Localization.measurementSystem}  temperature = ${Localization.temperatureUnit}`,
+    `timezone = ${Localization.timezone}  isRTL = ${Localization.isRTL}`,
+    `calendars = ${cals.map((c: any) => c.calendar).join(', ')}`,
+  ];
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Snapshot from libc (LC_ALL/LANG, nl_langinfo) + /etc/timezone + tiny CLDR-equivalent region
+        tables for metric/imperial/RTL/temperature.
+      </Text>
+      {lines.map((l, i) => (
+        <Text key={i} style={styles.demoLine}>
+          {l}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-secure-store ───────────────────────────
 // libsecret round-trip. Writes a fresh token into the secret
 // service, reads it back, lists what's stored under our schema,
@@ -701,7 +733,8 @@ function SmokeDemo() {
       }),
       tryProbe('expo-localization', async function p() {
         const m = require('expo-localization');
-        return `locale=${m.locale}`;
+        if (!m.locale) throw new Error('locale missing');
+        return `locale=${m.locale} region=${m.region ?? '?'} tz=${m.timezone}`;
       }),
       tryProbe('expo-haptics', async function p() {
         const m = require('expo-haptics');
@@ -833,6 +866,11 @@ function SmokeDemo() {
           <ExpoSecureStoreDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-localization')} />
+          <ExpoLocalizationDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -845,7 +883,6 @@ function SmokeDemo() {
           </Text>
         </View>
         {[
-          'expo-localization',
           'expo-haptics',
           'expo-keep-awake',
           'expo-network',

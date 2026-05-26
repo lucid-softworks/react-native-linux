@@ -1,4 +1,191 @@
 'use strict';
-// See TODO.md "Expo module backlog" — replace this with a real
-// implementation backed by the planned Linux service.
-module.exports = require('./_unimplemented')('expo-localization');
+
+// Shim for `expo-localization`. Backed by libc + sysfs reads in
+// vnext/src/locale/Locale.cpp — LC_ALL/LANG parsing,
+// nl_langinfo for currency/separators, /etc/timezone for IANA tz,
+// CLDR-equivalent heuristics for isRTL / measurementSystem /
+// temperatureUnit.
+//
+// The native snapshot is the source of truth; this shim arranges it
+// into the shape upstream consumers expect (top-level fields for
+// the legacy API, getLocales()/getCalendars() for the v15+ API,
+// useLocales/useCalendars hooks).
+
+const React = require('react');
+
+const _hasNative = typeof rnLinux !== 'undefined' && typeof rnLinux.localeSnapshot === 'function';
+
+function _snap() {
+  if (!_hasNative) {
+    return {
+      languageTag: 'en-US',
+      languageCode: 'en',
+      regionCode: 'US',
+      scriptCode: '',
+      currencyCode: 'USD',
+      currencySymbol: '$',
+      decimalSeparator: '.',
+      digitGroupingSeparator: ',',
+      measuresTemperatureInCelsius: false,
+      usesMetricSystem: false,
+      measurementSystem: 'us',
+      temperatureUnit: 'fahrenheit',
+      textDirection: 'ltr',
+      isRTL: false,
+      timezone: 'UTC',
+    };
+  }
+  return rnLinux.localeSnapshot();
+}
+
+function _preferred() {
+  if (!_hasNative) return [_snap()];
+  return rnLinux.localePreferred();
+}
+
+// ─── Top-level fields (legacy API) ────────────────────────────────
+// Snapshot once at import time, same as upstream — the fields are
+// constants for the lifetime of an app launch. Hot-reload during
+// dev re-evaluates this module so they refresh.
+const _primary = _snap();
+
+const locale = _primary.languageTag;
+const locales = _preferred().map(s => s.languageTag);
+const region = _primary.regionCode || null;
+const currency = _primary.currencyCode || null;
+const decimalSeparator = _primary.decimalSeparator || '.';
+const digitGroupingSeparator = _primary.digitGroupingSeparator || ',';
+const measurementSystem = _primary.measurementSystem;
+const temperatureUnit = _primary.temperatureUnit;
+const timezone = _primary.timezone;
+const isRTL = _primary.isRTL;
+const isMetric = _primary.usesMetricSystem;
+
+// ─── v15+ API: getLocales() / getCalendars() ──────────────────────
+
+function getLocales() {
+  return _preferred().map(s => ({
+    languageTag: s.languageTag,
+    languageCode: s.languageCode,
+    languageScriptCode: s.scriptCode || null,
+    languageRegionCode: s.regionCode || null,
+    regionCode: s.regionCode || null,
+    currencyCode: s.currencyCode || null,
+    currencySymbol: s.currencySymbol || null,
+    decimalSeparator: s.decimalSeparator || null,
+    digitGroupingSeparator: s.digitGroupingSeparator || null,
+    textDirection: s.textDirection,
+    measurementSystem: s.measurementSystem,
+    temperatureUnit: s.temperatureUnit,
+  }));
+}
+
+function getCalendars() {
+  // Linux desktops don't expose a per-locale calendar preference
+  // distinct from the Gregorian default; CLDR has alternatives
+  // (japanese, hijri, persian) but no env var or D-Bus property
+  // surfaces user choice. Report Gregorian + the real timezone +
+  // the standard ISO-8601 first-day-of-week (Monday) and let users
+  // override via their app config if they need otherwise.
+  return [
+    {
+      calendar: 'gregory',
+      timeZone: _primary.timezone,
+      uses24hourClock: true,
+      firstWeekday: 2, // Monday, ISO-8601
+    },
+  ];
+}
+
+// ─── Hooks (v15+) ─────────────────────────────────────────────────
+// These don't subscribe to anything on Linux (locale changes are
+// app-restart events on bare desktop), so we just memoize the
+// result. If real apps need live updates, a GSettings/D-Bus watch
+// is the obvious wire.
+
+function useLocales() {
+  return React.useMemo(() => getLocales(), []);
+}
+
+function useCalendars() {
+  return React.useMemo(() => getCalendars(), []);
+}
+
+// ─── Async getters — match upstream's "async forever" history ────
+
+async function getLocalizationAsync() {
+  return {
+    locale,
+    locales,
+    region,
+    currency,
+    decimalSeparator,
+    digitGroupingSeparator,
+    measurementSystem,
+    temperatureUnit,
+    timezone,
+    isRTL,
+    isMetric,
+  };
+}
+
+const Calendar = {
+  buddhist: 'buddhist',
+  chinese: 'chinese',
+  coptic: 'coptic',
+  dangi: 'dangi',
+  ethioaa: 'ethioaa',
+  ethiopic: 'ethiopic',
+  gregory: 'gregory',
+  hebrew: 'hebrew',
+  indian: 'indian',
+  islamic: 'islamic',
+  iso8601: 'iso8601',
+  japanese: 'japanese',
+  persian: 'persian',
+  roc: 'roc',
+};
+
+const TextDirection = {LTR: 'ltr', RTL: 'rtl'};
+const MeasurementSystem = {METRIC: 'metric', US: 'us', UK: 'uk'};
+const TemperatureUnit = {CELSIUS: 'celsius', FAHRENHEIT: 'fahrenheit'};
+const Weekday = {
+  SUNDAY: 1,
+  MONDAY: 2,
+  TUESDAY: 3,
+  WEDNESDAY: 4,
+  THURSDAY: 5,
+  FRIDAY: 6,
+  SATURDAY: 7,
+};
+
+const api = {
+  // Top-level legacy fields
+  locale,
+  locales,
+  region,
+  currency,
+  decimalSeparator,
+  digitGroupingSeparator,
+  measurementSystem,
+  temperatureUnit,
+  timezone,
+  isRTL,
+  isMetric,
+  // v15+ functions + hooks
+  getLocales,
+  getCalendars,
+  useLocales,
+  useCalendars,
+  // Legacy async
+  getLocalizationAsync,
+  // Enums
+  Calendar,
+  TextDirection,
+  MeasurementSystem,
+  TemperatureUnit,
+  Weekday,
+};
+
+module.exports = api;
+module.exports.default = api;

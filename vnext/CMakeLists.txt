@@ -134,6 +134,7 @@ set(RNL_SOURCES
   src/notifications/Notifications.cpp
   src/filesystem/FileSystem.cpp
   src/securestore/SecureStore.cpp
+  src/locale/Locale.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )

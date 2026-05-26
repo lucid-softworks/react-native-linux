@@ -3,6 +3,7 @@
 #include "../camera/Camera.h"
 #include "../deviceinfo/DeviceInfo.h"
 #include "../filesystem/FileSystem.h"
+#include "../locale/Locale.h"
 #include "../location/Location.h"
 #include "../notifications/Notifications.h"
 #include "../securestore/SecureStore.h"
@@ -1776,6 +1777,51 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                s.locationOnFix.reset();
                s.locationOnError.reset();
                return jsi::Value::undefined();
+             });
+
+  // ─── Localization (expo-localization) ────────────────────────────
+  // Pure libc + sysfs reads — synchronous and cheap. JS shim
+  // wraps in Promise.resolve where the upstream API is async.
+
+  auto snapshotToObj = [](jsi::Runtime& rt,
+                          const rnlinux::locale::LocaleSnapshot& s) -> jsi::Object {
+    jsi::Object o(rt);
+    o.setProperty(rt, "languageTag", jsi::String::createFromUtf8(rt, s.languageTag));
+    o.setProperty(rt, "languageCode", jsi::String::createFromUtf8(rt, s.languageCode));
+    o.setProperty(rt, "regionCode", jsi::String::createFromUtf8(rt, s.regionCode));
+    o.setProperty(rt, "scriptCode", jsi::String::createFromUtf8(rt, s.scriptCode));
+    o.setProperty(rt, "currencyCode", jsi::String::createFromUtf8(rt, s.currencyCode));
+    o.setProperty(rt, "currencySymbol", jsi::String::createFromUtf8(rt, s.currencySymbol));
+    o.setProperty(rt, "decimalSeparator", jsi::String::createFromUtf8(rt, s.decimalSeparator));
+    o.setProperty(
+        rt, "digitGroupingSeparator", jsi::String::createFromUtf8(rt, s.digitGroupingSeparator));
+    o.setProperty(rt, "measuresTemperatureInCelsius", jsi::Value(s.measuresTemperatureInCelsius));
+    o.setProperty(rt, "usesMetricSystem", jsi::Value(s.usesMetricSystem));
+    o.setProperty(rt, "measurementSystem", jsi::String::createFromUtf8(rt, s.measurementSystem));
+    o.setProperty(rt, "temperatureUnit", jsi::String::createFromUtf8(rt, s.temperatureUnit));
+    o.setProperty(rt, "textDirection", jsi::String::createFromUtf8(rt, s.isRTL ? "rtl" : "ltr"));
+    o.setProperty(rt, "isRTL", jsi::Value(s.isRTL));
+    o.setProperty(rt, "timezone", jsi::String::createFromUtf8(rt, s.timezone));
+    return o;
+  };
+  bindMethod(rt,
+             rnLinux,
+             "localeSnapshot",
+             0,
+             [snapshotToObj](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t)
+                 -> jsi::Value { return snapshotToObj(rt, rnlinux::locale::snapshot()); });
+  bindMethod(rt,
+             rnLinux,
+             "localePreferred",
+             0,
+             [snapshotToObj](
+                 jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               const auto list = rnlinux::locale::preferredLocales();
+               jsi::Array arr(rt, list.size());
+               for (size_t i = 0; i < list.size(); ++i) {
+                 arr.setValueAtIndex(rt, i, snapshotToObj(rt, list[i]));
+               }
+               return arr;
              });
 
   // ─── Secure store (expo-secure-store) ────────────────────────────
