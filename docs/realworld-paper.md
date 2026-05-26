@@ -13,19 +13,20 @@ limactl shell --workdir /workspaces/react-native-linux rn-linux \
 
 ## Status
 
-| Stage                                                                             | Status                                                              |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Module resolution                                                                 | ✅                                                                  |
-| Asset loading (`.png`, `.ttf`)                                                    | ✅                                                                  |
-| Flow-syntax `Native*` spec files                                                  | ✅                                                                  |
-| Hermes class lowering                                                             | ✅                                                                  |
-| `NativeModules.PlatformConstants` / `I18nManager` / `PixelRatio` / `processColor` | ✅                                                                  |
-| `useWindowDimensions` / `AccessibilityInfo` / `AppState` / `DeviceEventEmitter`   | ✅                                                                  |
-| `Animated.Value.stopAnimation` / `removeAllListeners`                             | ✅                                                                  |
-| Function-valued top-level props (Fabric `dynamicFromValue` throws)                | ✅ — stripped in `buildFabricProps`                                 |
-| First mount commit                                                                | ✅                                                                  |
-| Paper components actually render                                                  | ✅ — Card, TextInput, Switch, Snackbar all mount                    |
-| Visual polish                                                                     | ⚠️ — label / input z-order, Button TouchableRipple visibility minor |
+| Stage                                                                             | Status                                                          |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Module resolution                                                                 | ✅                                                              |
+| Asset loading (`.png`, `.ttf`)                                                    | ✅                                                              |
+| Flow-syntax `Native*` spec files                                                  | ✅                                                              |
+| Hermes class lowering                                                             | ✅                                                              |
+| `NativeModules.PlatformConstants` / `I18nManager` / `PixelRatio` / `processColor` | ✅                                                              |
+| `useWindowDimensions` / `AccessibilityInfo` / `AppState` / `DeviceEventEmitter`   | ✅                                                              |
+| `Animated.Value.stopAnimation` / `removeAllListeners`                             | ✅                                                              |
+| Function-valued top-level props (Fabric `dynamicFromValue` throws)                | ✅ — stripped in `buildFabricProps`                             |
+| First mount commit                                                                | ✅                                                              |
+| Paper components actually render                                                  | ✅ — Card, TextInput, Switch, Snackbar all mount                |
+| Buttons visually render                                                           | ✅ — contained / outlined / text variants all show their labels |
+| Visual polish                                                                     | ⚠️ — TextInput.Outlined label needs transform support           |
 
 ## Gaps fixed in this pass
 
@@ -45,9 +46,18 @@ Each fix below was discovered by trying to bundle / load / render `paper-demo.ts
 9. **`AccessibilityInfo` / `AppState` / `DeviceEventEmitter`** missing — Paper calls `AccessibilityInfo.addEventListener('reduceMotionChanged', ...)` from a PaperProvider effect. Added optimistic-default stubs that return a `{remove: () => {}}` subscription so cleanup chains don't crash.
 10. **`Animated.Value.stopAnimation` / `removeAllListeners`** missing — Paper calls them on unmount of any animated component. Added no-op implementations.
 
+## Pass 3 — function-children Pressable
+
+11. **Pressable's function-children render-prop form was unhandled** — RN's Pressable accepts `children` as either `ReactNode` or `(state) => ReactNode` where state is `{pressed, hovered, focused}`. Paper's `TouchableRipple` (and every theme-aware button library, every react-navigation pressable link) uses the function form so the rendered content can change per-state. Our shim forwarded the function straight through to the host, React saw "Functions are not valid as a React child", and silently bailed the entire subtree under any function-children Pressable. The most visible casualty was every `<Button>` rendering as an empty 0×0 rectangle. Fix in `components.js`: detect a function children at the Pressable shim level and invoke it with a static `{pressed:false, hovered:false, focused:false}` state. Visual feedback per-state needs the GTK gesture controller to plumb `pressed`/`hovered` back into React, which is a smaller follow-up than letting a quarter of the RN ecosystem render blank.
+
+## Remaining issues
+
+- **TextInput.Outlined floating label**: Paper positions the label via `position: absolute` + `transform: scaleX/scaleY/translateY` to animate it from "inside the input" to "floating above the border". We don't implement CSS transforms yet so the label sits in normal flow, gets a 41-px max-width from the wrong parent constraint, and wraps to 5 lines under the input. Mode `flat` would dodge it; the right fix is implementing the transform property on `ViewProps` → GTK widget allocation offsets.
+- **Paper Button click → Snackbar**: clicking the rendered Button doesn't fire its `onPress`. Our `fabricClick` is registered on every View's gesture controller, but Paper's `TouchableRipple` routes through `accessibilityRole` + custom gesture handling that may swallow the click before our default path sees it. Snackbar / Modal also rely on `Portal` which we haven't validated end-to-end.
+
 ## What this run actually proved
 
-- Ten concrete bundler / shim / parser gaps that would have blocked any non-trivial third-party RN library, all fixed.
-- Real `react-native-paper` components (Card, TextInput, Switch, Snackbar) now mount and render — proves the production gaps were fillable and the rest of the runtime architecture is sound.
-- Remaining issues are visual / layout (Paper's complex Z-index, TouchableRipple animation) rather than fundamental blockers; tractable as polish.
-- The bundle pipeline handles `mainFields`, assets, Flow, Hermes class lowering, function-prop stripping, and most of the legacy `react-native` shim surface. Next library should exercise it without re-hitting these.
+- Eleven concrete bundler / shim / parser gaps that would have blocked any non-trivial third-party RN library, all fixed.
+- Real `react-native-paper` components mount and render visually — Cards layout, Buttons show their labels (contained / outlined / text variants), TextInput input field works, Switch toggles.
+- Remaining issues are CSS-transform support (a layout-engine feature) and per-state Pressable feedback (a gesture-controller plumbing detail) — both narrow and well-scoped, not architectural.
+- The bundle pipeline handles `mainFields`, assets, Flow, Hermes class lowering, function-prop stripping, function-children Pressable, and most of the legacy `react-native` shim surface. Next library should exercise it without re-hitting these.
