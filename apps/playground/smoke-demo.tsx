@@ -401,6 +401,42 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-haptics ───────────────────────────
+// gdk_display_beep on every kind. The WM / sound theme decides
+// whether you hear anything; on a Lima VM with no audio sink it
+// fires silently.
+function ExpoHapticsDemo() {
+  const Haptics = require('expo-haptics');
+  const [last, setLast] = useState<string>('(none)');
+  const buttons: Array<[string, () => Promise<unknown>]> = [
+    ['impact light', () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)],
+    ['impact heavy', () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)],
+    ['notify success', () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)],
+    ['selection', () => Haptics.selectionAsync()],
+  ];
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        gdk_display_beep on every kind. WM/sound theme decides whether you hear anything.
+      </Text>
+      <View style={styles.row}>
+        {buttons.map(([label, fn]) => (
+          <Pressable
+            key={label}
+            style={styles.btn}
+            onPress={async () => {
+              await fn();
+              setLast(label);
+            }}>
+            <Text style={styles.btnText}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.demoLine}>last: {last}</Text>
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-localization ───────────────────────────
 // Pure libc + sysfs reads — no daemon involved. Locale parsing
 // from LC_ALL/LANG, currency / separators via nl_langinfo, IANA
@@ -738,8 +774,8 @@ function SmokeDemo() {
       }),
       tryProbe('expo-haptics', async function p() {
         const m = require('expo-haptics');
-        await m.impactAsync();
-        return 'tapped';
+        await m.impactAsync(m.ImpactFeedbackStyle.Medium);
+        return 'beeped (display bell)';
       }),
       tryProbe('expo-keep-awake', async function p() {
         const m = require('expo-keep-awake');
@@ -871,6 +907,11 @@ function SmokeDemo() {
           <ExpoLocalizationDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-haptics')} />
+          <ExpoHapticsDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -883,7 +924,6 @@ function SmokeDemo() {
           </Text>
         </View>
         {[
-          'expo-haptics',
           'expo-keep-awake',
           'expo-network',
           'expo-image',

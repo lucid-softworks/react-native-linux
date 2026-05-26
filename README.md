@@ -96,6 +96,7 @@ react-native-linux/
 │   ├── realworld-expo-clipboard.md      # GdkClipboard-backed expo-clipboard shim
 │   ├── realworld-expo-secure-store.md   # libsecret-backed expo-secure-store shim
 │   ├── realworld-expo-localization.md   # libc + sysfs expo-localization shim
+│   ├── realworld-expo-haptics.md        # gdk_display_beep-backed expo-haptics shim
 │   └── …
 ├── scripts/vm/                      # Lima dev VM helpers (start.sh, sh.sh, …)
 └── TODO.md                          # Live roadmap
@@ -191,6 +192,7 @@ breaks, and what's been fixed in the process.
 - [docs/realworld-expo-clipboard.md](./docs/realworld-expo-clipboard.md) — `expo-clipboard` via GdkClipboard
 - [docs/realworld-expo-secure-store.md](./docs/realworld-expo-secure-store.md) — `expo-secure-store` via libsecret
 - [docs/realworld-expo-localization.md](./docs/realworld-expo-localization.md) — `expo-localization` via libc + sysfs
+- [docs/realworld-expo-haptics.md](./docs/realworld-expo-haptics.md) — `expo-haptics` via gdk_display_beep
 
 The `smoke-demo.tsx` harness in `apps/playground/` covers the next batch:
 `@react-native-async-storage/async-storage`, `react-native-device-info`,

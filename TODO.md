@@ -171,13 +171,14 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-file-system` (POSIX direct + libsoup downloads; XDG paths),
 `expo-clipboard` (GdkClipboard set/get; cross-app reads and image/HTML round-trip still on the gap list),
 `expo-secure-store` (libsecret → gnome-keyring/kwallet/KeePassXC; session-collection fallback on headless),
-`expo-localization` (LC\_\*/LANG parsing + nl_langinfo + /etc/timezone + CLDR-equivalent region heuristics).
+`expo-localization` (LC\_\*/LANG parsing + nl_langinfo + /etc/timezone + CLDR-equivalent region heuristics),
+`expo-haptics` (gdk_display_beep on every kind — silent in VM, real on hardware where the WM/sound theme acts on it).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
 - [x] **`expo-clipboard`** — DONE 2026-05-26. See `docs/realworld-expo-clipboard.md`. Gaps: cross-app reads (need async gdk_clipboard_read_text), image/HTML round-trip, change listener.
 - [x] **`expo-localization`** — DONE 2026-05-26. See `docs/realworld-expo-localization.md`. Gaps: `nl_langinfo` requires the locale to be generated (bare `C.UTF-8` VMs get region fallback but empty currency); calendar detection is hardcoded to gregorian; `firstWeekday` hardcoded to Monday.
-- [ ] **`expo-haptics`** — GTK doesn't have haptics. Closest analog: `gtk_widget_error_bell()` for the buzz APIs; or stub-with-bell for the rest. Either way: real action, not a no-op. ~50 LOC.
+- [x] **`expo-haptics`** — DONE 2026-05-26. See `docs/realworld-expo-haptics.md`. All styles collapse to a single `gdk_display_beep`.
 - [ ] **`expo-keep-awake`** — `org.freedesktop.ScreenSaver.Inhibit` over the session bus (or `org.freedesktop.PowerManagement.Inhibit` fallback). C++ DBus binding mirroring the GeoClue pattern. `activateKeepAwakeAsync(tag)` / `deactivateKeepAwake(tag)` with an inhibit cookie map.
 - [x] **`expo-file-system`** — DONE 2026-05-26. See `docs/realworld-expo-file-system.md`. Gaps: resumable downloads, uploads, statvfs-backed disk-space helpers.
 - [x] **`expo-secure-store`** — DONE 2026-05-26. See `docs/realworld-expo-secure-store.md`. Gaps: auto-create login collection on first use, biometric prompts (KWallet PAM), per-app keychainService isolation.

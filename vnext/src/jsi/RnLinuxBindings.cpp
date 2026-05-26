@@ -2287,6 +2287,23 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::Value::undefined();
              });
 
+  // ─── Haptics / bell (expo-haptics) ───────────────────────────────
+  // GTK has no haptics. gdk_display_beep is the closest analog —
+  // the display server's bell, routed by the WM / sound theme.
+  // Silent in the Lima VM (no audio sink wired) but real on
+  // hardware. The JS shim wraps every impactAsync /
+  // notificationAsync / selectionAsync call through this one beep.
+  bindMethod(rt,
+             rnLinux,
+             "haptic",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               GdkDisplay* d = gdk_display_get_default();
+               if (d)
+                 gdk_display_beep(d);
+               return jsi::Value::undefined();
+             });
+
   rt.global().setProperty(rt, "rnLinux", rnLinux);
   RNL_LOGI("rnLinux") << "JSI bindings installed";
 }
