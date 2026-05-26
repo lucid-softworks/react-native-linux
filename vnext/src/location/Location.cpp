@@ -72,7 +72,7 @@ double readDoubleProp(GDBusConnection* bus, const char* path, const char* prop, 
 // pair we could parse instead; keeping this simple for the smoke
 // demo.
 int64_t nowMs() {
-  struct timespec ts{};
+  struct timespec ts {};
   clock_gettime(CLOCK_REALTIME, &ts);
   return static_cast<int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
 }

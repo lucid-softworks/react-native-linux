@@ -31,7 +31,7 @@ PickedFile gfileToPickedFile(GFile* gfile) {
     g_free(basename);
   }
   if (!pf.path.empty()) {
-    struct stat st{};
+    struct stat st {};
     if (stat(pf.path.c_str(), &st) == 0) {
       pf.size = static_cast<int64_t>(st.st_size);
     }

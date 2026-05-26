@@ -28,7 +28,28 @@ staged() {
 # bottle). pnpm exec resolves to workspace-installed versions.
 OXLINT="pnpm exec oxlint --fix"
 OXFMT="pnpm exec oxfmt"
-CLANG_FORMAT="clang-format -i"
+# CI runs Ubuntu 24.04's clang-format 18. Newer local versions
+# (Homebrew ships 22 today) format `struct X x{};` differently
+# than 18 does — and the CI lint:cpp step is --Werror, so the
+# version skew turns into a hard CI failure. Prefer a pinned
+# binary when available so the staged files match what CI
+# computes; fall back to the unversioned name with a warning so
+# contributors who haven't installed clang-format@18 still get
+# *some* formatting (and the pre-push hook's lint:cpp will catch
+# any remaining drift).
+if command -v clang-format-18 >/dev/null 2>&1; then
+  CLANG_FORMAT="clang-format-18 -i"
+elif command -v clang-format >/dev/null 2>&1; then
+  cf_ver=$(clang-format --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+  if [[ "${cf_ver:-0}" -ne 18 ]]; then
+    echo "[pre-commit] WARN: clang-format ${cf_ver:-?} found; CI uses 18 (Ubuntu 24.04)." >&2
+    echo "[pre-commit]       brew install clang-format@18  /  apt install clang-format-18" >&2
+    echo "[pre-commit]       Otherwise CI's lint:cpp may flag formatting CI doesn't accept." >&2
+  fi
+  CLANG_FORMAT="clang-format -i"
+else
+  CLANG_FORMAT=""
+fi
 
 js_files=$(staged '\.(js|jsx|ts|tsx|mjs|cjs)$')
 cfg_files=$(staged '\.(json|md|ya?ml)$')
@@ -45,7 +66,7 @@ if [[ -n "$cfg_files" ]]; then
   echo "$cfg_files" | xargs $OXFMT
 fi
 
-if [[ -n "$cpp_files" ]]; then
+if [[ -n "$cpp_files" && -n "$CLANG_FORMAT" ]]; then
   echo "$cpp_files" | xargs $CLANG_FORMAT
 fi
 

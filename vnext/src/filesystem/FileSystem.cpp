@@ -74,7 +74,7 @@ std::string exeDirectory() {
 bool mkdirP(const std::string& path) {
   if (path.empty() || path == "/")
     return true;
-  struct stat st{};
+  struct stat st {};
   if (stat(path.c_str(), &st) == 0)
     return S_ISDIR(st.st_mode);
   const auto slash = path.find_last_of('/');
@@ -89,7 +89,7 @@ bool mkdirP(const std::string& path) {
 // + rmdir. Symlinks are unlinked (never followed) to match the
 // `recursive: true` semantics of the upstream API.
 bool rmrf(const std::string& path) {
-  struct stat st{};
+  struct stat st {};
   if (lstat(path.c_str(), &st) != 0)
     return errno == ENOENT;
   if (!S_ISDIR(st.st_mode))
@@ -189,7 +189,7 @@ void writeString(const std::string& path, const std::string& contents, Encoding 
 FileInfo getInfo(const std::string& path, bool wantMd5) {
   FileInfo info;
   info.uri = toFileUri(path);
-  struct stat st{};
+  struct stat st {};
   if (stat(path.c_str(), &st) != 0) {
     return info; // exists=false
   }
@@ -217,7 +217,7 @@ FileInfo getInfo(const std::string& path, bool wantMd5) {
 }
 
 bool deleteFile(const std::string& path, bool idempotent) {
-  struct stat st{};
+  struct stat st {};
   if (lstat(path.c_str(), &st) != 0) {
     if (errno == ENOENT)
       return idempotent;
