@@ -401,6 +401,32 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-image ───────────────────────────
+// Wraps RN's <Image> (which is itself backed by our libsoup-loader
+// + GtkPicture ImageComponentView). expo-image's extras
+// (placeholder, transition, cachePolicy, blurRadius) are accepted
+// as props and discarded — they need a richer GdkPaintable subclass
+// to render faithfully. See docs/realworld-expo-image.md.
+function ExpoImageDemo() {
+  const {Image: ExpoImg} = require('expo-image');
+  const sample =
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/240px-PNG_transparency_demonstration_1.png';
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Renders through RN.Image (backed by GtkPicture + libsoup async load). contentFit maps to
+        resizeMode; placeholder / transition / cachePolicy / blurRadius are accepted as props but
+        no-ops on Linux today.
+      </Text>
+      <ExpoImg
+        source={{uri: sample}}
+        contentFit="contain"
+        style={{width: 160, height: 120, marginTop: 4, backgroundColor: '#f0f0f0'}}
+      />
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-print ───────────────────────────
 // GtkPrintOperation for the dialog + cairo PDF surface for
 // printToFile. HTML is stripped to plaintext before rendering;
@@ -1100,7 +1126,9 @@ function SmokeDemo() {
       tryProbe('expo-image', async function p() {
         const m = require('expo-image');
         if (!m.Image) throw new Error('Image export missing');
-        return 'has-Image';
+        if (typeof m.Image.prefetch !== 'function') throw new Error('Image.prefetch missing');
+        if (typeof m.useImage !== 'function') throw new Error('useImage missing');
+        return 'Image + prefetch + useImage wired (over RN.Image)';
       }),
       tryProbe('expo-document-picker', async function p() {
         const m = require('expo-document-picker');
@@ -1247,17 +1275,11 @@ function SmokeDemo() {
           <ExpoPrintDemo />
         </View>
 
-        {/* Backlog rows — each is a stub shim awaiting a real
-            Linux backend. The probe's ✗ surfaces what's pending; see
-            docs/realworld-*.md and TODO.md as each one lands. */}
         <View style={styles.section}>
-          <Text style={styles.title}>Backlog</Text>
-          <Text style={styles.hint}>
-            Stub shims wired through metro/esbuild — `require()` returns a Proxy that throws on
-            access so apps don't crash at load time. Each row below is a planned full Linux
-            implementation; see TODO.md "Expo module backlog" for the backend per module.
-          </Text>
+          <ProbeRow probe={pending('expo-image')} />
+          <ExpoImageDemo />
         </View>
+
         <View style={styles.section}>
           <ProbeRow probe={pending('expo-screen-capture')} />
           <View style={styles.demo}>
@@ -1269,12 +1291,6 @@ function SmokeDemo() {
             </Text>
           </View>
         </View>
-
-        {['expo-image'].map(name => (
-          <View key={name} style={styles.section}>
-            <ProbeRow probe={pending(name)} />
-          </View>
-        ))}
       </ScrollView>
     </SafeAreaView>
   );

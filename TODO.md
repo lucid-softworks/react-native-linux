@@ -179,7 +179,8 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-sharing` (routes shareAsync through rnLinux.openURL → xdg-mime default handler),
 `expo-document-picker` + `expo-image-picker` (shared GtkFileDialog backend; image-picker chains launchCameraAsync into the existing cameraSnap),
 `expo-print` (GtkPrintOperation dialog + cairo-PDF surface; HTML→plaintext stripping pending a WebKitGTK render path),
-`expo-screen-capture` (honest Linux no-op — no portable "secure window" hint exists across X11/Wayland compositors).
+`expo-screen-capture` (honest Linux no-op — no portable "secure window" hint exists across X11/Wayland compositors),
+`expo-image` (JS-only wrap over RN.Image; contentFit↔resizeMode; advanced extras pending a native Fabric component).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -190,7 +191,7 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [x] **`expo-file-system`** — DONE 2026-05-26. See `docs/realworld-expo-file-system.md`. Gaps: resumable downloads, uploads, statvfs-backed disk-space helpers.
 - [x] **`expo-secure-store`** — DONE 2026-05-26. See `docs/realworld-expo-secure-store.md`. Gaps: auto-create login collection on first use, biometric prompts (KWallet PAM), per-app keychainService isolation.
 - [x] **`expo-network`** — DONE 2026-05-26. See `docs/realworld-expo-network.md`. GNetworkMonitor (auto-picks NM/netlink) + sysfs. Gaps: live network-changed subscription, per-interface enumeration, airplane-mode via rfkill.
-- [ ] **`expo-image`** — drop-in replacement for RN `Image`. Already mostly possible: reuse the libsoup loader from our ImageComponentView, add `transition` / `placeholder` / `cachePolicy` support. New Fabric component `ExpoImage` backed by GtkPicture with our own GdkPaintable subclass for cross-fade transitions.
+- [x] **`expo-image`** — DONE 2026-05-26 as a JS-only wrap over RN.Image. See `docs/realworld-expo-image.md`. Real load/display/contentFit; placeholder/transition/cachePolicy/blurRadius are accepted-but-discarded. Native Fabric component with cross-fade GdkPaintable is the follow-up if real apps lean on those features.
 - [x] **`expo-document-picker`** — DONE 2026-05-26. See `docs/realworld-expo-pickers.md`. GtkFileDialog (GTK 4.10+) shared with expo-image-picker.
 - [x] **`expo-image-picker`** — DONE 2026-05-26. Same GtkFileDialog backend; launchCameraAsync chains into the existing rnLinux.cameraSnap pipeline.
 - [x] **`expo-sharing`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Currently uses `g_app_info_launch_default_for_uri` (single default app per MIME); real picker via xdg-desktop-portal OpenURI is the planned follow-up for sandboxed apps.
