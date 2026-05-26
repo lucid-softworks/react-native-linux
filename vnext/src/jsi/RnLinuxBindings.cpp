@@ -1337,18 +1337,30 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
-  // JS-callable reload. Same path Ctrl+R takes from the GTK side —
-  // re-evaluate the bundle in the live Hermes runtime so Fast Refresh
-  // keeps state. The LogBox overlay's Reload button hits this.
+  // JS-callable reload. Same destination as Ctrl+R, but the actual
+  // host->reload() is deferred via g_idle_add so it fires *after*
+  // the current JS call stack unwinds. Calling reload synchronously
+  // from inside a JS click handler re-evaluates the bundle while
+  // we're still inside the click's microtask drain — and the
+  // post-reload performReactRefresh then deadlocks for tens of
+  // seconds remounting a stale family on top of a tree that
+  // setState just mounted. The GTK shortcut path (Ctrl+R) doesn't
+  // hit this because it fires outside any click handler. Routing
+  // both through the same idle source makes them behave identically.
   bindMethod(rt,
              rnLinux,
              "reloadApp",
              0,
              [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
-               const auto& s = state();
-               if (s.reload) {
-                 s.reload();
-               }
+               g_idle_add(
+                   +[](gpointer) -> gboolean {
+                     const auto& s = state();
+                     if (s.reload) {
+                       s.reload();
+                     }
+                     return G_SOURCE_REMOVE;
+                   },
+                   nullptr);
                return jsi::Value::undefined();
              });
 

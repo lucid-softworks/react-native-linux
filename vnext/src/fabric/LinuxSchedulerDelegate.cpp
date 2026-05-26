@@ -1,11 +1,11 @@
 #include "LinuxSchedulerDelegate.h"
+
 #include "LinuxMountingManager.h"
 #include "react-native-linux/Logging.h"
 
+#include <gtk/gtk.h>
 #include <react/renderer/mounting/MountingCoordinator.h>
 #include <react/renderer/mounting/MountingTransaction.h>
-
-#include <gtk/gtk.h>
 
 namespace rnlinux {
 
@@ -25,14 +25,16 @@ gboolean dispatchTransactionOnUiThread(gpointer data) {
   if (auto tx = pending->coordinator->pullTransaction()) {
     pending->mountingManager->performTransaction(*tx);
   }
+  // Empty pull is normal: multiple "queued" events coalesce into one
+  // transaction, so the first idle dispatch consumes it and the rest
+  // are no-ops.
   delete pending;
   return G_SOURCE_REMOVE;
 }
 
-}  // namespace
+} // namespace
 
-LinuxSchedulerDelegate::LinuxSchedulerDelegate(
-    std::shared_ptr<LinuxMountingManager> mm)
+LinuxSchedulerDelegate::LinuxSchedulerDelegate(std::shared_ptr<LinuxMountingManager> mm)
     : mountingManager_(std::move(mm)) {}
 
 LinuxSchedulerDelegate::~LinuxSchedulerDelegate() = default;
@@ -45,7 +47,18 @@ void LinuxSchedulerDelegate::schedulerDidFinishTransaction(
   }
   RNL_LOGD("SchedulerDelegate") << "transaction queued for UI thread";
   auto* pending = new PendingTransaction{mountingManager_, coordinator};
-  g_idle_add(dispatchTransactionOnUiThread, pending);
+  // Use HIGH_IDLE (G_PRIORITY_HIGH_IDLE = 100) rather than default
+  // idle (200). When React commits in a tight chain — e.g. error-
+  // boundary dismiss re-mounts a 400+-node tree, useEffects fire, more
+  // commits land — the JS thread keeps pumping. Default-priority idle
+  // sources never get a turn because they sit behind GTK input + rAF
+  // timeouts; the mounting transaction backs up indefinitely and the
+  // user sees the stale (panel) GTK tree even though React already
+  // re-rendered with state.error=null.
+  g_idle_add_full(G_PRIORITY_HIGH_IDLE,
+                  dispatchTransactionOnUiThread,
+                  pending,
+                  /*notify=*/nullptr);
 }
 
 void LinuxSchedulerDelegate::schedulerShouldRenderTransactions(
@@ -66,15 +79,13 @@ void LinuxSchedulerDelegate::schedulerDidDispatchCommand(
     const facebook::react::ShadowView& /*shadowView*/,
     const std::string& commandName,
     const folly::dynamic& /*args*/) {
-  RNL_LOGI("SchedulerDelegate") << "dispatchCommand: " << commandName
-                                << " (no handler yet)";
+  RNL_LOGI("SchedulerDelegate") << "dispatchCommand: " << commandName << " (no handler yet)";
   // TODO (Phase 9): route to LinuxComponentView::dispatchCommand once we
   // support `focus()` / `scrollTo()` / etc.
 }
 
 void LinuxSchedulerDelegate::schedulerDidSendAccessibilityEvent(
-    const facebook::react::ShadowView& /*shadowView*/,
-    const std::string& eventType) {
+    const facebook::react::ShadowView& /*shadowView*/, const std::string& eventType) {
   RNL_LOGD("SchedulerDelegate") << "a11y event: " << eventType;
   // TODO (Phase 9): emit through ATK / AT-SPI2 once a11y bridges land.
 }
@@ -87,4 +98,4 @@ void LinuxSchedulerDelegate::schedulerDidSetIsJSResponder(
   // RN's "JS responder" concept is needed for the touch model we expose.
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux
