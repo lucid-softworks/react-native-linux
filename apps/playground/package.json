@@ -17,8 +17,12 @@
   "dependencies": {
     "@lucid-softworks/react-native-linux": "workspace:*",
     "@lucid-softworks/react-native-linux-expo": "workspace:*",
+    "@react-native-async-storage/async-storage": "^3.1.0",
+    "expo-camera": "^56.0.7",
+    "expo-location": "^56.0.14",
     "react": "18.3.1",
     "react-native": "^0.76.0",
+    "react-native-device-info": "^15.0.2",
     "react-native-paper": "^5",
     "react-native-vector-icons": "^10.3.0",
     "react-reconciler": "0.29.2"
