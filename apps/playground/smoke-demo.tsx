@@ -260,8 +260,10 @@ function SafeAreaInner() {
 }
 
 function SafeAreaDemo() {
+  // Upstream's SafeAreaProvider defaults to flex:1 (intended for app
+  // root). Inside a content-sized card it collapses to 0 height.
   return (
-    <SafeAreaContext.SafeAreaProvider>
+    <SafeAreaContext.SafeAreaProvider style={{flex: 0}}>
       <SafeAreaInner />
     </SafeAreaContext.SafeAreaProvider>
   );
