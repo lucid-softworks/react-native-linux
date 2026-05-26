@@ -14,9 +14,34 @@
 #define RNL_HAVE_LIBSOUP3 1
 #endif
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <glib/gstdio.h>
+
+namespace {
+
+// File extensions that mean "could be animated" and warrant the
+// GtkMediaFile path. GtkMediaFile is GTK4's general video/audio
+// playback widget; for animated GIF/WebP/APNG it just renders the
+// frames on a GStreamer-backed loop, which is fine even for small
+// images. Static formats stay on the GdkTexture path for the
+// lower-latency one-shot decode.
+bool isAnimatedExtension(const std::string& path) {
+  auto lower = [](std::string s) {
+    for (auto& c : s)
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+  };
+  const auto dot = path.find_last_of('.');
+  if (dot == std::string::npos)
+    return false;
+  const std::string ext = lower(path.substr(dot));
+  return ext == ".gif" || ext == ".webp" || ext == ".apng";
+}
+
+} // namespace
 
 namespace rnlinux {
 
@@ -98,6 +123,49 @@ void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
       static_cast<const char*>(g_object_get_data(G_OBJECT(fetch->picture), "rnl-current-uri"));
   if (!current || fetch->uri != current) {
     g_bytes_unref(bytes);
+    delete fetch;
+    return;
+  }
+  // Animated formats — write the bytes to a temp file and hand
+  // GtkMediaFile the file URI so its GStreamer pipeline can loop
+  // the frames. gdk_texture_new_from_bytes can decode any image
+  // format gdk-pixbuf knows about but it only returns the FIRST
+  // frame, so static use of it for an animated GIF/WebP would
+  // freeze the image on frame 0.
+  if (isAnimatedExtension(fetch->uri)) {
+    gsize len = 0;
+    const void* data = g_bytes_get_data(bytes, &len);
+    std::string dir = rnlinux::imageCacheDir() + "/anim";
+    g_mkdir_with_parents(dir.c_str(), 0700);
+    // Filename includes a per-request suffix so concurrent loads
+    // of the same uri don't stomp each other.
+    static std::atomic<int64_t> animSeq{1};
+    char tmpName[128];
+    std::snprintf(tmpName,
+                  sizeof(tmpName),
+                  "%s/http-%lld-%ld.bin",
+                  dir.c_str(),
+                  (long long)animSeq.fetch_add(1),
+                  (long)time(nullptr));
+    GError* writeErr = nullptr;
+    g_file_set_contents(tmpName, static_cast<const char*>(data), len, &writeErr);
+    g_bytes_unref(bytes);
+    if (writeErr) {
+      RNL_LOGW("Image") << "animated cache write failed: " << writeErr->message;
+      g_error_free(writeErr);
+      delete fetch;
+      return;
+    }
+    GFile* gfile = g_file_new_for_path(tmpName);
+    GtkMediaStream* stream = GTK_MEDIA_STREAM(gtk_media_file_new_for_file(gfile));
+    g_object_unref(gfile);
+    if (stream) {
+      gtk_media_stream_set_loop(stream, TRUE);
+      gtk_media_stream_set_muted(stream, TRUE);
+      gtk_media_stream_play(stream);
+      gtk_picture_set_paintable(fetch->picture, GDK_PAINTABLE(stream));
+      g_object_unref(stream);
+    }
     delete fetch;
     return;
   }
@@ -219,6 +287,29 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
     RNL_LOGW("Image") << "unsupported uri scheme (tag=" << tag_ << "): " << uri;
     gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
     return;
+  }
+
+  // Animated formats (GIF / WebP / APNG) — route through
+  // GtkMediaFile. It owns the GStreamer pipeline that decodes
+  // frames in real time, loops the stream, and exposes the result
+  // as a GdkPaintable so GtkPicture can render it the same way
+  // it does any other paintable. Static formats stay on the
+  // GdkTexture fast path below.
+  if (isAnimatedExtension(path)) {
+    GFile* gfile = g_file_new_for_path(path.c_str());
+    GtkMediaStream* stream = GTK_MEDIA_STREAM(gtk_media_file_new_for_file(gfile));
+    g_object_unref(gfile);
+    if (stream) {
+      gtk_media_stream_set_loop(stream, TRUE);
+      gtk_media_stream_set_muted(stream, TRUE);
+      gtk_media_stream_play(stream);
+      gtk_picture_set_paintable(GTK_PICTURE(widget_), GDK_PAINTABLE(stream));
+      g_object_unref(stream);
+      return;
+    }
+    // Fall through to the static-decode path if GtkMediaFile didn't
+    // materialize a stream (very old GTK4 or missing GStreamer
+    // plugins). The first frame will at least render.
   }
 
   GFile* gfile = g_file_new_for_path(path.c_str());

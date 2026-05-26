@@ -19,7 +19,8 @@
 //   * `blurRadius`                                                — accepted, ignored
 //                                                                   (would need a GdkPaintable
 //                                                                   subclass with cairo blur)
-//   * `priority`, `recyclingKey`, `responsivePolicy`              — accepted, ignored
+//   * `priority`, `recyclingKey`                                  — accepted, ignored
+//   * `responsivePolicy`                                          — real; drives array-source picker
 //   * `Image.prefetch(uri)`                                       — best-effort warmup
 //   * `Image.clearDiskCache` / `clearMemoryCache`                 — real; wipes the SoupCache
 //                                                                   the HTTP image fetcher attaches
@@ -35,7 +36,7 @@
 // features.
 
 const React = require('react');
-const {Image: RNImage} = require('react-native');
+const {Image: RNImage, PixelRatio: ReactNativePixelRatio} = require('react-native');
 
 // expo-image's `contentFit` ↔ RN's `resizeMode`. expo also has
 // 'scale-down' which RN doesn't; map to 'contain' (closest
@@ -55,16 +56,59 @@ function _resizeModeFor(contentFit) {
   }
 }
 
+// Pick the best source out of an array based on display scale and
+// optional render width. expo's `responsivePolicy` options:
+//   'static' (default) — pick by display scale only, fixed at mount
+//   'initial'          — same as static
+//   'live'             — re-pick on every render (we approximate via
+//                         the calling component re-running this with
+//                         current state, since the policy only
+//                         affects React re-renders)
+// Entries with `scale` near the current display scale win; ties
+// break by closer pixel width to the rendered width hint. Falls
+// back to the first entry when no entry has either field.
+function _pickResponsive(arr, policy, renderWidthPx) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  if (arr.length === 1) return arr[0];
+  const targetScale = ReactNativePixelRatio.get();
+  // Score each candidate. Lower is better. Missing scale defaults
+  // to 1 (the iOS @1x convention). Missing width skips the width
+  // term so entries without it stay in contention.
+  let best = arr[0];
+  let bestScore = Infinity;
+  for (const candidate of arr) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const candScale = typeof candidate.scale === 'number' ? candidate.scale : 1;
+    const scaleDelta = Math.abs(candScale - targetScale);
+    let widthDelta = 0;
+    if (typeof renderWidthPx === 'number' && typeof candidate.width === 'number') {
+      // Penalize undersized candidates more (5x) than oversized —
+      // upscaling looks worse than downscaling at the same delta.
+      const candWidthInPx = candidate.width * candScale;
+      const diff = candWidthInPx - renderWidthPx * targetScale;
+      widthDelta = diff < 0 ? -diff * 5 : diff;
+    }
+    const score = scaleDelta * 1000 + widthDelta;
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
 // expo-image's `source` accepts:
 //   * a string URI
 //   * { uri, width?, height?, headers?, scale?, ... }
-//   * an array of { uri, width, height } (responsive — we just
-//     pick the first)
+//   * an array of { uri, width, height, scale? } (responsive)
 //   * a require('./img.png') number (RN's static asset)
-function _normalizeSource(src) {
+function _normalizeSource(src, opts) {
   if (src == null) return null;
   if (typeof src === 'string') return {uri: src};
-  if (Array.isArray(src)) return _normalizeSource(src[0]);
+  if (Array.isArray(src)) {
+    const pick = _pickResponsive(src, opts?.policy, opts?.renderWidthPx);
+    return _normalizeSource(pick, opts);
+  }
   if (typeof src === 'object' && (src.uri || src.localUri || typeof src === 'number')) {
     if (src.localUri && !src.uri) return {...src, uri: src.localUri};
     return src;
@@ -97,13 +141,28 @@ const Image = React.forwardRef(function ExpoImage(props, ref) {
     ...rest
   } = props;
 
-  const rnSource = _normalizeSource(source);
+  // Track measured width so the responsive picker has something
+  // better than the display scale to decide on. The first render
+  // uses just the scale; subsequent renders narrow in once
+  // onLayout reports a real px width.
+  const [renderWidthPx, setRenderWidthPx] = React.useState(undefined);
+  const callerOnLayout = rest.onLayout;
+  const onLayout = React.useCallback(
+    e => {
+      const w = e?.nativeEvent?.layout?.width;
+      if (typeof w === 'number' && w > 0) setRenderWidthPx(w);
+      if (callerOnLayout) callerOnLayout(e);
+    },
+    [callerOnLayout],
+  );
+  const rnSource = _normalizeSource(source, {policy: _responsivePolicy, renderWidthPx});
   return React.createElement(RNImage, {
     ...rest,
     ref,
     source: rnSource,
     style,
     resizeMode: _resizeModeFor(contentFit),
+    onLayout,
     onLoadStart,
     onLoadEnd,
     onLoad,
@@ -262,10 +321,12 @@ function useImage(source, _options, _callbacks) {
   // resolved state populates incrementally — uri first, then w/h
   // when the probe lands — so consumers can render the placeholder
   // box at the right ratio without waiting on a full decode.
+  // useImage has no layout pass to read a render-width from, so
+  // we let the responsive picker choose by display scale alone.
   const [resolved, setResolved] = React.useState(null);
   React.useEffect(() => {
     let cancelled = false;
-    const norm = _normalizeSource(source);
+    const norm = _normalizeSource(source, {policy: 'initial'});
     const uri = norm && norm.uri;
     if (!uri) {
       setResolved(null);

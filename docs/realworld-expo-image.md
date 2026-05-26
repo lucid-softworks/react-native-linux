@@ -67,13 +67,15 @@ The expo-image section renders a sample HTTPS PNG via
 
 | API                                                                                 | Behavior on Linux                                                                                               |
 | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `<Image source={uri/object/array}>`                                                 | Real — string / {uri} / array (first entry) / RN asset id                                                       |
+| `<Image source={uri/object/array}>`                                                 | Real — string / {uri} / RN asset id; arrays drive responsive selection by scale + measured width                |
 | `contentFit`                                                                        | Mapped to `resizeMode` (cover/contain/fill/center; scale-down→contain)                                          |
 | `onLoadStart / onLoad / onLoadEnd / onError`                                        | Forwarded to RN.Image                                                                                           |
 | `placeholder` / `placeholderContentFit`                                             | Accepted, ignored (no cross-fade support)                                                                       |
 | `transition`                                                                        | Accepted, ignored                                                                                               |
 | `cachePolicy`                                                                       | Accepted, ignored (libsoup has its own HTTP cache)                                                              |
-| `priority` / `recyclingKey` / `responsivePolicy`                                    | Accepted, ignored                                                                                               |
+| `priority` / `recyclingKey`                                                         | Accepted, ignored                                                                                               |
+| `responsivePolicy`                                                                  | Real — drives the array-source picker (display scale + render-width score)                                      |
+| animated GIF / WebP / APNG                                                          | Real — routed through `GtkMediaFile` (loops, plays); other formats use the static `GdkTexture` path             |
 | `blurRadius`                                                                        | Accepted, ignored                                                                                               |
 | `autoplay` / `allowDownscaling`                                                     | Accepted, ignored                                                                                               |
 | `<ImageBackground>`                                                                 | Real — Image nested under absolutely-positioned children                                                        |
@@ -108,12 +110,20 @@ The expo-image section renders a sample HTTPS PNG via
   and treats file:// as direct. `Image.getSize` (RN-style
   callback) and `Image.getSizeAsync` (Promise) route through the
   same probe.
-- **No `responsivePolicy`-driven source selection** beyond
-  picking the first array entry. Picking based on display scale
-  - pixel density would need the Dimensions hook + a per-render
-    pick.
-- **No animated image (GIF/WebP) support beyond what GTK gives
-  us natively.** GdkPixbufAnimation works through gdk-pixbuf-
-  loader plugins (gdk-pixbuf-jpeg / -gif / -webp), but our
-  current loader path uses `gdk_texture_new_*` which decodes a
-  single frame. Animated images render as the first frame.
+- **`responsivePolicy`-driven source selection** — **DONE.** When
+  `source` is an array, the shim picks the best entry by display
+  scale (`PixelRatio.get()`) and rendered width: candidates with
+  scale closest to the device scale win, ties broken by width
+  closest to the layout-measured pixel width. Undersized
+  candidates score worse than oversized (upscaling looks worse
+  than downscaling at the same delta). `useImage` runs the same
+  picker but without a width hint (no layout pass to read from).
+- **Animated image (GIF / WebP / APNG)** — **DONE.** Files with
+  those extensions route through `GtkMediaFile` instead of
+  `GdkTexture`. GtkMediaFile owns a GStreamer pipeline that
+  decodes frames in real time, loops, and exposes a GdkPaintable
+  GtkPicture can render directly. HTTP fetches write the
+  response bytes to a temp file under
+  `imageCacheDir()/anim/http-<seq>-<ts>.bin` before handing off
+  to GtkMediaFile (which only loads from file URIs). Static
+  formats stay on the `gdk_texture_new_*` fast path.
