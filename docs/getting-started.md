@@ -8,7 +8,7 @@
 
 - Ubuntu 22.04 LTS or 24.04 LTS (other distros: probably work, untested).
 - Node.js 20 LTS.
-- pnpm 9 (`corepack prepare pnpm@9.12.0 --activate`).
+- pnpm 9 (`corepack prepare pnpm@9.15.5 --activate`).
 - GTK4 development headers + Hermes build deps (see below).
 
 ```sh
@@ -54,11 +54,11 @@ On launch the app:
 
 Environment variables read by the default `main.cpp`:
 
-| Var                | Default                  | Notes                                  |
-| ------------------ | ------------------------ | -------------------------------------- |
-| `RN_BUNDLE_URL`    | (unset)                  | Wins over `RN_METRO_HOST`/`_PORT`.     |
-| `RN_METRO_HOST`    | `127.0.0.1`              | Use the host's LAN IP for VM-hosted Metro. |
-| `RN_METRO_PORT`    | `8081`                   | Pass-through to Metro.                 |
+| Var             | Default     | Notes                                      |
+| --------------- | ----------- | ------------------------------------------ |
+| `RN_BUNDLE_URL` | (unset)     | Wins over `RN_METRO_HOST`/`_PORT`.         |
+| `RN_METRO_HOST` | `127.0.0.1` | Use the host's LAN IP for VM-hosted Metro. |
+| `RN_METRO_PORT` | `8081`      | Pass-through to Metro.                     |
 
 You can edit `linux/main.cpp` freely — it's part of your app, not the
 library.

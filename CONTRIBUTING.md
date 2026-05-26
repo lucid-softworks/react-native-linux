@@ -33,7 +33,7 @@ sudo apt install \
   python3 python3-pip \
   nodejs npm
 corepack enable
-corepack prepare pnpm@9.12.0 --activate
+corepack prepare pnpm@9.15.5 --activate
 
 git clone https://github.com/lucid-softworks/react-native-linux.git
 cd react-native-linux
