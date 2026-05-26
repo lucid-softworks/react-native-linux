@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Pre-push gate. Catches the CI failures locally that staged-file
+# linting can't see — typecheck across the whole monorepo, the JS
+# test suite, and the C++ format check.
+#
+# Skipped automatically when:
+#   * SKIP_PREPUSH=1 env var is set (e.g. emergency hotfix push), or
+#   * deleting a remote ref (we're not pushing code).
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if [[ "${SKIP_PREPUSH:-}" == "1" ]]; then
+  echo "[pre-push] SKIP_PREPUSH=1 — bypassing checks"
+  exit 0
+fi
+
+# stdin format: `<local-ref> <local-sha> <remote-ref> <remote-sha>`.
+# A zero sha on the local side means "deleting that ref" — nothing
+# to validate.
+while read -r _ local_sha _ _; do
+  if [[ "$local_sha" == "0000000000000000000000000000000000000000" ]]; then
+    echo "[pre-push] ref deletion only — skipping checks"
+    exit 0
+  fi
+done
+
+echo "▸ typecheck"
+pnpm typecheck
+
+echo "▸ tests"
+pnpm test
+
+echo "▸ C++ format check"
+pnpm lint:cpp

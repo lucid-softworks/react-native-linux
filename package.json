@@ -25,7 +25,7 @@
     "cmake:configure": "cmake -S vnext -B vnext/build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DREACT_NATIVE_ROOT=$PWD/node_modules/react-native",
     "cmake:build": "cmake --build vnext/build",
     "clean": "rimraf vnext/build && pnpm -r run clean",
-    "prepare": "husky"
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "@react-native/eslint-config": "^0.76.0",
@@ -35,23 +35,9 @@
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
-    "husky": "^9.1.6",
-    "lint-staged": "^15.2.10",
     "prettier": "^3.2.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.4.0"
-  },
-  "lint-staged": {
-    "*.{js,jsx,ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md,yml,yaml}": [
-      "prettier --write"
-    ],
-    "*.{cpp,h}": [
-      "clang-format -i"
-    ]
   },
   "engines": {
     "node": ">=18",

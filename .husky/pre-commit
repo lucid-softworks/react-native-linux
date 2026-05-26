@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-# Run lint-staged against staged files. Fails the commit if any check fails.
-pnpm exec lint-staged
