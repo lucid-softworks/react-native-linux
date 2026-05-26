@@ -81,8 +81,21 @@ async function printToFileAsync(options) {
   // We don't compute base64 (would mean reading the file back +
   // encoding — cheap, but adds latency); the caller can read it
   // via expo-file-system if needed.
-  const FS = require('expo-file-system');
-  const dir = (FS.cacheDirectory || 'file:///tmp/').replace('file://', '');
+  //
+  // For the output path, we reach for rnLinux.fsConstants
+  // directly rather than `require('expo-file-system')` — when
+  // this shim file is bundled into vendor.bundle by esbuild,
+  // require() bypasses our metro alias and tries to resolve the
+  // upstream npm package, which throws on its requireNativeModule
+  // call. The native binding gives us the same data without that
+  // detour.
+  let dir = '/tmp/';
+  if (typeof rnLinux !== 'undefined' && typeof rnLinux.fsConstants === 'function') {
+    const c = rnLinux.fsConstants();
+    if (c && c.cacheDirectory) {
+      dir = c.cacheDirectory.replace('file://', '');
+    }
+  }
   const path = `${dir}print-${Date.now()}.pdf`;
   return new Promise((resolve, reject) => {
     rnLinux.printExportPdf(

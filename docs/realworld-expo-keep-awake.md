@@ -1,7 +1,7 @@
 # Real-app harness: expo-keep-awake via systemd-logind
 
 `expo-keep-awake` is backed by systemd-logind's
-`org.freedesktop.login1.Manager.Inhibit("idle:sleep", …, "block")`
+`org.freedesktop.login1.Manager.Inhibit("idle", …, "block")`
 on the system bus. Holding the fd that logind returns keeps the
 inhibit alive; closing it releases.
 
@@ -61,24 +61,34 @@ inhibiting, you can verify on the VM host:
 
 ```sh
 systemd-inhibit --list
-# WHO=react-native-linux WHAT=idle:sleep WHY="smoke demo" MODE=block
+# WHO=react-native-linux WHAT=idle WHY="smoke demo" MODE=block
 ```
 
 Click **release** to drop the inhibit.
 
 ## API surface
 
-| API                                     | Behavior on Linux                                                             |
-| --------------------------------------- | ----------------------------------------------------------------------------- |
-| `ExpoKeepAwakeTag`                      | String constant — default tag name                                            |
-| `isAvailableAsync()`                    | Real — NameHasOwner('org.freedesktop.login1')                                 |
-| `activateKeepAwakeAsync(tag, {reason})` | Real — `Manager.Inhibit("idle:sleep", "react-native-linux", reason, "block")` |
-| `activateKeepAwake(tag)`                | Sync variant — same call without await                                        |
-| `deactivateKeepAwake(tag)`              | Real — close(fd) for the tag                                                  |
-| `useKeepAwake(tag, {reason})`           | React hook — activates on mount, deactivates on unmount                       |
+| API                                     | Behavior on Linux                                                       |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| `ExpoKeepAwakeTag`                      | String constant — default tag name                                      |
+| `isAvailableAsync()`                    | Real — NameHasOwner('org.freedesktop.login1')                           |
+| `activateKeepAwakeAsync(tag, {reason})` | Real — `Manager.Inhibit("idle", "react-native-linux", reason, "block")` |
+| `activateKeepAwake(tag)`                | Sync variant — same call without await                                  |
+| `deactivateKeepAwake(tag)`              | Real — close(fd) for the tag                                            |
+| `useKeepAwake(tag, {reason})`           | React hook — activates on mount, deactivates on unmount                 |
 
 ## Known gaps
 
+- **Sleep inhibit needs polkit.** We ask only for `"idle"` —
+  enough to keep the display from blanking and the screen-saver
+  from engaging. logind requires polkit's
+  `org.freedesktop.login1.inhibit-block-sleep` policy for
+  non-root `"sleep"` inhibits, which unprivileged user processes
+  don't have by default. Adding a polkit rules drop-in
+  (`/etc/polkit-1/rules.d/`) would let `activateKeepAwakeAsync`
+  prevent system suspend too; for now we only block the
+  display-blank / lock-screen path that expo-keep-awake's
+  contract actually maps to.
 - **Delay vs block mode.** logind supports `mode="delay"` (allow
   sleep but wait up to 5s for the inhibitor to release first) in
   addition to `mode="block"` (hard prevent). We always block;

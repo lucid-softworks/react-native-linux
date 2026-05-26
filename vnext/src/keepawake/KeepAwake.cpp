@@ -81,11 +81,14 @@ bool activate(const std::string& tag, const std::string& reason) {
   if (!bus)
     return false;
 
-  // Inhibit("idle:sleep", who, why, "block") — block both the
-  // idle timer (display blanking, screen lock) AND a "suspend
-  // when user closes the lid" event. The system can still
-  // suspend on explicit user request; we just stop unattended
-  // sleep / blank for app-foreground reasons.
+  // Inhibit("idle", who, why, "block") — block the idle timer
+  // (display blanking, screen lock). We deliberately don't ask
+  // for "sleep" inhibit too: logind requires a polkit policy
+  // (org.freedesktop.login1.inhibit-block-sleep) for non-root
+  // sleep inhibitors and unprivileged user processes get
+  // AccessDenied without it. Idle inhibit is the part
+  // expo-keep-awake actually maps to — preventing screen blank
+  // / lock during long-running tasks — and works for any user.
   GError* err = nullptr;
   GUnixFDList* fdList = nullptr;
   GVariant* reply = g_dbus_connection_call_with_unix_fd_list_sync(
@@ -95,7 +98,7 @@ bool activate(const std::string& tag, const std::string& reason) {
       "org.freedesktop.login1.Manager",
       "Inhibit",
       g_variant_new("(ssss)",
-                    "idle:sleep",
+                    "idle",
                     "react-native-linux",
                     reason.empty() ? "App requested keep-awake" : reason.c_str(),
                     "block"),

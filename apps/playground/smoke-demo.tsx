@@ -640,11 +640,12 @@ function ExpoNetworkDemo() {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    (async () => {
+    async function loadNet() {
       setS(await Network.getNetworkStateAsync());
       setIp(await Network.getIpAddressAsync());
       setMac(await Network.getMacAddressAsync());
-    })();
+    }
+    loadNet();
   }, [tick, Network]);
 
   return (
@@ -674,7 +675,7 @@ function ExpoNetworkDemo() {
 }
 
 // ─────────────────────────── expo-keep-awake ───────────────────────────
-// systemd-logind Manager.Inhibit("idle:sleep"). Holding the fd
+// systemd-logind Manager.Inhibit("idle", "block"). Holding the fd
 // keeps the inhibit alive; closing it releases. The button
 // toggles and reports the count of currently-held inhibitors.
 function ExpoKeepAwakeDemo() {
@@ -700,16 +701,17 @@ function ExpoKeepAwakeDemo() {
   return (
     <View style={styles.demo}>
       <Text style={styles.demoCaption}>
-        systemd-logind Inhibit("idle:sleep") on the system bus. Holding the returned fd is what
-        keeps the inhibit alive; closing it releases. Check `systemctl --user status` or
-        `systemd-inhibit --list` on the host while active to see our entry.
+        systemd-logind Inhibit("idle", mode="block") on the system bus. Holding the fd keeps the
+        inhibit alive; closing releases. `systemd-inhibit --list` on the host shows our entry while
+        active. ("sleep" inhibit needs a polkit policy unprivileged users don't have, so we only
+        take "idle" — enough to keep the screen from blanking.)
       </Text>
       <View style={styles.row}>
         <Pressable style={styles.btn} onPress={toggle}>
           <Text style={styles.btnText}>{active ? 'release' : 'keep awake'}</Text>
         </Pressable>
       </View>
-      <Text style={styles.demoLine}>state: {active ? 'inhibiting idle/sleep' : 'released'}</Text>
+      <Text style={styles.demoLine}>state: {active ? 'inhibiting idle' : 'released'}</Text>
       {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
     </View>
   );
@@ -734,17 +736,17 @@ function ExpoHapticsDemo() {
         gdk_display_beep on every kind. WM/sound theme decides whether you hear anything.
       </Text>
       <View style={styles.row}>
-        {buttons.map(([label, fn]) => (
-          <Pressable
-            key={label}
-            style={styles.btn}
-            onPress={async () => {
-              await fn();
-              setLast(label);
-            }}>
-            <Text style={styles.btnText}>{label}</Text>
-          </Pressable>
-        ))}
+        {buttons.map(([label, fn]) => {
+          async function onPress() {
+            await fn();
+            setLast(label);
+          }
+          return (
+            <Pressable key={label} style={styles.btn} onPress={onPress}>
+              <Text style={styles.btnText}>{label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
       <Text style={styles.demoLine}>last: {last}</Text>
     </View>

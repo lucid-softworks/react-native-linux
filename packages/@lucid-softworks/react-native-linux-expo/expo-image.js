@@ -130,22 +130,34 @@ const ImageBackground = React.forwardRef(function ExpoImageBackground(props, ref
 // subsequent renders show instantly. libsoup has its own cache;
 // the cheapest thing we can do is issue a fetch and discard the
 // result, which populates the cache for the next request. We
-// route through `expo-file-system.downloadAsync` to a tmp file,
-// then delete it.
-async function prefetch(_uri, _cachePolicy, _headers) {
-  // Lazy require — if expo-file-system isn't wired, just no-op.
-  try {
-    const FS = require('expo-file-system');
-    if (!FS.downloadAsync || !FS.cacheDirectory) return false;
-    const tmp = `${FS.cacheDirectory}img-prefetch-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-    await FS.downloadAsync(_uri, tmp);
-    await FS.deleteAsync(tmp, {idempotent: true});
-    return true;
-  } catch (e) {
+// reach for rnLinux.fsDownload + rnLinux.fsDelete directly —
+// `require('expo-file-system')` from inside this shim bypasses
+// our metro alias when esbuild bundles vendor and resolves to
+// the upstream npm package (which throws on requireNativeModule).
+async function prefetch(uri, _cachePolicy, _headers) {
+  if (
+    typeof rnLinux === 'undefined' ||
+    typeof rnLinux.fsDownload !== 'function' ||
+    typeof rnLinux.fsConstants !== 'function'
+  ) {
     return false;
   }
+  const c = rnLinux.fsConstants();
+  const dir = (c && c.cacheDirectory ? c.cacheDirectory : 'file:///tmp/').replace('file://', '');
+  const tmp = `${dir}img-prefetch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise(resolve => {
+    rnLinux.fsDownload(
+      uri,
+      tmp,
+      () => {
+        try {
+          rnLinux.fsDelete(tmp, true);
+        } catch (e) {}
+        resolve(true);
+      },
+      () => resolve(false),
+    );
+  });
 }
 
 async function clearMemoryCache() {
