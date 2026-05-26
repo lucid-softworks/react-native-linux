@@ -30,7 +30,9 @@ export const bundleLinux: Command = {
     {name: '--no-minify', description: 'Disable minification'},
     {name: '--sourcemap-output <path>', description: 'Sourcemap output'},
   ],
-  func: async (_argv: string[], ctx: Config, opts: BundleLinuxOpts) => {
+  // See packLinux.ts: CommandFunction<Object> can't express our opts shape.
+  func: (async (_argv: string[], ctx: Config, rawOpts: unknown) => {
+    const opts = rawOpts as BundleLinuxOpts;
     const bundleOutput = path.resolve(ctx.root, opts.bundleOutput);
     const assetsDest = path.resolve(ctx.root, opts.assetsDest);
 
@@ -54,5 +56,5 @@ export const bundleLinux: Command = {
     }
 
     await execa('react-native', args, {stdio: 'inherit', cwd: ctx.root});
-  },
+  }) as Command['func'],
 };

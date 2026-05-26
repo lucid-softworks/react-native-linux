@@ -11,11 +11,9 @@ export const logLinux: Command = {
       default: 'rn-linux-app',
     },
   ],
-  func: async (_argv: string[], _ctx, opts: {executable: string}) => {
-    await execa(
-      'journalctl',
-      ['--user', '-f', `_COMM=${opts.executable}`],
-      {stdio: 'inherit'},
-    );
-  },
+  // See packLinux.ts: CommandFunction<Object> can't express our opts shape.
+  func: (async (_argv: string[], _ctx, rawOpts: unknown) => {
+    const opts = rawOpts as {executable: string};
+    await execa('journalctl', ['--user', '-f', `_COMM=${opts.executable}`], {stdio: 'inherit'});
+  }) as Command['func'],
 };

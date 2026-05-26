@@ -36,7 +36,9 @@ export const runLinux: Command = {
       parse: (v: string) => Number(v),
     },
   ],
-  func: async (_argv: string[], ctx: Config, opts: RunLinuxOpts) => {
+  // See packLinux.ts: CommandFunction<Object> can't express our opts shape.
+  func: (async (_argv: string[], ctx: Config, rawOpts: unknown) => {
+    const opts = rawOpts as RunLinuxOpts;
     const platform = ctx.platforms.linux;
     if (!platform) {
       throw new Error(
@@ -47,28 +49,16 @@ export const runLinux: Command = {
       | {sourceDir: string; executableName: string}
       | undefined;
     if (!projCfg) {
-      throw new Error(
-        'No linux/ project found. Run `react-native init-linux` first.',
-      );
+      throw new Error('No linux/ project found. Run `react-native init-linux` first.');
     }
 
     const buildDir = path.resolve(projCfg.sourceDir, opts.buildDir);
     const buildType = opts.release ? 'Release' : 'Debug';
 
-    console.log(
-      chalk.cyan(`▸ Configuring CMake (${buildType}) in ${buildDir}`),
-    );
+    console.log(chalk.cyan(`▸ Configuring CMake (${buildType}) in ${buildDir}`));
     await execa(
       'cmake',
-      [
-        '-S',
-        projCfg.sourceDir,
-        '-B',
-        buildDir,
-        '-G',
-        'Ninja',
-        `-DCMAKE_BUILD_TYPE=${buildType}`,
-      ],
+      ['-S', projCfg.sourceDir, '-B', buildDir, '-G', 'Ninja', `-DCMAKE_BUILD_TYPE=${buildType}`],
       {stdio: 'inherit'},
     );
 
@@ -78,7 +68,11 @@ export const runLinux: Command = {
     if (!opts.noPackager) {
       console.log(chalk.cyan(`▸ Metro should be running on :${opts.packagerPort}`));
       console.log(
-        chalk.gray('  (start it separately with `pnpm start --port ' + opts.packagerPort + '` if not already running)'),
+        chalk.gray(
+          '  (start it separately with `pnpm start --port ' +
+            opts.packagerPort +
+            '` if not already running)',
+        ),
       );
     }
 
@@ -92,5 +86,5 @@ export const runLinux: Command = {
         RN_METRO_PORT: String(opts.packagerPort),
       },
     });
-  },
+  }) as Command['func'],
 };

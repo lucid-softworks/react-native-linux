@@ -17,6 +17,9 @@ packages/@lucid-softworks/react-native-linux-expo/
 # Metro configs are CJS at consumer projects — they don't see the
 # repo-root @babel/eslint-parser config either.
 **/metro.config.js
+# Jest configs are CJS without a sibling babel.config.js; same parser
+# resolution problem as the playground / expo umbrella.
+**/jest.config.js
 # Metro smoke-test fixture under apps/playground; bundled by the
 # scripts/test-metro-resolve.mjs driver, not by any eslint-aware tool.
 apps/playground/__test_metro_resolve__/

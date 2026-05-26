@@ -69,6 +69,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build packages
+        # CLI is published as compiled JS in lib/; the workspace symlink
+        # is empty until `tsc` runs. Skipping this step means
+        # `pnpm exec react-native autolink-linux` resolves to a package
+        # with no command registrations.
+        run: pnpm -r run build
       - name: Install template deps (so RN CLI can resolve)
         working-directory: template
         run: pnpm install --no-frozen-lockfile
@@ -95,8 +101,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential ninja-build cmake pkg-config \
             libgtk-4-dev \
+            libsoup-3.0-dev \
             libglib2.0-dev \
+            libboost-all-dev \
             python3 python3-pip
+          # Folly's CMake reaches for Boost (context / filesystem / regex /
+          # thread …) and our CMakeLists for the playground app pulls in
+          # libsoup3 for the image loader's network backend. Without them
+          # configure-vnext fails before a single .cpp compiles.
 
       - uses: pnpm/action-setup@v4
         with:

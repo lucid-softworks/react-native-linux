@@ -13,24 +13,22 @@ export const initLinux: Command = {
       default: false,
     },
   ],
-  func: async (_argv: string[], ctx: Config, opts: {overwrite: boolean}) => {
+  // See packLinux.ts: CommandFunction<Object> can't express our opts shape.
+  func: (async (_argv: string[], ctx: Config, rawOpts: unknown) => {
+    const opts = rawOpts as {overwrite: boolean};
     const target = path.join(ctx.root, 'linux');
     if (fs.existsSync(target) && !opts.overwrite) {
       console.error(
-        chalk.red(
-          `linux/ already exists at ${target}. Pass --overwrite to replace it.`,
-        ),
+        chalk.red(`linux/ already exists at ${target}. Pass --overwrite to replace it.`),
       );
       process.exit(1);
     }
     const source = path.resolve(__dirname, '..', '..', 'templates', 'linux');
     if (!fs.existsSync(source)) {
-      throw new Error(
-        `CLI template missing at ${source}. Did the package install correctly?`,
-      );
+      throw new Error(`CLI template missing at ${source}. Did the package install correctly?`);
     }
     await fs.promises.cp(source, target, {recursive: true});
     console.log(chalk.green(`✓ Wrote linux/ project at ${target}`));
     console.log(chalk.gray('  Next: cd linux && cmake -B build -G Ninja && cmake --build build'));
-  },
+  }) as Command['func'],
 };

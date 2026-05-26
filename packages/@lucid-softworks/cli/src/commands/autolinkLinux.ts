@@ -34,8 +34,7 @@ interface LinkedDependency {
  */
 export const autolinkLinux: Command = {
   name: 'autolink-linux',
-  description:
-    'Generate a CMake include listing the autolinked native dependencies',
+  description: 'Generate a CMake include listing the autolinked native dependencies',
   options: [
     {
       name: '--output-file <path>',
@@ -48,15 +47,17 @@ export const autolinkLinux: Command = {
       default: false,
     },
   ],
-  func: async (_argv: string[], ctx: Config, opts: AutolinkLinuxOpts) => {
+  // CommandFunction<Object> in @react-native-community/cli-types is too
+  // permissive to express the opts shape; cast through unknown to keep
+  // AutolinkLinuxOpts as the source of truth for the options list above.
+  func: (async (_argv: string[], ctx: Config, rawOpts: unknown) => {
+    const opts = rawOpts as AutolinkLinuxOpts;
     const linked = collectLinkedDependencies(ctx);
     const generated = renderCmake(linked);
     const outPath = path.resolve(ctx.root, opts.outputFile);
 
     if (opts.check) {
-      const existing = fs.existsSync(outPath)
-        ? fs.readFileSync(outPath, 'utf8')
-        : '';
+      const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : '';
       if (existing.trim() !== generated.trim()) {
         console.error(
           chalk.red(
@@ -79,7 +80,7 @@ export const autolinkLinux: Command = {
           `(${linked.length} linked native module${linked.length === 1 ? '' : 's'})`,
       ),
     );
-  },
+  }) as Command['func'],
 };
 
 export function collectLinkedDependencies(ctx: Config): LinkedDependency[] {
@@ -94,9 +95,7 @@ export function collectLinkedDependencies(ctx: Config): LinkedDependency[] {
     if (!linux) continue;
     if (!linux.cmakeTarget) {
       console.warn(
-        chalk.yellow(
-          `! ${name} declares a linux platform but no cmakeTarget — skipping.`,
-        ),
+        chalk.yellow(`! ${name} declares a linux platform but no cmakeTarget — skipping.`),
       );
       continue;
     }
@@ -121,9 +120,7 @@ export function renderCmake(linked: LinkedDependency[]): string {
     lines.push('');
     lines.push(`# ${dep.name}`);
     lines.push(`add_subdirectory("${dep.sourceDir}" rn_linux_dep_${cleaned})`);
-    lines.push(
-      `list(APPEND RN_LINUX_AUTOLINKED_TARGETS ${dep.cmakeTarget})`,
-    );
+    lines.push(`list(APPEND RN_LINUX_AUTOLINKED_TARGETS ${dep.cmakeTarget})`);
   }
   lines.push('');
   return lines.join('\n');
