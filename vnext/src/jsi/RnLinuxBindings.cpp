@@ -3,6 +3,7 @@
 #include "../camera/Camera.h"
 #include "../deviceinfo/DeviceInfo.h"
 #include "../filesystem/FileSystem.h"
+#include "../keepawake/KeepAwake.h"
 #include "../locale/Locale.h"
 #include "../location/Location.h"
 #include "../notifications/Notifications.h"
@@ -204,6 +205,7 @@ void resetRnLinuxBindings() {
   // boundary so libnotify's signal callbacks don't fire into a
   // freed Hermes.
   rnlinux::notifications::reset();
+  rnlinux::keepawake::reset();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -2286,6 +2288,45 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                    nullptr);
                return jsi::Value::undefined();
              });
+
+  // ─── Keep awake (expo-keep-awake) ────────────────────────────────
+  // Wraps systemd-logind's Manager.Inhibit. Tag-keyed so multiple
+  // overlapping inhibitors (one per active route, component, …)
+  // can release independently.
+
+  bindMethod(rt,
+             rnLinux,
+             "keepAwakeIsAvailable",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               return jsi::Value(rnlinux::keepawake::isAvailable());
+             });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "keepAwakeActivate",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value(false);
+        const auto tag = args[0].asString(rt).utf8(rt);
+        const auto reason =
+            count >= 2 && args[1].isString() ? args[1].asString(rt).utf8(rt) : std::string{};
+        return jsi::Value(rnlinux::keepawake::activate(tag, reason));
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "keepAwakeDeactivate",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        rnlinux::keepawake::deactivate(args[0].asString(rt).utf8(rt));
+        return jsi::Value::undefined();
+      });
 
   // ─── Haptics / bell (expo-haptics) ───────────────────────────────
   // GTK has no haptics. gdk_display_beep is the closest analog —

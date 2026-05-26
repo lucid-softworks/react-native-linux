@@ -401,6 +401,48 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-keep-awake ───────────────────────────
+// systemd-logind Manager.Inhibit("idle:sleep"). Holding the fd
+// keeps the inhibit alive; closing it releases. The button
+// toggles and reports the count of currently-held inhibitors.
+function ExpoKeepAwakeDemo() {
+  const KeepAwake = require('expo-keep-awake');
+  const [active, setActive] = useState(false);
+  const [err, setErr] = useState<string>('');
+
+  async function toggle() {
+    setErr('');
+    try {
+      if (active) {
+        KeepAwake.deactivateKeepAwake('rnl-demo');
+        setActive(false);
+      } else {
+        await KeepAwake.activateKeepAwakeAsync('rnl-demo', {reason: 'smoke demo'});
+        setActive(true);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        systemd-logind Inhibit("idle:sleep") on the system bus. Holding the returned fd is what
+        keeps the inhibit alive; closing it releases. Check `systemctl --user status` or
+        `systemd-inhibit --list` on the host while active to see our entry.
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={toggle}>
+          <Text style={styles.btnText}>{active ? 'release' : 'keep awake'}</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.demoLine}>state: {active ? 'inhibiting idle/sleep' : 'released'}</Text>
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-haptics ───────────────────────────
 // gdk_display_beep on every kind. The WM / sound theme decides
 // whether you hear anything; on a Lima VM with no audio sink it
@@ -779,8 +821,11 @@ function SmokeDemo() {
       }),
       tryProbe('expo-keep-awake', async function p() {
         const m = require('expo-keep-awake');
-        await m.activateKeepAwakeAsync('rnl-smoke');
-        return 'inhibit-on';
+        const available = await m.isAvailableAsync();
+        if (!available) return 'service unavailable (no logind)';
+        await m.activateKeepAwakeAsync('rnl-smoke', {reason: 'smoke test probe'});
+        m.deactivateKeepAwake('rnl-smoke');
+        return 'inhibit ↔ release ok via logind';
       }),
       tryProbe('expo-file-system', async function p() {
         const m = require('expo-file-system');
@@ -912,6 +957,11 @@ function SmokeDemo() {
           <ExpoHapticsDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-keep-awake')} />
+          <ExpoKeepAwakeDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -924,7 +974,6 @@ function SmokeDemo() {
           </Text>
         </View>
         {[
-          'expo-keep-awake',
           'expo-network',
           'expo-image',
           'expo-document-picker',

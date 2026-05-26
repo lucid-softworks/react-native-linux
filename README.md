@@ -97,6 +97,7 @@ react-native-linux/
 │   ├── realworld-expo-secure-store.md   # libsecret-backed expo-secure-store shim
 │   ├── realworld-expo-localization.md   # libc + sysfs expo-localization shim
 │   ├── realworld-expo-haptics.md        # gdk_display_beep-backed expo-haptics shim
+│   ├── realworld-expo-keep-awake.md     # logind-Inhibit-backed expo-keep-awake shim
 │   └── …
 ├── scripts/vm/                      # Lima dev VM helpers (start.sh, sh.sh, …)
 └── TODO.md                          # Live roadmap
@@ -193,6 +194,7 @@ breaks, and what's been fixed in the process.
 - [docs/realworld-expo-secure-store.md](./docs/realworld-expo-secure-store.md) — `expo-secure-store` via libsecret
 - [docs/realworld-expo-localization.md](./docs/realworld-expo-localization.md) — `expo-localization` via libc + sysfs
 - [docs/realworld-expo-haptics.md](./docs/realworld-expo-haptics.md) — `expo-haptics` via gdk_display_beep
+- [docs/realworld-expo-keep-awake.md](./docs/realworld-expo-keep-awake.md) — `expo-keep-awake` via systemd-logind Inhibit
 
 The `smoke-demo.tsx` harness in `apps/playground/` covers the next batch:
 `@react-native-async-storage/async-storage`, `react-native-device-info`,
