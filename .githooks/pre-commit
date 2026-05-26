@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Pre-commit gate. Hand-rolled — no husky / lint-staged dep:
 #  * collect staged files by extension,
-#  * run prettier / eslint / clang-format on just those files,
+#  * run oxlint / oxfmt / clang-format on just those files,
+#  * typecheck the whole monorepo (cheap thanks to tsc's project cache),
 #  * re-stage anything the formatters touched so the commit reflects
 #    the post-format content.
 #
@@ -11,9 +12,9 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-# Filter staged files by an extension regex. --diff-filter=ACMR picks
-# added/copied/modified/renamed paths (i.e. what's actually changing
-# in this commit). Deletions and the special "type-change" case are
+# Filter staged files by extension regex. --diff-filter=ACMR picks
+# added/copied/modified/renamed paths (i.e. what's actually changing in
+# this commit). Deletions and the special "type-change" case are
 # skipped — there's nothing to format.
 staged() {
   git diff --cached --name-only --diff-filter=ACMR -z \
@@ -21,25 +22,29 @@ staged() {
     | grep -E "$1" || true
 }
 
-# pnpm exec resolves to the workspace's installed binaries. Direct
-# `prettier` / `eslint` would miss the per-repo plugin chain.
-PRETTIER="pnpm exec prettier --write"
-ESLINT="pnpm exec eslint --fix"
+# oxlint / oxfmt are the Rust-based replacements for eslint + prettier
+# — single-binary, no plugin chain to resolve. clang-format-installed
+# is assumed (CI installs it; macOS gets it via Homebrew's llvm
+# bottle). pnpm exec resolves to workspace-installed versions.
+OXLINT="pnpm exec oxlint --fix"
+OXFMT="pnpm exec oxfmt"
 CLANG_FORMAT="clang-format -i"
 
-js_files=$(staged '\.(js|jsx|ts|tsx)$')
+js_files=$(staged '\.(js|jsx|ts|tsx|mjs|cjs)$')
+cfg_files=$(staged '\.(json|md|ya?ml)$')
+cpp_files=$(staged '\.(cpp|h)$')
+
 if [[ -n "$js_files" ]]; then
   # shellcheck disable=SC2086
-  echo "$js_files" | xargs $ESLINT
-  echo "$js_files" | xargs $PRETTIER
+  echo "$js_files" | xargs $OXLINT
+  echo "$js_files" | xargs $OXFMT
 fi
 
-cfg_files=$(staged '\.(json|md|ya?ml)$')
 if [[ -n "$cfg_files" ]]; then
-  echo "$cfg_files" | xargs $PRETTIER
+  # oxfmt handles json/md/yaml too — same single binary as JS/TS.
+  echo "$cfg_files" | xargs $OXFMT
 fi
 
-cpp_files=$(staged '\.(cpp|h)$')
 if [[ -n "$cpp_files" ]]; then
   echo "$cpp_files" | xargs $CLANG_FORMAT
 fi
@@ -51,3 +56,12 @@ fi
   printf '%s\n' "$cfg_files"
   printf '%s\n' "$cpp_files"
 } | grep -v '^$' | xargs -r git add
+
+# Typecheck the whole monorepo. tsc --noEmit on every workspace is
+# fast (a few seconds) once node_modules is warm, and catches the
+# class of failure ("a renamed prop slipped into one file but not the
+# other") that fix-on-save linters miss. Skipped if SKIP_TYPECHECK=1.
+if [[ "${SKIP_TYPECHECK:-}" != "1" ]]; then
+  echo "▸ typecheck"
+  pnpm -s typecheck
+fi

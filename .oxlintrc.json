@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["react", "react-hooks", "typescript", "import", "promise", "node"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "no-unused-vars": ["warn", {"argsIgnorePattern": "^_", "varsIgnorePattern": "^_"}],
+    "no-undef": "off",
+    "no-empty": ["warn", {"allowEmptyCatch": true}],
+    "no-underscore-dangle": "off",
+    "no-await-in-loop": "off",
+    "promise/always-return": "off",
+    "react/jsx-key": "error",
+    "react/no-unknown-property": "off",
+    "react/react-in-jsx-scope": "off",
+    "react/no-this-in-sfc": "off",
+    "react/style-prop-object": "off",
+    "react-hooks/rules-of-hooks": "off",
+    "react-hooks/exhaustive-deps": "off",
+    "typescript/no-explicit-any": "off",
+    "typescript/no-unused-vars": "off",
+    "import/no-duplicates": "warn",
+    "promise/no-callback-in-promise": "off"
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "**/node_modules",
+    "**/lib",
+    "**/dist",
+    "**/build",
+    "vnext/codegen",
+    "packages/**/templates/**",
+    "apps/playground/__test_metro_resolve__",
+    "pnpm-lock.yaml",
+    "**/*.cpp",
+    "**/*.h",
+    "scripts/codegen/**"
+  ]
+}

@@ -8,7 +8,5 @@
     "redhat.vscode-yaml",
     "tamasfe.even-better-toml"
   ],
-  "unwantedRecommendations": [
-    "ms-vscode.cpptools"
-  ]
+  "unwantedRecommendations": ["ms-vscode.cpptools"]
 }

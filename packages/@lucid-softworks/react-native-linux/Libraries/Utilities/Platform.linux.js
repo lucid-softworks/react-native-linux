@@ -4,8 +4,7 @@
 // react-native/Libraries/Utilities/Platform.js because the linux CLI plugin
 // adds 'linux' to Metro's resolver.platforms list.
 
-const NativePlatformConstantsLinux =
-  require('../Specs/NativePlatformConstantsLinux').default;
+const NativePlatformConstantsLinux = require('../Specs/NativePlatformConstantsLinux').default;
 
 let constants = null;
 
@@ -36,11 +35,7 @@ const Platform = {
     return this.constants.isTesting === true;
   },
   select(spec) {
-    return 'linux' in spec
-      ? spec.linux
-      : 'native' in spec
-        ? spec.native
-        : spec.default;
+    return 'linux' in spec ? spec.linux : 'native' in spec ? spec.native : spec.default;
   },
 };
 

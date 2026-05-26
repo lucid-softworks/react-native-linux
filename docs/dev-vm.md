@@ -77,11 +77,11 @@ cd template/linux/build
 
 Defaults in [react-native-linux.yaml](../scripts/vm/react-native-linux.yaml):
 
-| Resource | Default  | Notes                                              |
-| -------- | -------- | -------------------------------------------------- |
-| CPUs     | 4        | Hermes build parallelism scales linearly.          |
-| Memory   | 6 GiB    | Hermes peak is ~4 GiB; smaller risks OOM.          |
-| Disk     | 30 GiB   | Sparse — only allocates as written.                |
+| Resource | Default  | Notes                                               |
+| -------- | -------- | --------------------------------------------------- |
+| CPUs     | 4        | Hermes build parallelism scales linearly.           |
+| Memory   | 6 GiB    | Hermes peak is ~4 GiB; smaller risks OOM.           |
+| Disk     | 30 GiB   | Sparse — only allocates as written.                 |
 | Display  | 1440×900 | Edit the `tigervncserver -geometry` line to change. |
 
 To resize an existing VM, edit the YAML then:
@@ -132,6 +132,6 @@ edit the YAML to allocate more memory.
 access; `cd /workspaces/react-native-linux && ls` should populate it. If still empty,
 `limactl stop && limactl start` re-runs the mount.
 
-**VM won't fit** — drop the `disk: "30GiB"` to `"20GiB"` *before* the first
+**VM won't fit** — drop the `disk: "30GiB"` to `"20GiB"` _before_ the first
 boot. After creation, shrinking is hard; recreate the VM instead
 (`limactl delete rn-linux`).

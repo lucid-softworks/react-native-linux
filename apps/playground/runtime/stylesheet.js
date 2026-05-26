@@ -52,9 +52,12 @@ function create(styles) {
 // close enough until we wire scale-aware constants.
 const hairlineWidth = 1;
 const absoluteFill = Object.freeze({
-  position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
+  position: 'absolute',
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
 });
 const absoluteFillObject = absoluteFill;
 
-module.exports = {create, flatten, compose, hairlineWidth,
-                  absoluteFill, absoluteFillObject};
+module.exports = {create, flatten, compose, hairlineWidth, absoluteFill, absoluteFillObject};

@@ -228,7 +228,6 @@ const api = {
   getDeviceSync: _stubSync(''),
   getDisplay: _stubAsync(''),
   getDisplaySync: _stubSync(''),
-  getFontScale: _async('fontScale'),
   getIncremental: _stubAsync(''),
   getIncrementalSync: _stubSync(''),
   getInstallReferrer: _stubAsync(''),

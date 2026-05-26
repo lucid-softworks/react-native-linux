@@ -35,7 +35,7 @@ function getAllKeys() {
 }
 
 function multiGet(keys) {
-  return Promise.resolve(keys.map((k) => [k, rnLinux.storageRead(k)]));
+  return Promise.resolve(keys.map(k => [k, rnLinux.storageRead(k)]));
 }
 
 function multiSet(pairs) {
@@ -54,8 +54,14 @@ function clear() {
 }
 
 const AsyncStorage = {
-  getItem, setItem, removeItem, getAllKeys,
-  multiGet, multiSet, multiRemove, clear,
+  getItem,
+  setItem,
+  removeItem,
+  getAllKeys,
+  multiGet,
+  multiSet,
+  multiRemove,
+  clear,
 };
 
 module.exports = AsyncStorage;

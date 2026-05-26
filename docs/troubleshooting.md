@@ -71,7 +71,7 @@ DISPLAY=:1 startxfce4
 ## CI passes locally but not on GitHub
 
 Most likely a dependency that's vendored in your local `node_modules` was
-written *after* the lockfile. Re-run `pnpm install --frozen-lockfile` to
+written _after_ the lockfile. Re-run `pnpm install --frozen-lockfile` to
 reproduce the CI install constraints.
 
 ## Pre-commit hooks block a commit

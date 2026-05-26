@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "arrowParens": "avoid",
+  "bracketSameLine": true,
+  "bracketSpacing": false,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "node_modules/",
+    "**/node_modules/",
+    "**/lib/",
+    "**/dist/",
+    "**/build/",
+    "vnext/build/",
+    "vnext/codegen/",
+    "**/*.cpp",
+    "**/*.h",
+    "*.lockb",
+    "pnpm-lock.yaml"
+  ]
+}

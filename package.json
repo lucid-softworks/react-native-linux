@@ -15,10 +15,10 @@
   "homepage": "https://github.com/lucid-softworks/react-native-linux#readme",
   "scripts": {
     "build": "pnpm -r --workspace-concurrency=1 run build",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "lint:format": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
+    "lint": "oxlint .",
+    "lint:format": "oxfmt --check .",
     "lint:cpp": "find vnext template/linux -path '*/build/*' -prune -o -type f \\( -name '*.cpp' -o -name '*.h' \\) -print | xargs clang-format --dry-run --Werror",
-    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
+    "format": "oxfmt .",
     "format:cpp": "find vnext template/linux -path '*/build/*' -prune -o -type f \\( -name '*.cpp' -o -name '*.h' \\) -print | xargs clang-format -i",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
@@ -28,14 +28,10 @@
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
-    "@react-native/eslint-config": "^0.76.0",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
-    "@typescript-eslint/eslint-plugin": "^7.18.0",
-    "@typescript-eslint/parser": "^7.18.0",
-    "eslint": "^8.57.0",
-    "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.2.0",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.4.0"
   },

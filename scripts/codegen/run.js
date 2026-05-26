@@ -103,7 +103,7 @@ function main() {
   const manifest = {
     generatedAt: new Date().toISOString(),
     package: path.resolve(args.package),
-    specs: specs.map((s) => path.relative(args.package, s)),
+    specs: specs.map(s => path.relative(args.package, s)),
     notice:
       'Manifest only — the linux platform generator for @react-native/codegen ' +
       'is not yet implemented. See TODO.md Phase 5.6 and the comment at the ' +

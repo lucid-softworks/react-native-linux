@@ -39,4 +39,6 @@ if (!bundle.includes(needle)) {
   process.exit(1);
 }
 
-console.log(`✓ Metro routed expo-status-bar → umbrella shim (${needle} present in bundle, ${bundle.length} bytes)`);
+console.log(
+  `✓ Metro routed expo-status-bar → umbrella shim (${needle} present in bundle, ${bundle.length} bytes)`,
+);

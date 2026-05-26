@@ -37,8 +37,8 @@ function applyBounds(inst) {
   const {id, type, props: p} = inst;
   const x = p.x | 0;
   const y = p.y | 0;
-  const w = (p.width | 0) || (type === 'label' ? 400 : 100);
-  const h = (p.height | 0) || (type === 'label' ? 24 : 100);
+  const w = p.width | 0 || (type === 'label' ? 400 : 100);
+  const h = p.height | 0 || (type === 'label' ? 24 : 100);
   rnLinux.setBounds(id, x, y, w, h);
 }
 
@@ -55,7 +55,7 @@ const hostConfig = {
 
   getRootHostContext: () => ({}),
   getChildHostContext: () => ({}),
-  getPublicInstance: (instance) => instance,
+  getPublicInstance: instance => instance,
   prepareForCommit: () => null,
   resetAfterCommit: noop,
   preparePortalMount: noop,
@@ -84,9 +84,7 @@ const hostConfig = {
   },
 
   createTextInstance() {
-    throw new Error(
-      'Bare text nodes are not supported; wrap strings in <label text="...">.',
-    );
+    throw new Error('Bare text nodes are not supported; wrap strings in <label text="...">.');
   },
 
   appendInitialChild(parent, child) {

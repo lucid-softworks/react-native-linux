@@ -96,8 +96,8 @@ module.exports = {
   dependency: {
     platforms: {
       linux: {
-        sourceDir: 'linux',          // dir containing CMakeLists.txt
-        cmakeTarget: 'my_module',    // CMake target name to link
+        sourceDir: 'linux', // dir containing CMakeLists.txt
+        cmakeTarget: 'my_module', // CMake target name to link
       },
     },
   },

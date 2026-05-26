@@ -26,24 +26,38 @@ interface BaseStyleProps {
   flexDirection?: 'row' | 'column' | 'row-reverse' | 'column-reverse';
   flexWrap?: 'nowrap' | 'wrap' | 'wrap-reverse';
   justifyContent?:
-    | 'flex-start' | 'center' | 'flex-end'
-    | 'space-between' | 'space-around' | 'space-evenly';
+    | 'flex-start'
+    | 'center'
+    | 'flex-end'
+    | 'space-between'
+    | 'space-around'
+    | 'space-evenly';
   alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline';
   alignSelf?: 'auto' | 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline';
   alignContent?:
-    | 'flex-start' | 'center' | 'flex-end'
-    | 'space-between' | 'space-around' | 'stretch';
+    | 'flex-start'
+    | 'center'
+    | 'flex-end'
+    | 'space-between'
+    | 'space-around'
+    | 'stretch';
   gap?: number;
   rowGap?: number;
   columnGap?: number;
   padding?: number;
-  paddingTop?: number; paddingRight?: number;
-  paddingBottom?: number; paddingLeft?: number;
-  paddingHorizontal?: number; paddingVertical?: number;
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  paddingHorizontal?: number;
+  paddingVertical?: number;
   margin?: number;
-  marginTop?: number; marginRight?: number;
-  marginBottom?: number; marginLeft?: number;
-  marginHorizontal?: number; marginVertical?: number;
+  marginTop?: number;
+  marginRight?: number;
+  marginBottom?: number;
+  marginLeft?: number;
+  marginHorizontal?: number;
+  marginVertical?: number;
 }
 
 // Anything you'd put in `<View style={...}>`. Equivalent to a
@@ -69,9 +83,17 @@ export type TextStyle = BaseStyleProps & {
   fontSize?: number;
   fontFamily?: string;
   fontWeight?:
-    | 'normal' | 'bold'
-    | '100' | '200' | '300' | '400'
-    | '500' | '600' | '700' | '800' | '900';
+    | 'normal'
+    | 'bold'
+    | '100'
+    | '200'
+    | '300'
+    | '400'
+    | '500'
+    | '600'
+    | '700'
+    | '800'
+    | '900';
   fontStyle?: 'normal' | 'italic' | 'oblique';
   lineHeight?: number;
   letterSpacing?: number;
@@ -207,12 +229,15 @@ export const Animated: {
   Image: (props: ImageProps) => JSX.Element;
   ScrollView: (props: ScrollViewProps) => JSX.Element;
   createAnimatedComponent<P>(c: (p: P) => JSX.Element): (p: P) => JSX.Element;
-  timing(value: AnimatedValue, config: {
-    toValue: number;
-    duration?: number;
-    easing?: (t: number) => number;
-    useNativeDriver?: boolean;
-  }): AnimatedHandle;
+  timing(
+    value: AnimatedValue,
+    config: {
+      toValue: number;
+      duration?: number;
+      easing?: (t: number) => number;
+      useNativeDriver?: boolean;
+    },
+  ): AnimatedHandle;
   sequence(anims: AnimatedHandle[]): AnimatedHandle;
   parallel(anims: AnimatedHandle[]): AnimatedHandle;
   loop(anim: AnimatedHandle, opts?: {iterations?: number}): AnimatedHandle;

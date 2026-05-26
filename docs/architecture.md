@@ -81,13 +81,13 @@ container. This works for MVP but will need revisiting for serious a11y.
 
 ## Events
 
-| RN concept              | GTK4 mechanism                              |
-| ----------------------- | ------------------------------------------- |
-| `onPressIn` / `onPress` | `GtkGestureClick`                           |
-| `onLongPress`           | `GtkGestureLongPress`                       |
+| RN concept              | GTK4 mechanism                               |
+| ----------------------- | -------------------------------------------- |
+| `onPressIn` / `onPress` | `GtkGestureClick`                            |
+| `onLongPress`           | `GtkGestureLongPress`                        |
 | Touch (rare on desktop) | Synthesized from pointer; no real multitouch |
-| `onKeyDown` / `onKeyUp` | `GtkEventControllerKey`                     |
-| Scroll                  | `GtkEventControllerScroll`                  |
+| `onKeyDown` / `onKeyUp` | `GtkEventControllerKey`                      |
+| Scroll                  | `GtkEventControllerScroll`                   |
 
 Each `LinuxComponentView` owns its controllers and forwards events to the
 `EventEmitter` provided by Fabric, which posts them onto the JS thread.

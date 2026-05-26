@@ -30,9 +30,9 @@ function render(element, onCommit) {
     /* isStrictMode */ false,
     /* concurrentUpdatesByDefault */ null,
     /* identifierPrefix */ '',
-    /* onUncaughtError */ (err) => rnLinux.log('error', String(err)),
-    /* onCaughtError */ (err) => rnLinux.log('error', String(err)),
-    /* onRecoverableError */ (err) => rnLinux.log('warn', String(err)),
+    /* onUncaughtError */ err => rnLinux.log('error', String(err)),
+    /* onCaughtError */ err => rnLinux.log('error', String(err)),
+    /* onRecoverableError */ err => rnLinux.log('warn', String(err)),
     /* transitionCallbacks */ null,
   );
   reconciler.updateContainer(element, root, null, () => {
@@ -46,7 +46,14 @@ const {View, ScrollView, Image, Text, TextInput, Pressable, Button} = require('.
 const StyleSheet = require('./stylesheet');
 
 module.exports = {
-  render, renderFabric,
-  View, ScrollView, Image, Text, TextInput, Pressable, Button,
+  render,
+  renderFabric,
+  View,
+  ScrollView,
+  Image,
+  Text,
+  TextInput,
+  Pressable,
+  Button,
   StyleSheet,
 };

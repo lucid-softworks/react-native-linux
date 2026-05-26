@@ -23,10 +23,7 @@ describe('projectConfig', () => {
   test('returns a config when linux/CMakeLists.txt exists', () => {
     fs.mkdirSync(path.join(root, 'linux'));
     fs.writeFileSync(path.join(root, 'linux', 'CMakeLists.txt'), '');
-    fs.writeFileSync(
-      path.join(root, 'package.json'),
-      JSON.stringify({name: 'hello world!'}),
-    );
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({name: 'hello world!'}));
 
     const cfg = projectConfig(root, {});
 

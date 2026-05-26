@@ -22,8 +22,7 @@ const React = require('react');
 const {View, Pressable} = require('./components');
 
 function Modal(props) {
-  const {visible = false, transparent = false, children,
-         onRequestClose, onShow} = props;
+  const {visible = false, transparent = false, children, onRequestClose, onShow} = props;
 
   // RN's Modal returns null when invisible. The Effect on `visible`
   // toggling fires onShow when going visible.
@@ -40,7 +39,10 @@ function Modal(props) {
     {
       style: {
         position: 'absolute',
-        top: 0, left: 0, right: 0, bottom: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         backgroundColor: backdrop,
         // alignItems/justifyContent default to center so a child
         // panel with its own width/height auto-centers, mirroring

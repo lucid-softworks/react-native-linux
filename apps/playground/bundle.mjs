@@ -42,17 +42,15 @@ const watch = process.argv.includes('--watch');
 const refreshTransformPlugin = {
   name: 'react-refresh-swc',
   setup(b) {
-    b.onLoad({filter: /\.(jsx?|tsx?)$/}, async (args) => {
+    b.onLoad({filter: /\.(jsx?|tsx?)$/}, async args => {
       const inUserCode =
-        args.path.includes('/apps/playground/') &&
-        !args.path.includes('/apps/playground/runtime/');
+        args.path.includes('/apps/playground/') && !args.path.includes('/apps/playground/runtime/');
       // RN's codegen generates Native* spec files in .js extensions
       // that contain TypeScript / Flow syntax (`import type {...}`,
       // `interface Spec extends TurboModule { ... }`, `(expr: ?Type)`
       // casts). esbuild can't parse them as JSX.
       const isNativeSpec =
-        args.path.includes('/node_modules/') &&
-        /\/Native[A-Z][A-Za-z0-9]*\.js$/.test(args.path);
+        args.path.includes('/node_modules/') && /\/Native[A-Z][A-Za-z0-9]*\.js$/.test(args.path);
       // Read once so we can both Flow-detect and class-detect without
       // hitting disk twice. Cheap: file fits in cache, swc handles
       // hundreds of files per second.
@@ -136,19 +134,19 @@ const baseOpts = {
     // to its globalThis-qualified form. Same rewrite applies to the
     // $RefreshReg$/$RefreshSig$ globals that swc's refresh transform
     // emits in user code.
-    '__REACT_DEVTOOLS_GLOBAL_HOOK__': 'globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__',
-    '$RefreshReg$': 'globalThis.$RefreshReg$',
-    '$RefreshSig$': 'globalThis.$RefreshSig$',
+    __REACT_DEVTOOLS_GLOBAL_HOOK__: 'globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__',
+    $RefreshReg$: 'globalThis.$RefreshReg$',
+    $RefreshSig$: 'globalThis.$RefreshSig$',
     // RN's standard dev-mode global. Real Metro setups inject this
     // into Hermes; third-party libs (expo-modules-core, lots of
     // react-native deps) reference it without `typeof` guards. Same
     // bare-identifier-vs-globalThis trap as above.
-    '__DEV__': 'true',
+    __DEV__: 'true',
     // RN polyfills a `global` alias to globalThis. Third-party libs
     // (expo, react-native-device-info, …) reach for it without a
     // `typeof` guard. Hermes strict mode refuses bare unresolved
     // identifiers, so rewrite at bundle time.
-    'global': 'globalThis',
+    global: 'globalThis',
   },
   loader: {
     '.js': 'jsx',
@@ -208,24 +206,29 @@ const appOpts = {
   entryPoints: [resolve(here, appEntry)],
   outfile: appOut,
   // These resolve at runtime from globalThis.__rnv (see banner).
-  external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime',
-             'react-reconciler', 'react-refresh/runtime',
-             'react-native',
-             '@react-native-async-storage/async-storage',
-             'react-native-device-info',
-             'expo',
-             'expo-status-bar',
-             'expo-font',
-             'expo-splash-screen',
-             'expo-web-browser',
-             'expo-symbols',
-             'expo-constants',
-             'expo-linking',
-             'react-native-safe-area-context',
-             'react-native-screens',
-             'react-native-reanimated',
-             'expo-router',
-             './runtime'],
+  external: [
+    'react',
+    'react/jsx-runtime',
+    'react/jsx-dev-runtime',
+    'react-reconciler',
+    'react-refresh/runtime',
+    'react-native',
+    '@react-native-async-storage/async-storage',
+    'react-native-device-info',
+    'expo',
+    'expo-status-bar',
+    'expo-font',
+    'expo-splash-screen',
+    'expo-web-browser',
+    'expo-symbols',
+    'expo-constants',
+    'expo-linking',
+    'react-native-safe-area-context',
+    'react-native-screens',
+    'react-native-reanimated',
+    'expo-router',
+    './runtime',
+  ],
   banner: {
     js:
       'var require = function(id) {\n' +
@@ -277,8 +280,9 @@ function compileVendorBytecode() {
   }
   const vendorHbc = vendorOut + '.hbc';
   const t0 = performance.now();
-  const r = spawnSync(hermesc, ['-emit-binary', '-O', '-out', vendorHbc, vendorOut],
-                      {stdio: ['ignore', 'pipe', 'pipe']});
+  const r = spawnSync(hermesc, ['-emit-binary', '-O', '-out', vendorHbc, vendorOut], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   if (r.status !== 0) {
     console.log(`[hermesc] failed (status ${r.status}): ${r.stderr?.toString().slice(0, 200)}`);
     return;
@@ -340,17 +344,19 @@ function hmrSocketPath() {
 // file-monitor reload path will still pick up the disk write as a
 // fallback.
 function pushBundleOverSocket(bytes) {
-  return new Promise((resolveP) => {
+  return new Promise(resolveP => {
     const sock = hmrSocketPath();
     const c = createConnection(sock);
     let done = false;
-    const finish = (msg) => {
+    const finish = msg => {
       if (done) return;
       done = true;
-      try { c.destroy(); } catch {}
+      try {
+        c.destroy();
+      } catch {}
       resolveP(msg);
     };
-    c.once('error', (err) => finish(`socket error: ${err.code || err.message}`));
+    c.once('error', err => finish(`socket error: ${err.code || err.message}`));
     c.once('connect', () => {
       const len = Buffer.alloc(4);
       len.writeUInt32LE(bytes.length, 0);
@@ -375,8 +381,10 @@ async function watchMode() {
     name: 'hmr-push',
     setup(b) {
       let start = 0;
-      b.onStart(() => { start = performance.now(); });
-      b.onEnd(async (result) => {
+      b.onStart(() => {
+        start = performance.now();
+      });
+      b.onEnd(async result => {
         if (result.errors && result.errors.length) {
           console.log(`[watch] rebuild failed in ${(performance.now() - start).toFixed(1)}ms`);
           return;

@@ -27,8 +27,7 @@ export function projectConfig(
   return {
     sourceDir,
     cmakeListsPath: path.join(sourceDir, 'CMakeLists.txt'),
-    executableName:
-      userConfig.executableName ?? deriveExecutableName(root),
+    executableName: userConfig.executableName ?? deriveExecutableName(root),
   };
 }
 
@@ -52,9 +51,7 @@ export function dependencyConfig(
 
 function deriveExecutableName(root: string): string {
   try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
-    );
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     return String(pkg.name ?? 'rn-linux-app').replace(/[^a-zA-Z0-9_-]/g, '-');
   } catch {
     return 'rn-linux-app';

@@ -8,8 +8,7 @@
 const React = require('react');
 const View = require('react-native/Libraries/Components/View/View').default;
 const Text = require('react-native/Libraries/Text/Text').default;
-const StyleSheet = require('react-native/Libraries/StyleSheet/StyleSheet')
-  .default;
+const StyleSheet = require('react-native/Libraries/StyleSheet/StyleSheet').default;
 
 const styles = StyleSheet.create({
   unimplementedView: {

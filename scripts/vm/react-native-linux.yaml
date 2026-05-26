@@ -16,25 +16,25 @@
 # Ubuntu 24.04 LTS. The cloud image is small and the runtime is what we
 # actually target in CI.
 images:
-  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
-    arch: "x86_64"
-  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
-    arch: "aarch64"
+  - location: 'https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img'
+    arch: 'x86_64'
+  - location: 'https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img'
+    arch: 'aarch64'
 
 # 4 CPUs + 6 GB RAM is enough for a Hermes-from-source build.
 cpus: 4
-memory: "6GiB"
+memory: '6GiB'
 
 # 30 GiB sparse — qcow2 only allocates what's actually written, so the host
 # disk impact starts ~3-4 GiB and grows with the build. The hard ceiling
 # matters because Hermes + Folly + RN headers can hit ~12 GiB.
-disk: "30GiB"
+disk: '30GiB'
 
 # Use Apple's Virtualization framework + virtiofs on Apple Silicon hosts
 # for near-bare-metal mount performance and no macFUSE dependency. Falls
 # back gracefully on x86_64 hosts (Lima auto-selects qemu).
-vmType: "vz"
-mountType: "virtiofs"
+vmType: 'vz'
+mountType: 'virtiofs'
 
 # Disable Lima's built-in containerd/nerdctl install. We don't run
 # containers from this VM; skipping shaves ~3-5 minutes off boot and
@@ -50,15 +50,15 @@ containerd:
 # `/home/{user}.guest`, not `/home/{user}.linux`, and the mismatch made
 # earlier provisioning paths fragile.
 mounts:
-  - location: "{{.Home}}/code/lucid-softworks/react-native-linux"
-    mountPoint: "/workspaces/react-native-linux"
+  - location: '{{.Home}}/code/lucid-softworks/react-native-linux'
+    mountPoint: '/workspaces/react-native-linux'
     writable: true
 
 # Forward TigerVNC out to the host so a macOS VNC viewer can connect.
 portForwards:
   - guestPort: 5901
     hostPort: 5901
-  - guestPort: 8081   # Metro, in case Metro runs inside the VM
+  - guestPort: 8081 # Metro, in case Metro runs inside the VM
     hostPort: 8081
 
 # Provision the guest. Single `provision:` block; Lima runs the entries in
@@ -150,7 +150,7 @@ provision:
       systemctl enable --now rn-linux-vnc.service || true
 
 probes:
-  - description: "VNC port reachable"
+  - description: 'VNC port reachable'
     script: |
       #!/bin/bash
       set -eu

@@ -58,7 +58,7 @@ describe('collectLinkedDependencies', () => {
       },
     } as any;
     const linked = collectLinkedDependencies(ctx);
-    expect(linked.map((d) => d.name)).toEqual(['a-pkg', 'z-pkg']);
+    expect(linked.map(d => d.name)).toEqual(['a-pkg', 'z-pkg']);
   });
 });
 
@@ -79,9 +79,7 @@ describe('renderCmake', () => {
       },
     ]);
     expect(out).toContain('# @scope/lib');
-    expect(out).toContain(
-      'add_subdirectory("/abs/path/to/lib/linux" rn_linux_dep__scope_lib)',
-    );
+    expect(out).toContain('add_subdirectory("/abs/path/to/lib/linux" rn_linux_dep__scope_lib)');
     expect(out).toContain('list(APPEND RN_LINUX_AUTOLINKED_TARGETS scope_lib)');
   });
 
