@@ -1,5 +1,6 @@
 #include "RnLinuxBindings.h"
 
+#include "../deviceinfo/DeviceInfo.h"
 #include "react-native-linux/Logging.h"
 
 #include <array>
@@ -1559,6 +1560,94 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   // setState just mounted. The GTK shortcut path (Ctrl+R) doesn't
   // hit this because it fires outside any click handler. Routing
   // both through the same idle source makes them behave identically.
+  // rnLinux.deviceInfoSync() — returns a JS object with every field
+  // the JS shim for react-native-device-info needs. Most values are
+  // gathered from one-shot reads of sysfs / /proc / /etc files in
+  // DeviceInfo.cpp; we re-call gather() on every JS access rather
+  // than cache so dynamic values (battery, free disk, used memory)
+  // stay live without the JS layer having to know which fields are
+  // static vs dynamic.
+  bindMethod(rt,
+             rnLinux,
+             "deviceInfoSync",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               auto d = rnlinux::deviceinfo::gather();
+               jsi::Object o(rt);
+               auto setStr = [&](const char* k, const std::string& v) {
+                 o.setProperty(rt, k, jsi::String::createFromUtf8(rt, v));
+               };
+               auto setNum = [&](const char* k, double v) { o.setProperty(rt, k, jsi::Value(v)); };
+               auto setBool = [&](const char* k, bool v) { o.setProperty(rt, k, jsi::Value(v)); };
+               setStr("brand", d.brand);
+               setStr("model", d.model);
+               setStr("manufacturer", d.manufacturer);
+               setStr("deviceId", d.deviceId);
+               setStr("deviceName", d.deviceName);
+               setStr("systemName", d.systemName);
+               setStr("systemVersion", d.systemVersion);
+               setStr("buildId", d.buildId);
+               setStr("baseOs", d.baseOs);
+               setStr("product", d.product);
+               setStr("codename", d.codename);
+               setStr("display", d.display);
+               setStr("fingerprint", d.fingerprint);
+               setStr("hardware", d.hardware);
+               setStr("host", d.host);
+               setStr("bootloader", d.bootloader);
+               setStr("serialNumber", d.serialNumber);
+               setStr("uniqueId", d.uniqueId);
+               setStr("instanceId", d.instanceId);
+               setStr("applicationName", d.applicationName);
+               setStr("bundleId", d.bundleId);
+               setStr("installerPackageName", d.installerPackageName);
+               setStr("version", d.version);
+               setStr("buildNumber", d.buildNumber);
+               setStr("ipAddress", d.ipAddress);
+               setStr("macAddress", d.macAddress);
+               setStr("carrier", d.carrier);
+               setNum("apiLevel", d.apiLevel);
+               setNum("fontScale", d.fontScale);
+               setNum("firstInstallTime", static_cast<double>(d.firstInstallTime));
+               setNum("lastUpdateTime", static_cast<double>(d.lastUpdateTime));
+               setNum("startupTime", static_cast<double>(d.startupTime));
+               setBool("isTablet", d.isTablet);
+               setBool("isEmulator", d.isEmulator);
+               setBool("hasNotch", d.hasNotch);
+               setBool("hasDynamicIsland", d.hasDynamicIsland);
+               setNum("totalMemory", static_cast<double>(d.totalMemory));
+               setNum("maxMemory", static_cast<double>(d.maxMemory));
+               setNum("usedMemory", static_cast<double>(d.usedMemory));
+               setNum("freeDiskStorage", static_cast<double>(d.freeDiskStorage));
+               setNum("totalDiskCapacity", static_cast<double>(d.totalDiskCapacity));
+               setBool("isCameraPresent", d.isCameraPresent);
+               setBool("isLandscape", d.isLandscape);
+               setBool("isKeyboardConnected", d.isKeyboardConnected);
+               setBool("isMouseConnected", d.isMouseConnected);
+               setBool("isBatteryCharging", d.isBatteryCharging);
+               {
+                 jsi::Object ps(rt);
+                 ps.setProperty(rt, "batteryLevel", jsi::Value(d.power.batteryLevel));
+                 ps.setProperty(
+                     rt, "batteryState", jsi::String::createFromUtf8(rt, d.power.batteryState));
+                 ps.setProperty(rt, "lowPowerMode", jsi::Value(d.power.lowPowerMode));
+                 o.setProperty(rt, "powerState", ps);
+               }
+               {
+                 jsi::Array arr(rt, d.hostNames.size());
+                 for (size_t i = 0; i < d.hostNames.size(); ++i)
+                   arr.setValueAtIndex(rt, i, jsi::String::createFromUtf8(rt, d.hostNames[i]));
+                 o.setProperty(rt, "hostNames", arr);
+               }
+               {
+                 jsi::Array arr(rt, d.supportedAbis.size());
+                 for (size_t i = 0; i < d.supportedAbis.size(); ++i)
+                   arr.setValueAtIndex(rt, i, jsi::String::createFromUtf8(rt, d.supportedAbis[i]));
+                 o.setProperty(rt, "supportedAbis", arr);
+               }
+               return o;
+             });
+
   bindMethod(rt,
              rnLinux,
              "reloadApp",

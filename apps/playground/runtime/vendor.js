@@ -44,6 +44,7 @@ const componentsMod = {View, ScrollView, Image, Text, TextInput, Pressable, Butt
 // componentsMod (via the same vendor table below).
 const reactNativeMod = require('./react-native');
 const asyncStorageMod = require('./async-storage');
+const deviceInfoMod = require('./device-info');
 const expoMod = require('@lucid-softworks/react-native-linux-expo/expo');
 const expoStatusBarMod = require('@lucid-softworks/react-native-linux-expo/expo-status-bar');
 const expoFontMod = require('@lucid-softworks/react-native-linux-expo/expo-font');
@@ -70,6 +71,7 @@ globalThis.__rnv = {
   reactRefreshRuntime: RefreshRuntime,
   reactNative: reactNativeMod,
   asyncStorage: asyncStorageMod,
+  deviceInfo: deviceInfoMod,
   expo: expoMod,
   expoStatusBar: expoStatusBarMod,
   expoFont: expoFontMod,
