@@ -13,6 +13,7 @@
 // NetworkManager itself uses to classify devices when constructing
 // device objects.
 
+#include <functional>
 #include <string>
 
 namespace rnlinux::network {
@@ -43,5 +44,17 @@ NetworkState getState();
 // Convert NetType to the lowercase string expo-network's
 // NetworkStateType enum uses on the JS side.
 const char* typeString(NetType t);
+
+// Single-slot state-change listener. The JS shim fans out to its
+// own Set<listener> registry; we only carry one trampoline into
+// the runtime. Pass nullptr to clear.
+using StateListener = std::function<void(const NetworkState&)>;
+void setStateListener(StateListener cb);
+
+// Clear the listener AND drop the underlying GNetworkMonitor
+// signal subscription. Called from the runtime reload path so a
+// fresh JS runtime doesn't get callbacks pointing into a dead
+// Hermes.
+void reset();
 
 } // namespace rnlinux::network

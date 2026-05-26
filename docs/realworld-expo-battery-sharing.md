@@ -22,20 +22,22 @@ rnLinux.deviceInfoSync()        ← existing JSI binding
 DeviceInfo::gather()            ← /sys/class/power_supply/*
 ```
 
-| API                            | Behavior on Linux                                                         |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `getPowerStateAsync()`         | `{batteryLevel, batteryState, lowPowerMode}` from /sys/class/power_supply |
-| `getBatteryLevelAsync()`       | 0..1 fraction; `-1` when no battery (desktops, VMs)                       |
-| `getBatteryStateAsync()`       | `CHARGING / UNPLUGGED / FULL / UNKNOWN` enum                              |
-| `isLowPowerModeEnabledAsync()` | Returns `false` — no portable Linux signal (see gaps)                     |
-| `add…Listener` / `use…` hooks  | Snapshot-on-mount; no live UPower subscription yet                        |
-| `BatteryState` enum            | Numeric, matches upstream                                                 |
+| API                            | Behavior on Linux                                                                                                                                                |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getPowerStateAsync()`         | `{batteryLevel, batteryState, lowPowerMode}` from /sys/class/power_supply                                                                                        |
+| `getBatteryLevelAsync()`       | 0..1 fraction; `-1` when no battery (desktops, VMs)                                                                                                              |
+| `getBatteryStateAsync()`       | `CHARGING / UNPLUGGED / FULL / UNKNOWN` enum                                                                                                                     |
+| `isLowPowerModeEnabledAsync()` | Real — `/sys/class/power_supply/BAT*/capacity_level == Low/Critical`, plus a discharging-below-15% fallback and an ACPI `platform_profile == low-power` override |
+| `add…Listener` / `use…` hooks  | Real — JS-side 5s poll, fans out on actual change (no spurious ticks)                                                                                            |
+| `BatteryState` enum            | Numeric, matches upstream                                                                                                                                        |
 
-**Gaps:** No live subscription (UPower's `org.freedesktop.UPower`
-emits `Changed` signals — would be a small DBus binding, not yet
-wired). `lowPowerMode` would map to UPower's `WarningLevel`
-property or the `power-profiles-daemon` "power-saver" profile;
-both DBus, both follow-ups.
+**Gaps:** The polling cadence (5s) is fine for the laptop battery
+case but won't catch a fast plug-flap inside the interval. A
+DBus-backed `org.freedesktop.UPower` subscription would close
+that, at the cost of pulling UPower in as a runtime dep.
+`lowPowerMode` is wired off the kernel's `capacity_level` enum —
+the same signal UPower itself derives `WarningLevel` from — so
+a UPower upgrade wouldn't change the value, only the latency.
 
 ## expo-sharing — routes through rnLinux.openURL
 

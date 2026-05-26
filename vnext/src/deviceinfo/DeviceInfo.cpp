@@ -211,11 +211,35 @@ PowerState readPowerState() {
       else
         ps.batteryState = "full";
     }
+    // lowPowerMode signal: the kernel's capacity_level enum
+    // ("Critical" / "Low" / "Normal" / "High" / "Full" / "Unknown")
+    // is the most portable. UPower derives WarningLevel from the
+    // same source; we use it directly to avoid a DBus round-trip.
+    // "Low" and "Critical" both flip lowPowerMode true so expo
+    // apps that switch to low-power behaviour kick in early
+    // enough to matter.
+    std::string capLevel = slurp((base + "/capacity_level").c_str());
+    if (capLevel == "Low" || capLevel == "Critical") {
+      ps.lowPowerMode = true;
+    }
     break;
   }
   closedir(d);
-  // lowPowerMode: no real Linux equivalent (some distros expose
-  // /sys/firmware/acpi/platform_profile == "low-power"). Leave false.
+  // Fallback for desktops/laptops without a capacity_level node
+  // (some firmware doesn't expose it): treat <= 15% as low power
+  // when discharging — matches the iOS heuristic users expect.
+  if (!ps.lowPowerMode && ps.batteryLevel >= 0.0 && ps.batteryLevel <= 0.15 &&
+      ps.batteryState == "discharging") {
+    ps.lowPowerMode = true;
+  }
+  // Per-distro "platform profile" knob (e.g. on framework laptops,
+  // gnome power-profiles-daemon, fwupd). When the platform is
+  // explicitly set to "low-power", honor that even if the battery
+  // is full — the user asked for it.
+  std::string profile = slurp("/sys/firmware/acpi/platform_profile");
+  if (profile == "low-power") {
+    ps.lowPowerMode = true;
+  }
   return ps;
 }
 

@@ -98,17 +98,60 @@ function getCalendars() {
 }
 
 // ─── Hooks (v15+) ─────────────────────────────────────────────────
-// These don't subscribe to anything on Linux (locale changes are
-// app-restart events on bare desktop), so we just memoize the
-// result. If real apps need live updates, a GSettings/D-Bus watch
-// is the obvious wire.
+// Subscribe to the native locale-change trampoline so a
+// `localectl set-locale` in another shell re-renders the app.
+// Locale flips are very rare but the cost of staying subscribed
+// is zero (GFileMonitor only wakes when the file actually
+// changes), so we always wire it.
+
+const _localeSubs = new Set();
+let _localeNativeWired = false;
+
+function _ensureLocaleWired() {
+  if (_localeNativeWired) return;
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.localeSetListener !== 'function') return;
+  rnLinux.localeSetListener(() => {
+    for (const fn of _localeSubs) {
+      try {
+        fn();
+      } catch (_) {}
+    }
+  });
+  _localeNativeWired = true;
+}
+
+function _teardownLocaleIfIdle() {
+  if (!_localeNativeWired || _localeSubs.size > 0) return;
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.localeSetListener !== 'function') return;
+  rnLinux.localeSetListener(null);
+  _localeNativeWired = false;
+}
+
+function _useLocaleTick() {
+  // Bump a counter when the native subscription fires so memoized
+  // values recompute. Cheaper than passing the snapshot through —
+  // useLocales / useCalendars re-read it themselves.
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const onChange = () => setTick(t => t + 1);
+    _localeSubs.add(onChange);
+    _ensureLocaleWired();
+    return () => {
+      _localeSubs.delete(onChange);
+      _teardownLocaleIfIdle();
+    };
+  }, []);
+  return tick;
+}
 
 function useLocales() {
-  return React.useMemo(() => getLocales(), []);
+  const tick = _useLocaleTick();
+  return React.useMemo(() => getLocales(), [tick]);
 }
 
 function useCalendars() {
-  return React.useMemo(() => getCalendars(), []);
+  const tick = _useLocaleTick();
+  return React.useMemo(() => getCalendars(), [tick]);
 }
 
 // ─── Async getters — match upstream's "async forever" history ────

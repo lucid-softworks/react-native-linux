@@ -150,6 +150,62 @@ const char* typeString(NetType t) {
   }
 }
 
+// ─── Listener plumbing ────────────────────────────────────────────
+
+namespace {
+
+struct ListenerState {
+  StateListener cb;
+  gulong signalId = 0;
+  GNetworkMonitor* monitor = nullptr;
+};
+
+ListenerState& listenerState() {
+  static ListenerState s;
+  return s;
+}
+
+// Idle callback so the listener runs on the next main-loop tick
+// instead of synchronously inside GNetworkMonitor's signal
+// emission — keeps the JS callback well clear of any GLib
+// reentrancy.
+gboolean fireOnIdle(gpointer) {
+  auto& s = listenerState();
+  if (s.cb) {
+    s.cb(getState());
+  }
+  return G_SOURCE_REMOVE;
+}
+
+void onNetworkChanged(GNetworkMonitor*, gboolean, gpointer) {
+  g_idle_add(fireOnIdle, nullptr);
+}
+
+} // namespace
+
+void setStateListener(StateListener cb) {
+  auto& s = listenerState();
+  s.cb = std::move(cb);
+  if (s.cb) {
+    if (!s.monitor) {
+      s.monitor = g_network_monitor_get_default();
+    }
+    if (s.monitor && s.signalId == 0) {
+      s.signalId =
+          g_signal_connect(s.monitor, "network-changed", G_CALLBACK(onNetworkChanged), nullptr);
+    }
+  } else {
+    if (s.monitor && s.signalId != 0) {
+      g_signal_handler_disconnect(s.monitor, s.signalId);
+      s.signalId = 0;
+    }
+  }
+}
+
+void reset() {
+  setStateListener(nullptr);
+}
+
 NetworkState getState() {
   NetworkState s;
   ActiveInterface active = findActive();

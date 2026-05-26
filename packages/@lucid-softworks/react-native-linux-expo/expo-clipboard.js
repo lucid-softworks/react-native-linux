@@ -101,11 +101,45 @@ async function hasUrlAsync() {
 }
 
 // Change listener — GdkClipboard fires a `changed` signal on every
-// clipboard update from any source. The JSI binding for the
-// subscription isn't wired yet; return a no-op subscription so apps
-// that always register on mount don't crash.
-function addClipboardListener(_listener) {
-  return {remove() {}};
+// clipboard update from any source. We multiplex JS subscribers
+// behind a single native trampoline so multiple consumers share
+// one signal subscription, and tear the subscription down when
+// the last listener unsubscribes.
+const _changeSubs = new Set();
+let _changeNativeWired = false;
+
+function _ensureChangeWired() {
+  if (_changeNativeWired) return;
+  if (!_hasNative || typeof rnLinux.clipboardSetChangeListener !== 'function') return;
+  rnLinux.clipboardSetChangeListener(payload => {
+    for (const fn of _changeSubs) {
+      try {
+        fn(payload);
+      } catch (_) {}
+    }
+  });
+  _changeNativeWired = true;
+}
+
+function _teardownChangeIfIdle() {
+  if (!_changeNativeWired || _changeSubs.size > 0) return;
+  if (!_hasNative || typeof rnLinux.clipboardSetChangeListener !== 'function') return;
+  rnLinux.clipboardSetChangeListener(null);
+  _changeNativeWired = false;
+}
+
+function addClipboardListener(listener) {
+  if (typeof listener !== 'function') {
+    throw new TypeError('expo-clipboard: listener must be a function');
+  }
+  _changeSubs.add(listener);
+  _ensureChangeWired();
+  return {
+    remove() {
+      _changeSubs.delete(listener);
+      _teardownChangeIfIdle();
+    },
+  };
 }
 function removeClipboardListener(sub) {
   if (sub && typeof sub.remove === 'function') sub.remove();

@@ -131,6 +131,25 @@ struct State {
   std::shared_ptr<jsi::Function> locationOnFix;
   std::shared_ptr<jsi::Function> locationOnError;
 
+  // expo-clipboard's addClipboardListener fan-out target. One
+  // GdkClipboard `changed` signal handler; JS shim fans it out
+  // to N subscribers. Stored here so reset() can release the
+  // jsi::Function before the runtime gets destroyed.
+  std::shared_ptr<jsi::Function> clipboardOnChange;
+  gulong clipboardOnChangeSignalId{0};
+  GdkClipboard* clipboardOnChangeSrc{nullptr};
+
+  // expo-localization listener — same shape as clipboard. The
+  // GFileMonitor watches /etc/locale.conf (and /etc/default/locale
+  // on Debian/Ubuntu) so a `localectl set-locale` from another
+  // shell wakes the running app. Held as two monitors because
+  // either file may be absent depending on the distro.
+  std::shared_ptr<jsi::Function> localeOnChange;
+  GFileMonitor* localeMonitorEtc{nullptr};
+  GFileMonitor* localeMonitorDefault{nullptr};
+  gulong localeMonitorEtcSignalId{0};
+  gulong localeMonitorDefaultSignalId{0};
+
   int registerWidget(GtkWidget* w) {
     int id = nextId.fetch_add(1);
     nodes[id] = w;
@@ -210,6 +229,34 @@ void resetRnLinuxBindings() {
   // freed Hermes.
   rnlinux::notifications::reset();
   rnlinux::keepawake::reset();
+  rnlinux::network::reset();
+  // Disconnect the clipboard `changed` signal so post-reload
+  // signal emissions don't fire into the freed Hermes through
+  // the captured shared_ptr<jsi::Function>.
+  if (state().clipboardOnChangeSrc && state().clipboardOnChangeSignalId != 0) {
+    g_signal_handler_disconnect(state().clipboardOnChangeSrc, state().clipboardOnChangeSignalId);
+    state().clipboardOnChangeSignalId = 0;
+  }
+  state().clipboardOnChange.reset();
+  state().clipboardOnChangeSrc = nullptr;
+  // Same shape for the locale file-monitor pair.
+  if (state().localeMonitorEtc && state().localeMonitorEtcSignalId != 0) {
+    g_signal_handler_disconnect(state().localeMonitorEtc, state().localeMonitorEtcSignalId);
+    state().localeMonitorEtcSignalId = 0;
+  }
+  if (state().localeMonitorEtc) {
+    g_object_unref(state().localeMonitorEtc);
+    state().localeMonitorEtc = nullptr;
+  }
+  if (state().localeMonitorDefault && state().localeMonitorDefaultSignalId != 0) {
+    g_signal_handler_disconnect(state().localeMonitorDefault, state().localeMonitorDefaultSignalId);
+    state().localeMonitorDefaultSignalId = 0;
+  }
+  if (state().localeMonitorDefault) {
+    g_object_unref(state().localeMonitorDefault);
+    state().localeMonitorDefault = nullptr;
+  }
+  state().localeOnChange.reset();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -1516,6 +1563,61 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // clipboardSetChangeListener — fan-out trampoline for
+  // GdkClipboard's `changed` signal. The signal fires on every
+  // clipboard write from any source (this app or another), so
+  // expo-clipboard apps that subscribe via addClipboardListener
+  // get real cross-app notifications. State lives in the shared
+  // `state()` struct so resetRnLinuxBindings can release the
+  // jsi::Function before the runtime dies.
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardSetChangeListener",
+      1,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        auto& s = state();
+        if (s.clipboardOnChangeSrc && s.clipboardOnChangeSignalId != 0) {
+          g_signal_handler_disconnect(s.clipboardOnChangeSrc, s.clipboardOnChangeSignalId);
+          s.clipboardOnChangeSignalId = 0;
+        }
+        s.clipboardOnChange.reset();
+        if (count < 1 || args[0].isNull() || args[0].isUndefined()) {
+          return jsi::Value::undefined();
+        }
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb)
+          return jsi::Value::undefined();
+        s.clipboardOnChange = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        s.clipboardOnChangeSrc = cb;
+        s.clipboardOnChangeSignalId = g_signal_connect(cb,
+                                                       "changed",
+                                                       G_CALLBACK(+[](GdkClipboard*, gpointer) {
+                                                         auto& s = state();
+                                                         if (!s.runtime || !s.clipboardOnChange)
+                                                           return;
+                                                         jsi::Runtime& jrt = *s.runtime;
+                                                         try {
+                                                           // expo's addClipboardListener fires with
+                                                           // a {} payload (the iOS/Android payload
+                                                           // is content- type metadata we don't
+                                                           // carry). Consumers re-call
+                                                           // getStringAsync if they want the new
+                                                           // text — matches the expo idiom.
+                                                           jsi::Object o(jrt);
+                                                           s.clipboardOnChange->call(jrt, o);
+                                                           jrt.drainMicrotasks();
+                                                         } catch (const std::exception& e) {
+                                                           RNL_LOGE("rnLinux.clipboard")
+                                                               << "change listener threw: "
+                                                               << e.what();
+                                                         }
+                                                       }),
+                                                       nullptr);
+        return jsi::Value::undefined();
+      });
+
   // Appearance.getColorScheme backing. Reads the GTK setting
   // `gtk-application-prefer-dark-theme` and returns 'dark' or 'light'.
   // GTK exposes this via GtkSettings, which is global per display. The
@@ -1908,6 +2010,88 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                }
                return arr;
              });
+
+  // Live locale-change subscription. GFileMonitor on the two
+  // freedesktop / Debian-family paths fires on `localectl
+  // set-locale`. The trampoline re-snapshots through libc — the
+  // existing snapshot() reads LANG/LC_* from the environment, and
+  // the GLib runtime updates that env on file change automatically
+  // (so a fresh snapshot reflects the new locale without needing
+  // an exec).
+  bindMethod(
+      rt,
+      rnLinux,
+      "localeSetListener",
+      1,
+      [snapshotToObj](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        auto& s = state();
+        // Tear any existing subscription down first — re-registering
+        // is the documented way to swap the JS callback.
+        if (s.localeMonitorEtc && s.localeMonitorEtcSignalId != 0) {
+          g_signal_handler_disconnect(s.localeMonitorEtc, s.localeMonitorEtcSignalId);
+          s.localeMonitorEtcSignalId = 0;
+        }
+        if (s.localeMonitorEtc) {
+          g_object_unref(s.localeMonitorEtc);
+          s.localeMonitorEtc = nullptr;
+        }
+        if (s.localeMonitorDefault && s.localeMonitorDefaultSignalId != 0) {
+          g_signal_handler_disconnect(s.localeMonitorDefault, s.localeMonitorDefaultSignalId);
+          s.localeMonitorDefaultSignalId = 0;
+        }
+        if (s.localeMonitorDefault) {
+          g_object_unref(s.localeMonitorDefault);
+          s.localeMonitorDefault = nullptr;
+        }
+        s.localeOnChange.reset();
+        if (count < 1 || args[0].isNull() || args[0].isUndefined()) {
+          return jsi::Value::undefined();
+        }
+        s.localeOnChange = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        auto fireFromCallback = +[](GFileMonitor*, GFile*, GFile*, GFileMonitorEvent, gpointer ud) {
+          auto* snapToObj = static_cast<
+              std::function<jsi::Object(jsi::Runtime&, const rnlinux::locale::LocaleSnapshot&)>*>(
+              ud);
+          auto& st = state();
+          if (!st.runtime || !st.localeOnChange)
+            return;
+          jsi::Runtime& jrt = *st.runtime;
+          try {
+            st.localeOnChange->call(jrt, (*snapToObj)(jrt, rnlinux::locale::snapshot()));
+            jrt.drainMicrotasks();
+          } catch (const std::exception& e) {
+            RNL_LOGE("rnLinux.locale") << "listener threw: " << e.what();
+          }
+        };
+        // Heap-allocate one copy of the snapshot-to-obj lambda so
+        // both monitors share it; lifetime matches the listener
+        // (cleared on next setListener call or reset()).
+        static std::function<jsi::Object(jsi::Runtime&, const rnlinux::locale::LocaleSnapshot&)>
+            sharedSnapshotToObj;
+        sharedSnapshotToObj = snapshotToObj;
+        auto attachMonitor = [&](const char* path, GFileMonitor*& slot, gulong& sigSlot) {
+          GFile* f = g_file_new_for_path(path);
+          if (!f)
+            return;
+          GError* err = nullptr;
+          slot = g_file_monitor_file(f, G_FILE_MONITOR_NONE, nullptr, &err);
+          g_object_unref(f);
+          if (err) {
+            g_error_free(err);
+            slot = nullptr;
+            return;
+          }
+          if (slot) {
+            sigSlot = g_signal_connect(
+                slot, "changed", G_CALLBACK(fireFromCallback), &sharedSnapshotToObj);
+          }
+        };
+        attachMonitor("/etc/locale.conf", s.localeMonitorEtc, s.localeMonitorEtcSignalId);
+        attachMonitor(
+            "/etc/default/locale", s.localeMonitorDefault, s.localeMonitorDefaultSignalId);
+        return jsi::Value::undefined();
+      });
 
   // ─── Secure store (expo-secure-store) ────────────────────────────
   // Direct libsecret wrappers; all three ops synchronous and the JS
@@ -2619,25 +2803,58 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
 
   // ─── Network (expo-network) ──────────────────────────────────────
   // Synchronous snapshot from GNetworkMonitor + /sys/class/net.
-  // Live subscriptions to "network-changed" aren't bound JSI-side
-  // yet — JS shim returns a no-op listener for now.
+  // networkState + networkSetStateListener. The state snapshot is
+  // sync; the listener subscribes to GNetworkMonitor::network-changed
+  // and re-emits the snapshot on the next idle tick.
+
+  // Materialize one NetworkState into a JS object. Used by both the
+  // sync getter and the listener trampoline below.
+  auto stateToJs = [](jsi::Runtime& rt, const rnlinux::network::NetworkState& s) {
+    jsi::Object o(rt);
+    o.setProperty(
+        rt, "type", jsi::String::createFromUtf8(rt, rnlinux::network::typeString(s.type)));
+    o.setProperty(rt, "isConnected", jsi::Value(s.isConnected));
+    o.setProperty(rt, "isInternetReachable", jsi::Value(s.isInternetReachable));
+    o.setProperty(rt, "ipAddress", jsi::String::createFromUtf8(rt, s.ipAddress));
+    o.setProperty(rt, "macAddress", jsi::String::createFromUtf8(rt, s.macAddress));
+    o.setProperty(rt, "interfaceName", jsi::String::createFromUtf8(rt, s.interfaceName));
+    return o;
+  };
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "networkState",
+      0,
+      [stateToJs](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+        return stateToJs(rt, rnlinux::network::getState());
+      });
 
   bindMethod(rt,
              rnLinux,
-             "networkState",
-             0,
-             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
-               const auto s = rnlinux::network::getState();
-               jsi::Object o(rt);
-               o.setProperty(rt,
-                             "type",
-                             jsi::String::createFromUtf8(rt, rnlinux::network::typeString(s.type)));
-               o.setProperty(rt, "isConnected", jsi::Value(s.isConnected));
-               o.setProperty(rt, "isInternetReachable", jsi::Value(s.isInternetReachable));
-               o.setProperty(rt, "ipAddress", jsi::String::createFromUtf8(rt, s.ipAddress));
-               o.setProperty(rt, "macAddress", jsi::String::createFromUtf8(rt, s.macAddress));
-               o.setProperty(rt, "interfaceName", jsi::String::createFromUtf8(rt, s.interfaceName));
-               return o;
+             "networkSetStateListener",
+             1,
+             [stateToJs](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count)
+                 -> jsi::Value {
+               if (count < 1 || args[0].isNull() || args[0].isUndefined()) {
+                 rnlinux::network::setStateListener(nullptr);
+                 return jsi::Value::undefined();
+               }
+               auto fn = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+               rnlinux::network::setStateListener(
+                   [fn, stateToJs](const rnlinux::network::NetworkState& s) {
+                     auto& st = state();
+                     if (!st.runtime)
+                       return;
+                     jsi::Runtime& jrt = *st.runtime;
+                     try {
+                       fn->call(jrt, stateToJs(jrt, s));
+                       jrt.drainMicrotasks();
+                     } catch (const std::exception& e) {
+                       RNL_LOGE("rnLinux.network") << "state listener threw: " << e.what();
+                     }
+                   });
+               return jsi::Value::undefined();
              });
 
   // ─── Keep awake (expo-keep-awake) ────────────────────────────────

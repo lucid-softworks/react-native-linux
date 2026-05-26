@@ -35,6 +35,9 @@ function _genId() {
 // with .remove(). We multiplex multiple subscribers per channel.
 const _responseSubs = new Set();
 const _receivedSubs = new Set();
+// Pending JS-side timers for scheduled-but-not-yet-fired received-
+// listener emissions. Keyed by identifier so cancel() can clear them.
+const _pendingReceived = new Map();
 
 function _fireResponse(id, actionId) {
   // expo's response shape: {notification: NotificationRequest, actionIdentifier}
@@ -114,6 +117,31 @@ function _triggerToDelayMs(trigger) {
   return 0;
 }
 
+// Notify any registered `addNotificationReceivedListener` callbacks
+// in expo's standard shape. Fired from the present/schedule paths
+// after the libnotify call lands, plus after the timer fires for
+// scheduled deliveries.
+function _fireReceived(identifier, content, trigger) {
+  if (_receivedSubs.size === 0) return;
+  const evt = {
+    request: {
+      identifier,
+      content: {
+        title: String(content?.title ?? ''),
+        body: String(content?.body ?? ''),
+        data: content?.data ?? {},
+      },
+      trigger: trigger ?? null,
+    },
+    date: Date.now(),
+  };
+  for (const fn of _receivedSubs) {
+    try {
+      fn(evt);
+    } catch (_) {}
+  }
+}
+
 async function scheduleNotificationAsync(request) {
   if (!_hasNative) throw new Error('expo-notifications: native bindings not bound');
   const identifier = request?.identifier ?? _genId();
@@ -122,8 +150,19 @@ async function scheduleNotificationAsync(request) {
   const delay = _triggerToDelayMs(request?.trigger);
   if (delay <= 0) {
     rnLinux.notificationsPresent(identifier, title, body);
+    _fireReceived(identifier, request?.content, request?.trigger);
   } else {
     rnLinux.notificationsSchedule(identifier, delay, title, body);
+    // Mirror the native timer in JS so the received-listener fires
+    // when the bubble actually shows up. The native cancel path
+    // doesn't currently call back through to JS, so a cancellation
+    // followed by the timer landing here would over-fire; tracked
+    // by id so cancel() can clear the pending entry too.
+    const handle = setTimeout(() => {
+      _pendingReceived.delete(identifier);
+      _fireReceived(identifier, request?.content, request?.trigger);
+    }, delay);
+    _pendingReceived.set(identifier, handle);
   }
   return identifier;
 }
@@ -133,17 +172,26 @@ async function presentNotificationAsync(content, identifier) {
   if (!_hasNative) throw new Error('expo-notifications: native bindings not bound');
   const id = identifier ?? _genId();
   rnLinux.notificationsPresent(id, String(content?.title ?? ''), String(content?.body ?? ''));
+  _fireReceived(id, content, null);
   return id;
 }
 
 async function cancelScheduledNotificationAsync(identifier) {
   if (!_hasNative) return;
-  rnLinux.notificationsCancel(String(identifier));
+  const id = String(identifier);
+  rnLinux.notificationsCancel(id);
+  const pending = _pendingReceived.get(id);
+  if (pending !== undefined) {
+    clearTimeout(pending);
+    _pendingReceived.delete(id);
+  }
 }
 
 async function cancelAllScheduledNotificationsAsync() {
   if (!_hasNative) return;
   rnLinux.notificationsCancelAll();
+  for (const h of _pendingReceived.values()) clearTimeout(h);
+  _pendingReceived.clear();
 }
 
 async function dismissNotificationAsync(identifier) {
@@ -187,10 +235,11 @@ function addNotificationResponseReceivedListener(listener) {
 }
 
 function addNotificationReceivedListener(listener) {
-  // libnotify doesn't surface a "received" signal separate from
-  // present(); fired notifications go straight to the daemon. We
-  // wire this as a no-op subscription so consumers that always
-  // register on mount don't crash, and document the gap.
+  // libnotify doesn't fire its own "received" signal (the daemon
+  // owns delivery), so we synthesize one from this process's
+  // present()/schedule() entry points. Fires immediately for
+  // present, on the timer for schedule, and skips when the
+  // schedule has been cancelled in between.
   if (typeof listener !== 'function') {
     throw new TypeError('listener must be a function');
   }

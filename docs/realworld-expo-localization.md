@@ -90,7 +90,7 @@ calendars = gregory
 | `isMetric`                                                                               | Inverse of `measurementSystem === 'us'`                                            |
 | `getLocales()`                                                                           | Real — full snapshot per preferred locale, in LANGUAGE order                       |
 | `getCalendars()`                                                                         | Always `[{calendar: 'gregory', timeZone, uses24hourClock: true, firstWeekday: 2}]` |
-| `useLocales` / `useCalendars` hooks                                                      | Memoized call-throughs (no live subscription yet)                                  |
+| `useLocales` / `useCalendars` hooks                                                      | Real — re-render on `/etc/locale.conf` / `/etc/default/locale` GFileMonitor ticks  |
 | `getLocalizationAsync()`                                                                 | Promise-wrapped legacy object                                                      |
 | `Calendar` / `TextDirection` / `MeasurementSystem` / `TemperatureUnit` / `Weekday` enums | Match upstream string/numeric values                                               |
 
@@ -109,8 +109,12 @@ calendars = gregory
 - **`firstWeekday` is hardcoded to Monday** (ISO-8601). CLDR has
   per-region tables; the right backend is a small lookup, just
   not done yet.
-- **No live subscription** to locale changes. Linux desktop sessions
-  effectively require a restart to change the locale, but a
-  GSettings watch on `org.gnome.desktop.interface.locale` would
-  fire on theme-level changes and could feed
-  `useLocales()`/`useCalendars()` properly.
+- **Live subscription** to locale changes — **DONE.** A pair of
+  GFileMonitors on `/etc/locale.conf` (freedesktop /
+  systemd-localed) and `/etc/default/locale` (Debian / Ubuntu)
+  fires on `localectl set-locale` from any shell. The JS shim
+  fans the trampoline out via a tick counter that
+  `useLocales()` / `useCalendars()` depend on, so they
+  re-render with the fresh snapshot. Session-restart is still
+  required for the underlying libc state to change, but the app
+  notices immediately.

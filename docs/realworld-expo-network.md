@@ -18,7 +18,7 @@ JS app
   ├─ getIpAddressAsync()           →  rnLinux.networkState().ipAddress
   ├─ getMacAddressAsync()          →  rnLinux.networkState().macAddress
   ├─ useNetworkState() hook
-  └─ addNetworkStateListener()     → no-op (network-changed not bound yet)
+  └─ addNetworkStateListener()     →  rnLinux.networkSetStateListener (fan-out)
   ↓
 vnext/src/jsi/RnLinuxBindings.cpp
   ↓
@@ -58,8 +58,8 @@ The expo-network section auto-fetches state on mount and exposes a
 | `getNetworkStateAsync()`       | Real — `{type, isConnected, isInternetReachable}` from GNetworkMonitor + sysfs            |
 | `getIpAddressAsync()`          | Real — first non-loopback IPv4 of the active interface                                    |
 | `getMacAddressAsync()`         | Real — `/sys/class/net/<iface>/address` of the active interface                           |
-| `useNetworkState()` hook       | Snapshot-on-mount; no live subscription yet                                               |
-| `addNetworkStateListener()`    | Returns no-op subscription (network-changed signal not bound JSI-side yet)                |
+| `useNetworkState()` hook       | Real — re-renders on `GNetworkMonitor::network-changed`                                   |
+| `addNetworkStateListener()`    | Real — fan-out over the single native trampoline; auto-tears down on last unsubscribe     |
 | `isAirplaneModeEnabledAsync()` | Returns `false` — no portable Linux signal                                                |
 | `getCellularGenerationAsync()` | Returns `UNKNOWN` — Android-only concept                                                  |
 | `NetworkStateType` enum        | `NONE / UNKNOWN / WIFI / CELLULAR / ETHERNET / BLUETOOTH / VPN / WIMAX / OTHER` (strings) |
@@ -67,11 +67,13 @@ The expo-network section auto-fetches state on mount and exposes a
 
 ## Known gaps
 
-- **No live `network-changed` subscription.** `GNetworkMonitor`
-  emits a `network-changed` signal whenever connectivity flips;
-  binding it through to fire `addNetworkStateListener` callbacks
-  is a small follow-up (mirroring the JS callback registry from
-  the location / notifications work).
+- **Live `network-changed` subscription** — **DONE.** A native
+  `setStateListener` slot hooks `g_signal_connect(monitor,
+"network-changed", ...)` and re-emits the current snapshot on
+  the next idle tick. The JS shim multiplexes all consumers
+  behind that single slot and tears the subscription down when
+  the last listener unsubscribes; `useNetworkState()` rides on
+  top so it re-renders on connectivity flips.
 - **Interface classification is heuristic.** Name prefixes plus
   `/sys/class/net/<iface>/type` cover the common cases; exotic
   device drivers might fall through to `UNKNOWN`. NetworkManager's

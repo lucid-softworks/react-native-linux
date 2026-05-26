@@ -1072,7 +1072,20 @@ function SmokeDemo() {
           throw new Error(`scheduleNotificationAsync missing (keys: ${Object.keys(n).join(',')})`);
         }
         const perms = await n.requestPermissionsAsync();
-        return `perms=${perms?.status ?? 'n/a'}`;
+        // Synthesize a received event by scheduling and confirm the
+        // listener fires. The trigger=null path resolves immediately,
+        // so the listener should be invoked before we get back from
+        // scheduleNotificationAsync's then().
+        let received = false;
+        const sub = n.addNotificationReceivedListener(() => {
+          received = true;
+        });
+        await n.scheduleNotificationAsync({
+          content: {title: 'smoke', body: 'listener probe'},
+          trigger: null,
+        });
+        sub.remove();
+        return `perms=${perms?.status ?? 'n/a'} listener=${received ? 'fired' : 'silent'}`;
       }),
 
       // ─── Backlog probes (stub shims; see TODO.md). Each fires a
@@ -1081,10 +1094,20 @@ function SmokeDemo() {
       tryProbe('expo-clipboard', async function p() {
         const m = require('expo-clipboard');
         const stamp = `rnl-clip-${Date.now()}`;
+        // Register a listener BEFORE the write so the GdkClipboard
+        // `changed` signal we trigger lands on it.
+        let listenerFired = false;
+        const sub = m.addClipboardListener(() => {
+          listenerFired = true;
+        });
         await m.setStringAsync(stamp);
         const got = await m.getStringAsync();
+        // Give GTK a tick to deliver the changed signal (it lands on
+        // the next main-loop iteration after the write).
+        await new Promise(r => setTimeout(r, 50));
+        sub.remove();
         if (got !== stamp) throw new Error(`roundtrip: wrote ${stamp}, read ${got}`);
-        return `roundtripped ${stamp.length} chars`;
+        return `roundtripped ${stamp.length} chars listener=${listenerFired ? 'fired' : 'silent'}`;
       }),
       tryProbe('expo-localization', async function p() {
         const m = require('expo-localization');
@@ -1130,7 +1153,13 @@ function SmokeDemo() {
         const m = require('expo-network');
         const s = await m.getNetworkStateAsync();
         const ip = await m.getIpAddressAsync();
-        return `type=${s.type} connected=${s.isConnected} internet=${s.isInternetReachable} ip=${ip || '(none)'}`;
+        // Make sure the live listener subscribes cleanly. We can't
+        // wait for a real network-changed event in the smoke
+        // window, but a register+remove with no throw confirms
+        // the GNetworkMonitor signal binding is healthy.
+        const sub = m.addNetworkStateListener(() => {});
+        sub.remove();
+        return `type=${s.type} connected=${s.isConnected} internet=${s.isInternetReachable} ip=${ip || '(none)'} listener=ok`;
       }),
       tryProbe('expo-image', async function p() {
         const m = require('expo-image');
@@ -1166,7 +1195,16 @@ function SmokeDemo() {
       tryProbe('expo-battery', async function p() {
         const m = require('expo-battery');
         const ps = await m.getPowerStateAsync();
-        return `level=${ps.batteryLevel} state=${ps.batteryState} lowPower=${ps.lowPowerMode}`;
+        // Confirm the listener registration paths are healthy.
+        // (We can't induce a real battery change inside the smoke
+        // window, so this checks the wiring, not the delivery.)
+        const subs = [
+          m.addBatteryLevelListener(() => {}),
+          m.addBatteryStateListener(() => {}),
+          m.addLowPowerModeListener(() => {}),
+        ];
+        for (const s of subs) s.remove();
+        return `level=${ps.batteryLevel} state=${ps.batteryState} lowPower=${ps.lowPowerMode} listeners=ok`;
       }),
       tryProbe('expo-print', async function p() {
         const m = require('expo-print');

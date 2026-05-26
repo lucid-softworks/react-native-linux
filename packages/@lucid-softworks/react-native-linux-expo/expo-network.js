@@ -81,23 +81,65 @@ async function getCellularGenerationAsync() {
   return CellularGeneration.UNKNOWN;
 }
 
-// React hook — re-reads the snapshot each render. Live
-// subscription to GNetworkMonitor's `network-changed` would land
-// it as a useEffect + listener pair; today the snapshot is fresh
-// enough for normal UI updates triggered by user actions.
+// Multiplex JS subscribers behind the single native trampoline.
+// The C++ side only holds one StateListener slot; we fan out to
+// the Set here so multiple useNetworkState hooks / consumers
+// share one GNetworkMonitor subscription.
+const _stateSubs = new Set();
+let _nativeWired = false;
+
+function _ensureNativeWired() {
+  if (_nativeWired) return;
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.networkSetStateListener !== 'function') {
+    return;
+  }
+  rnLinux.networkSetStateListener(state => {
+    for (const fn of _stateSubs) {
+      try {
+        fn(state);
+      } catch (_) {}
+    }
+  });
+  _nativeWired = true;
+}
+
+function _teardownNativeIfIdle() {
+  if (!_nativeWired || _stateSubs.size > 0) return;
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.networkSetStateListener !== 'function') {
+    return;
+  }
+  rnLinux.networkSetStateListener(null);
+  _nativeWired = false;
+}
+
+// React hook — subscribes to the live network-changed signal so
+// the consumer re-renders when the system gains/loses
+// connectivity (wifi associate, ethernet cable plug, NM toggle).
 function useNetworkState() {
   const [state, setState] = React.useState(_fresh);
   React.useEffect(() => {
+    const sub = addNetworkStateListener(setState);
     setState(_fresh());
+    return () => sub.remove();
   }, []);
   return state;
 }
 
-// Listener API — accepts subscribers, returns a no-op
-// subscription. A future binding can wire GNetworkMonitor's
-// network-changed signal through to fire these.
-function addNetworkStateListener(_listener) {
-  return {remove() {}};
+// Listener API — real. Subscribes to GNetworkMonitor's
+// network-changed via the native binding; multiplexed across all
+// JS subscribers and torn down when the last one unsubscribes.
+function addNetworkStateListener(listener) {
+  if (typeof listener !== 'function') {
+    throw new TypeError('expo-network: listener must be a function');
+  }
+  _stateSubs.add(listener);
+  _ensureNativeWired();
+  return {
+    remove() {
+      _stateSubs.delete(listener);
+      _teardownNativeIfIdle();
+    },
+  };
 }
 
 const api = {

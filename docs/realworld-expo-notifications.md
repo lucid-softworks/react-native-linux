@@ -79,25 +79,25 @@ desktop's notification UI to see the response listener fire (the
 
 ## API surface
 
-| API                                               | Behavior on Linux                                                  |
-| ------------------------------------------------- | ------------------------------------------------------------------ |
-| `requestPermissionsAsync` / `getPermissionsAsync` | Returns `granted` — Linux doesn't gate per-app on the bare desktop |
-| `scheduleNotificationAsync` (trigger=null)        | Immediate libnotify show                                           |
-| `scheduleNotificationAsync` (trigger.seconds)     | `g_timeout_add` then libnotify show                                |
-| `scheduleNotificationAsync` (trigger.date)        | Compute delayMs, then as above                                     |
-| `presentNotificationAsync`                        | Direct libnotify show                                              |
-| `cancelScheduledNotificationAsync`                | Removes timer + closes visible bubble for that id                  |
-| `cancelAllScheduledNotificationsAsync`            | Same for all                                                       |
-| `dismissNotificationAsync` / `dismissAll…`        | Alias for `cancel…`                                                |
-| `getAllScheduledNotificationsAsync`               | Real — returns currently-pending schedules                         |
-| `getPresentedNotificationsAsync`                  | Returns `[]` — the daemon owns presented-state, we don't mirror it |
-| `addNotificationReceivedListener`                 | Accepted but never fires (libnotify has no "received" signal)      |
-| `addNotificationResponseReceivedListener`         | Real — fires on close with `actionIdentifier='dismissed'`          |
-| `setNotificationHandler`                          | Accepted and discarded (no foreground-vs-background distinction)   |
-| `getBadgeCount` / `setBadgeCount`                 | Stored in JS memory; no desktop badge protocol implemented         |
-| `set/get/deleteNotificationChannelAsync`          | No-ops — Android-only concept                                      |
-| `setNotificationCategoryAsync` (+actions)         | No-op — libnotify supports actions but not yet wired through       |
-| `getExpoPushTokenAsync` / `getDevicePushToken…`   | Throws — no push-service equivalent bundled                        |
+| API                                               | Behavior on Linux                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------ |
+| `requestPermissionsAsync` / `getPermissionsAsync` | Returns `granted` — Linux doesn't gate per-app on the bare desktop       |
+| `scheduleNotificationAsync` (trigger=null)        | Immediate libnotify show                                                 |
+| `scheduleNotificationAsync` (trigger.seconds)     | `g_timeout_add` then libnotify show                                      |
+| `scheduleNotificationAsync` (trigger.date)        | Compute delayMs, then as above                                           |
+| `presentNotificationAsync`                        | Direct libnotify show                                                    |
+| `cancelScheduledNotificationAsync`                | Removes timer + closes visible bubble for that id                        |
+| `cancelAllScheduledNotificationsAsync`            | Same for all                                                             |
+| `dismissNotificationAsync` / `dismissAll…`        | Alias for `cancel…`                                                      |
+| `getAllScheduledNotificationsAsync`               | Real — returns currently-pending schedules                               |
+| `getPresentedNotificationsAsync`                  | Returns `[]` — the daemon owns presented-state, we don't mirror it       |
+| `addNotificationReceivedListener`                 | Real — synthesized from this process's present()/schedule() entry points |
+| `addNotificationResponseReceivedListener`         | Real — fires on close with `actionIdentifier='dismissed'`                |
+| `setNotificationHandler`                          | Accepted and discarded (no foreground-vs-background distinction)         |
+| `getBadgeCount` / `setBadgeCount`                 | Stored in JS memory; no desktop badge protocol implemented               |
+| `set/get/deleteNotificationChannelAsync`          | No-ops — Android-only concept                                            |
+| `setNotificationCategoryAsync` (+actions)         | No-op — libnotify supports actions but not yet wired through             |
+| `getExpoPushTokenAsync` / `getDevicePushToken…`   | Throws — no push-service equivalent bundled                              |
 
 ## Known gaps
 
@@ -116,11 +116,15 @@ desktop's notification UI to see the response listener fire (the
 - **Calendar / daily / weekly triggers** fall back to fire-now.
   Adding them is a JS-side scheduler (compute next fire time, set
   timeout, re-arm on fire); doable but unimplemented.
-- **`addNotificationReceivedListener`** is accepted but never fires
-  because libnotify doesn't emit a separate "received" signal —
-  fired notifications go straight to the daemon. We could fire it
-  ourselves at present-time as a synthetic event if real code starts
-  depending on it.
+- **`addNotificationReceivedListener`** — **DONE.** Synthesized
+  at present-time from this process's `presentNotificationAsync`
+  / `scheduleNotificationAsync` entry points, with the standard
+  expo `{request, date}` shape. Cancellation clears the pending
+  JS-side timer so cancelled schedules don't fire the listener
+  spuriously. Note: notifications presented by _other_ processes
+  on the same daemon still don't surface here — that would need
+  a `org.freedesktop.Notifications` bus eavesdrop, which most
+  daemons reject for security reasons.
 - **Persistence across restarts** isn't done. Scheduled but unfired
   notifications are lost on app exit. A small sqlite or JSON cache
   would fix it; matches how `expo-task-manager` works on Android.
