@@ -2,6 +2,7 @@
 
 #include "../camera/Camera.h"
 #include "../deviceinfo/DeviceInfo.h"
+#include "../filepicker/FilePicker.h"
 #include "../filesystem/FileSystem.h"
 #include "../keepawake/KeepAwake.h"
 #include "../locale/Locale.h"
@@ -2289,6 +2290,99 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                    nullptr);
                return jsi::Value::undefined();
              });
+
+  // ─── File picker (expo-document-picker / expo-image-picker) ──────
+  // GtkFileDialog-backed. opts is {title, mimeFilters[], multiple};
+  // callbacks fire on the main loop with picked paths or cancel/
+  // error.
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "pickFiles",
+      3,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2 || !args[0].isObject())
+          return jsi::Value::undefined();
+        rnlinux::filepicker::PickOptions opts;
+        auto optObj = args[0].asObject(rt);
+        if (optObj.hasProperty(rt, "title"))
+          opts.title = optObj.getProperty(rt, "title").asString(rt).utf8(rt);
+        if (optObj.hasProperty(rt, "multiple") && optObj.getProperty(rt, "multiple").isBool())
+          opts.multiple = optObj.getProperty(rt, "multiple").getBool();
+        if (optObj.hasProperty(rt, "mimeFilters")) {
+          auto v = optObj.getProperty(rt, "mimeFilters");
+          if (v.isObject() && v.asObject(rt).isArray(rt)) {
+            auto arr = v.asObject(rt).asArray(rt);
+            const size_t n = arr.size(rt);
+            for (size_t i = 0; i < n; ++i) {
+              auto el = arr.getValueAtIndex(rt, i);
+              if (el.isString())
+                opts.mimeFilters.push_back(el.asString(rt).utf8(rt));
+            }
+          }
+        }
+        auto okCb = std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        auto errCb = count >= 3 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt))
+                         : nullptr;
+        GtkWidget* parent = state().rootView;
+        rnlinux::filepicker::pickFiles(
+            parent,
+            opts,
+            [okCb](const std::vector<rnlinux::filepicker::PickedFile>& picked) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                jsi::Array arr(jrt, picked.size());
+                for (size_t i = 0; i < picked.size(); ++i) {
+                  jsi::Object o(jrt);
+                  o.setProperty(jrt, "path", jsi::String::createFromUtf8(jrt, picked[i].path));
+                  o.setProperty(jrt, "name", jsi::String::createFromUtf8(jrt, picked[i].name));
+                  o.setProperty(jrt, "size", jsi::Value(static_cast<double>(picked[i].size)));
+                  o.setProperty(
+                      jrt, "mimeType", jsi::String::createFromUtf8(jrt, picked[i].mimeType));
+                  arr.setValueAtIndex(jrt, i, o);
+                }
+                jsi::Object result(jrt);
+                result.setProperty(jrt, "canceled", jsi::Value(false));
+                result.setProperty(jrt, "assets", arr);
+                okCb->call(jrt, result);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.filepicker") << "ok handler threw: " << e.what();
+              }
+            },
+            [okCb]() {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                jsi::Object result(jrt);
+                result.setProperty(jrt, "canceled", jsi::Value(true));
+                okCb->call(jrt, result);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.filepicker") << "cancel handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& s = state();
+              if (!s.runtime || !errCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.filepicker") << "err handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
 
   // ─── Network (expo-network) ──────────────────────────────────────
   // Synchronous snapshot from GNetworkMonitor + /sys/class/net.

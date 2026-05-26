@@ -176,7 +176,8 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-keep-awake` (systemd-logind Manager.Inhibit("idle:sleep") on the system bus; tag-keyed; auto-released on bundle reload),
 `expo-network` (GNetworkMonitor for up/internet + /sys/class/net for interface type + IP + MAC; NM-or-netlink-fallback),
 `expo-battery` (reuses /sys/class/power_supply path from device-info; UNKNOWN on machines without a battery),
-`expo-sharing` (routes shareAsync through rnLinux.openURL → xdg-mime default handler).
+`expo-sharing` (routes shareAsync through rnLinux.openURL → xdg-mime default handler),
+`expo-document-picker` + `expo-image-picker` (shared GtkFileDialog backend; image-picker chains launchCameraAsync into the existing cameraSnap).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -188,8 +189,8 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [x] **`expo-secure-store`** — DONE 2026-05-26. See `docs/realworld-expo-secure-store.md`. Gaps: auto-create login collection on first use, biometric prompts (KWallet PAM), per-app keychainService isolation.
 - [x] **`expo-network`** — DONE 2026-05-26. See `docs/realworld-expo-network.md`. GNetworkMonitor (auto-picks NM/netlink) + sysfs. Gaps: live network-changed subscription, per-interface enumeration, airplane-mode via rfkill.
 - [ ] **`expo-image`** — drop-in replacement for RN `Image`. Already mostly possible: reuse the libsoup loader from our ImageComponentView, add `transition` / `placeholder` / `cachePolicy` support. New Fabric component `ExpoImage` backed by GtkPicture with our own GdkPaintable subclass for cross-fade transitions.
-- [ ] **`expo-document-picker`** — `GtkFileChooserDialog` (or the newer `GtkFileDialog` from GTK 4.10). C++ binding takes `multiple`, `type[]` MIME filters, returns selected paths as `{assets: [{uri, name, size, mimeType}]}`. ~150 LOC + dialog plumbing on the main GTK thread.
-- [ ] **`expo-image-picker`** — same `GtkFileChooser` backend as document-picker but with image-MIME pre-filter. Share most of the code. Real "from camera" path could chain into our existing GStreamer snap. `launchImageLibraryAsync` / `launchCameraAsync`.
+- [x] **`expo-document-picker`** — DONE 2026-05-26. See `docs/realworld-expo-pickers.md`. GtkFileDialog (GTK 4.10+) shared with expo-image-picker.
+- [x] **`expo-image-picker`** — DONE 2026-05-26. Same GtkFileDialog backend; launchCameraAsync chains into the existing rnLinux.cameraSnap pipeline.
 - [x] **`expo-sharing`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Currently uses `g_app_info_launch_default_for_uri` (single default app per MIME); real picker via xdg-desktop-portal OpenURI is the planned follow-up for sandboxed apps.
 - [ ] **`expo-sensors`** — accelerometer / gyro / magnetometer don't exist on most desktops. iio-sensor-proxy can surface laptop accelerometers on some devices, but coverage is poor. **Skip until there's user demand**, then implement against iio-sensor-proxy over DBus with a clean "no sensors available" error path.
 - [x] **`expo-battery`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Reuses the DeviceInfo /sys/class/power_supply path; live UPower subscription is a follow-up.

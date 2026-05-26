@@ -401,6 +401,95 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-document-picker / expo-image-picker ─
+// Both go through one GtkFileDialog backend (rnLinux.pickFiles).
+// Image picker also wraps the existing cameraSnap binding for
+// launchCameraAsync.
+function ExpoDocumentPickerDemo() {
+  const Doc = require('expo-document-picker');
+  const [result, setResult] = useState<string>('(idle)');
+  const [err, setErr] = useState<string>('');
+
+  async function pick(multiple: boolean) {
+    setErr('');
+    try {
+      const r = await Doc.getDocumentAsync({type: '*/*', multiple});
+      if (r.canceled) {
+        setResult('canceled');
+      } else {
+        setResult(`${r.assets.length} picked: ${r.assets.map((a: any) => a.name).join(', ')}`);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        GtkFileDialog (GTK 4.10+) parented to the app's GtkApplicationWindow. Mime filters and
+        multi-select flow through to the native chooser.
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={() => pick(false)}>
+          <Text style={styles.btnText}>pick one</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={() => pick(true)}>
+          <Text style={styles.btnText}>pick multiple</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.demoLine}>{result}</Text>
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
+function ExpoImagePickerDemo() {
+  const Img = require('expo-image-picker');
+  const [uri, setUri] = useState<string | null>(null);
+  const [err, setErr] = useState<string>('');
+
+  async function pick() {
+    setErr('');
+    try {
+      const r = await Img.launchImageLibraryAsync({mediaTypes: Img.MediaTypeOptions.Images});
+      if (!r.canceled) setUri(r.assets[0].uri);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function capture() {
+    setErr('');
+    try {
+      const r = await Img.launchCameraAsync({});
+      if (!r.canceled) setUri(r.assets[0].uri);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        launchImageLibraryAsync uses the same GtkFileDialog with image/* filters; launchCameraAsync
+        chains into the existing cameraSnap pipeline (videotestsrc/v4l2src → pngenc). Tap an option,
+        the resulting image renders inline.
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={pick}>
+          <Text style={styles.btnText}>pick image</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={capture}>
+          <Text style={styles.btnText}>snap from camera</Text>
+        </Pressable>
+      </View>
+      {uri ? <Image source={{uri}} style={{width: 200, height: 150, marginTop: 6}} /> : null}
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-battery / expo-sharing ─────────────
 // Both are JS-only — battery reuses the existing device-info
 // power state path, sharing routes through rnLinux.openURL
@@ -960,13 +1049,14 @@ function SmokeDemo() {
       tryProbe('expo-document-picker', async function p() {
         const m = require('expo-document-picker');
         if (typeof m.getDocumentAsync !== 'function') throw new Error('getDocumentAsync missing');
-        return 'wired';
+        return 'GtkFileDialog backend wired';
       }),
       tryProbe('expo-image-picker', async function p() {
         const m = require('expo-image-picker');
         if (typeof m.launchImageLibraryAsync !== 'function')
           throw new Error('launchImageLibraryAsync missing');
-        return 'wired';
+        if (typeof m.launchCameraAsync !== 'function') throw new Error('launchCameraAsync missing');
+        return 'GtkFileDialog + cameraSnap wired';
       }),
       tryProbe('expo-sharing', async function p() {
         const m = require('expo-sharing');
@@ -1079,6 +1169,16 @@ function SmokeDemo() {
           <ExpoSharingDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-document-picker')} />
+          <ExpoDocumentPickerDemo />
+        </View>
+
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-image-picker')} />
+          <ExpoImagePickerDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -1090,13 +1190,7 @@ function SmokeDemo() {
             implementation; see TODO.md "Expo module backlog" for the backend per module.
           </Text>
         </View>
-        {[
-          'expo-image',
-          'expo-document-picker',
-          'expo-image-picker',
-          'expo-print',
-          'expo-screen-capture',
-        ].map(name => (
+        {['expo-image', 'expo-print', 'expo-screen-capture'].map(name => (
           <View key={name} style={styles.section}>
             <ProbeRow probe={pending(name)} />
           </View>
