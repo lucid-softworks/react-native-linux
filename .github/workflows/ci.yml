@@ -110,11 +110,20 @@ jobs:
             libsoup-3.0-dev \
             libglib2.0-dev \
             libboost-all-dev \
+            libdouble-conversion-dev \
+            libevent-dev \
+            libssl-dev \
+            libgoogle-glog-dev \
+            libgflags-dev \
+            zlib1g-dev \
             python3 python3-pip
           # Folly's CMake reaches for Boost (context / filesystem / regex /
-          # thread …) and our CMakeLists for the playground app pulls in
-          # libsoup3 for the image loader's network backend. Without them
-          # configure-vnext fails before a single .cpp compiles.
+          # thread …) + a bunch of MODULE-required find_package() calls:
+          # DoubleConversion, LibEvent, OpenSSL. The optional ones (Glog,
+          # Gflags, ZLIB) get linked when present and we install them so
+          # the configure isn't constantly toggling Folly compile flags
+          # between runs. Our CMakeLists for the playground app also
+          # pulls in libsoup3 for the image loader's network backend.
 
       - uses: pnpm/action-setup@v6
         with:
