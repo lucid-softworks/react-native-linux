@@ -42,6 +42,15 @@ const linuxExpoShims = {
   'react-native-safe-area-context':
     '@lucid-softworks/react-native-linux-expo/react-native-safe-area-context',
   'react-native-screens': '@lucid-softworks/react-native-linux-expo/react-native-screens',
+  // akari-driven additions
+  'expo-application': '@lucid-softworks/react-native-linux-expo/expo-application',
+  'expo-crypto': '@lucid-softworks/react-native-linux-expo/expo-crypto',
+  'expo-device': '@lucid-softworks/react-native-linux-expo/expo-device',
+  'expo-watermark': '@lucid-softworks/react-native-linux-expo/expo-watermark',
+  'expo-file-system/legacy': '@lucid-softworks/react-native-linux-expo/expo-file-system-legacy',
+  'react-native-mmkv': '@lucid-softworks/react-native-linux-expo/react-native-mmkv',
+  '@react-native-community/netinfo':
+    '@lucid-softworks/react-native-linux-expo/react-native-community-netinfo',
 };
 
 const config = {

@@ -16,10 +16,13 @@
 
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <gtk/gtk.h>
 #include <jsi/jsi.h>
 #include <string>
+#include <sys/random.h>
 #include <unordered_map>
 #include <vector>
 
@@ -1494,6 +1497,106 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           g_object_unref(info);
         return jsi::Value(ok);
       });
+
+  // expo-crypto backing. CSPRNG random bytes and SHA-1/256/384/512
+  // digests. Both surface to JS as base64 strings so the JSI marshal
+  // doesn't have to deal with ArrayBuffers / typed arrays — the JS
+  // shim decodes back to Uint8Array when expo's API needs it.
+  //
+  // Random bytes come from getrandom(2) — the right CSPRNG syscall
+  // on Linux ≥3.17 (we already require newer kernels for V4L2 /
+  // logind). Falls back to /dev/urandom on older kernels via libc's
+  // wrapper. Digests use GChecksum which is the same primitive the
+  // file-system MD5 path already uses.
+  bindMethod(
+      rt,
+      rnLinux,
+      "cryptoRandomBytes",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isNumber())
+          throw jsi::JSError(rt, "cryptoRandomBytes: byteCount required");
+        const int n = static_cast<int>(args[0].asNumber());
+        if (n <= 0 || n > 1024 * 1024) {
+          // Cap at 1 MiB — DPoP signing wants 32 bytes, UUIDs want 16,
+          // larger requests are almost always a bug.
+          throw jsi::JSError(rt, "cryptoRandomBytes: byteCount out of range");
+        }
+        std::vector<unsigned char> buf(n);
+        // glib's GRand is *not* cryptographically secure; getrandom
+        // is. The flags=0 mode blocks on first boot if the kernel's
+        // entropy pool isn't seeded yet (rare on real systems, never
+        // on the smoke VM).
+        ssize_t got = 0;
+        while (got < n) {
+          const ssize_t r = ::getrandom(buf.data() + got, n - got, 0);
+          if (r < 0) {
+            if (errno == EINTR)
+              continue;
+            throw jsi::JSError(rt, std::string{"cryptoRandomBytes: "} + std::strerror(errno));
+          }
+          got += r;
+        }
+        char* enc = g_base64_encode(buf.data(), buf.size());
+        std::string out = enc ? std::string(enc) : std::string{};
+        if (enc)
+          g_free(enc);
+        return jsi::String::createFromUtf8(rt, out);
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "cryptoDigest",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isString())
+          throw jsi::JSError(rt, "cryptoDigest(algorithm, base64Data) required");
+        const auto algo = args[0].asString(rt).utf8(rt);
+        const auto b64 = args[1].asString(rt).utf8(rt);
+        GChecksumType type;
+        if (algo == "SHA-1")
+          type = G_CHECKSUM_SHA1;
+        else if (algo == "SHA-256")
+          type = G_CHECKSUM_SHA256;
+        else if (algo == "SHA-384")
+          type = G_CHECKSUM_SHA384;
+        else if (algo == "SHA-512")
+          type = G_CHECKSUM_SHA512;
+        else if (algo == "MD5")
+          type = G_CHECKSUM_MD5;
+        else
+          throw jsi::JSError(rt, std::string{"cryptoDigest: unsupported algorithm "} + algo);
+        gsize decodedLen = 0;
+        guchar* decoded = g_base64_decode(b64.c_str(), &decodedLen);
+        if (!decoded)
+          throw jsi::JSError(rt, "cryptoDigest: invalid base64 input");
+        GChecksum* ck = g_checksum_new(type);
+        if (!ck) {
+          g_free(decoded);
+          throw jsi::JSError(rt, "cryptoDigest: g_checksum_new failed");
+        }
+        g_checksum_update(ck, decoded, static_cast<gssize>(decodedLen));
+        const char* hex = g_checksum_get_string(ck);
+        std::string out = hex ? std::string{hex} : std::string{};
+        g_checksum_free(ck);
+        g_free(decoded);
+        return jsi::String::createFromUtf8(rt, out);
+      });
+
+  // RFC 4122 v4 UUID via glib. Format matches expo's:
+  // 36-char lowercase with dashes (8-4-4-4-12).
+  bindMethod(rt,
+             rnLinux,
+             "cryptoUUID",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               char* u = g_uuid_string_random();
+               std::string out = u ? std::string{u} : std::string{};
+               if (u)
+                 g_free(u);
+               return jsi::String::createFromUtf8(rt, out);
+             });
 
   // Clipboard backing. GTK4 exposes the display-level clipboard via
   // gdk_display_get_clipboard; we set/read UTF-8 text on it. Reads

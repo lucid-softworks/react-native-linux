@@ -244,6 +244,13 @@ const appOpts = {
     'react-native-screens',
     'react-native-reanimated',
     'expo-router',
+    'expo-application',
+    'expo-crypto',
+    'expo-device',
+    'expo-watermark',
+    'expo-file-system/legacy',
+    'react-native-mmkv',
+    '@react-native-community/netinfo',
     './runtime',
   ],
   banner: {
@@ -288,6 +295,13 @@ const appOpts = {
       '  if (id === "react-native-screens") return rnv.screens;\n' +
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
       '  if (id === "expo-router") return rnv.expoRouter;\n' +
+      '  if (id === "expo-application") return rnv.expoApplication;\n' +
+      '  if (id === "expo-crypto") return rnv.expoCrypto;\n' +
+      '  if (id === "expo-device") return rnv.expoDevice;\n' +
+      '  if (id === "expo-watermark") return rnv.expoWatermark;\n' +
+      '  if (id === "expo-file-system/legacy") return rnv.expoFileSystemLegacy;\n' +
+      '  if (id === "react-native-mmkv") return rnv.reactNativeMmkv;\n' +
+      '  if (id === "@react-native-community/netinfo") return rnv.netinfo;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
       '  throw new Error("unknown vendor require: " + id);\n' +

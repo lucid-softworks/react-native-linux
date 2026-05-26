@@ -78,6 +78,13 @@ const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-n
 const screensMod = require('@lucid-softworks/react-native-linux-expo/react-native-screens');
 const reanimatedMod = require('@lucid-softworks/react-native-linux-expo/react-native-reanimated');
 const expoRouterMod = require('@lucid-softworks/react-native-linux-expo/expo-router');
+const expoApplicationMod = require('@lucid-softworks/react-native-linux-expo/expo-application');
+const expoCryptoMod = require('@lucid-softworks/react-native-linux-expo/expo-crypto');
+const expoDeviceMod = require('@lucid-softworks/react-native-linux-expo/expo-device');
+const expoWatermarkMod = require('@lucid-softworks/react-native-linux-expo/expo-watermark');
+const expoFileSystemLegacyMod = require('@lucid-softworks/react-native-linux-expo/expo-file-system-legacy');
+const reactNativeMmkvMod = require('@lucid-softworks/react-native-linux-expo/react-native-mmkv');
+const netinfoMod = require('@lucid-softworks/react-native-linux-expo/react-native-community-netinfo');
 const errorBoundaryMod = require('@lucid-softworks/react-native-linux-expo/error-boundary');
 const hostConfigMod = require('./fabricHostConfig');
 
@@ -122,6 +129,13 @@ globalThis.__rnv = {
   screens: screensMod,
   reanimated: reanimatedMod,
   expoRouter: expoRouterMod,
+  expoApplication: expoApplicationMod,
+  expoCrypto: expoCryptoMod,
+  expoDevice: expoDeviceMod,
+  expoWatermark: expoWatermarkMod,
+  expoFileSystemLegacy: expoFileSystemLegacyMod,
+  reactNativeMmkv: reactNativeMmkvMod,
+  netinfo: netinfoMod,
   errorBoundary: errorBoundaryMod,
   runtime: {
     ...fabricMod,
