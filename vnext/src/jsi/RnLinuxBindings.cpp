@@ -866,6 +866,65 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   // so the GTK source callback can call into the runtime directly.
   // setInterval returns a JS-visible handler id; clearInterval removes
   // the underlying GTK source and drops our Function reference.
+  // setTimeout — one-shot timer mirroring setInterval's plumbing but
+  // returning G_SOURCE_REMOVE on the first tick. The JS shim layer
+  // had been polyfilling setTimeout to Promise.resolve().then which
+  // ignored the delay; that broke any future-scheduled work (the
+  // expo-notifications JS scheduler fired everything immediately).
+  bindMethod(
+      rt,
+      rnLinux,
+      "setTimeout",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        auto fn = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        guint ms = static_cast<guint>(args[1].asNumber());
+        int handlerId = state().nextTimerId++;
+        guint sourceId = g_timeout_add(
+            ms,
+            +[](gpointer ud) -> gboolean {
+              int hid = GPOINTER_TO_INT(ud);
+              auto it = state().timerHandlers.find(hid);
+              if (it == state().timerHandlers.end() || !state().runtime) {
+                return G_SOURCE_REMOVE;
+              }
+              try {
+                it->second.second->call(*state().runtime);
+                state().runtime->drainMicrotasks();
+              } catch (const jsi::JSError& e) {
+                RNL_LOGE("rnLinux") << "timeout threw: " << e.getMessage();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux") << "timeout threw: " << e.what();
+              }
+              // One-shot — drop our handle so a subsequent clearTimeout
+              // call on a stale id is a no-op.
+              state().timerHandlers.erase(hid);
+              return G_SOURCE_REMOVE;
+            },
+            GINT_TO_POINTER(handlerId));
+        state().timerHandlers[handlerId] = {sourceId, std::move(fn)};
+        return jsi::Value{handlerId};
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "clearTimeout",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        int handlerId = static_cast<int>(args[0].asNumber());
+        auto it = state().timerHandlers.find(handlerId);
+        if (it != state().timerHandlers.end()) {
+          g_source_remove(it->second.first);
+          state().timerHandlers.erase(it);
+        }
+        return jsi::Value::undefined();
+      });
+
   bindMethod(
       rt,
       rnLinux,
@@ -2732,25 +2791,31 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   // jsi::Function shared_ptr so libnotify's closed-signal trampoline
   // can call into JS without needing to track per-notification state.
 
+  // Optional 4th arg on present, 5th on schedule: categoryId.
+  // When set, looks up actions registered via
+  // rnLinux.notificationsSetCategory and attaches them as libnotify
+  // action buttons.
   bindMethod(
       rt,
       rnLinux,
       "notificationsPresent",
-      3,
+      4,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 3)
           return jsi::Value(false);
         const auto id = args[0].asString(rt).utf8(rt);
         const auto title = args[1].asString(rt).utf8(rt);
         const auto body = args[2].asString(rt).utf8(rt);
-        return jsi::Value(rnlinux::notifications::present(id, title, body));
+        const auto category =
+            count >= 4 && args[3].isString() ? args[3].asString(rt).utf8(rt) : std::string{};
+        return jsi::Value(rnlinux::notifications::present(id, title, body, category));
       });
 
   bindMethod(
       rt,
       rnLinux,
       "notificationsSchedule",
-      4,
+      5,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
         if (count < 4)
           return jsi::Value(false);
@@ -2758,8 +2823,88 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         const int delayMs = static_cast<int>(args[1].asNumber());
         const auto title = args[2].asString(rt).utf8(rt);
         const auto body = args[3].asString(rt).utf8(rt);
-        return jsi::Value(rnlinux::notifications::schedule(id, delayMs, title, body));
+        const auto category =
+            count >= 5 && args[4].isString() ? args[4].asString(rt).utf8(rt) : std::string{};
+        return jsi::Value(rnlinux::notifications::schedule(id, delayMs, title, body, category));
       });
+
+  // setCategory(id, [{key, label}, ...]) — register action buttons
+  // that get attached to any notification presented/scheduled with
+  // this category id. Empty actions == clear.
+  bindMethod(
+      rt,
+      rnLinux,
+      "notificationsSetCategory",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value(false);
+        const auto id = args[0].asString(rt).utf8(rt);
+        std::vector<rnlinux::notifications::CategoryAction> actions;
+        if (count >= 2 && args[1].isObject() && args[1].asObject(rt).isArray(rt)) {
+          auto arr = args[1].asObject(rt).asArray(rt);
+          const size_t n = arr.size(rt);
+          actions.reserve(n);
+          for (size_t i = 0; i < n; ++i) {
+            auto v = arr.getValueAtIndex(rt, i);
+            if (!v.isObject())
+              continue;
+            auto o = v.asObject(rt);
+            std::string key;
+            std::string label;
+            if (o.hasProperty(rt, "key")) {
+              auto k = o.getProperty(rt, "key");
+              if (k.isString())
+                key = k.asString(rt).utf8(rt);
+            }
+            if (o.hasProperty(rt, "label")) {
+              auto l = o.getProperty(rt, "label");
+              if (l.isString())
+                label = l.asString(rt).utf8(rt);
+            }
+            if (!key.empty())
+              actions.push_back({key, label.empty() ? key : label});
+          }
+        }
+        rnlinux::notifications::setCategory(id, std::move(actions));
+        return jsi::Value(true);
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "notificationsClearCategory",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        rnlinux::notifications::clearCategory(args[0].asString(rt).utf8(rt));
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(rt,
+             rnLinux,
+             "notificationsListCategories",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               const auto ids = rnlinux::notifications::listCategoryIds();
+               jsi::Array arr(rt, ids.size());
+               for (size_t i = 0; i < ids.size(); ++i) {
+                 jsi::Object o(rt);
+                 o.setProperty(rt, "identifier", jsi::String::createFromUtf8(rt, ids[i]));
+                 const auto actions = rnlinux::notifications::getCategoryActions(ids[i]);
+                 jsi::Array actionsArr(rt, actions.size());
+                 for (size_t j = 0; j < actions.size(); ++j) {
+                   jsi::Object a(rt);
+                   a.setProperty(rt, "key", jsi::String::createFromUtf8(rt, actions[j].key));
+                   a.setProperty(rt, "label", jsi::String::createFromUtf8(rt, actions[j].label));
+                   actionsArr.setValueAtIndex(rt, j, a);
+                 }
+                 o.setProperty(rt, "actions", actionsArr);
+                 arr.setValueAtIndex(rt, i, o);
+               }
+               return arr;
+             });
 
   bindMethod(
       rt,

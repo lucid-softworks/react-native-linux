@@ -96,18 +96,19 @@ function _enqueue(fn) {
   }
 }
 
-const _timers = new Map();
-let _timerSeq = 1;
+// setTimeout / clearTimeout — backed by g_timeout_add via
+// rnLinux.setTimeout. Returns a numeric handle that clearTimeout
+// can pass back to remove the GLib source. Args after `ms` are
+// captured in the arrow so the native side just calls a zero-arg
+// function (matches the JSI binding's `fn->call(rt)`).
 if (typeof globalThis.setTimeout === 'undefined') {
-  globalThis.setTimeout = (fn, _ms, ...args) => {
-    const id = _timerSeq++;
-    _timers.set(id, true);
-    _enqueue(() => {
-      if (_timers.delete(id)) fn(...args);
-    });
-    return id;
+  globalThis.setTimeout = (fn, ms, ...args) => {
+    const delay = typeof ms === 'number' && ms > 0 ? ms : 0;
+    return rnLinux.setTimeout(() => fn(...args), delay);
   };
-  globalThis.clearTimeout = id => _timers.delete(id);
+  globalThis.clearTimeout = id => {
+    if (typeof id === 'number') rnLinux.clearTimeout(id);
+  };
 }
 if (typeof globalThis.setInterval === 'undefined') {
   // Real GTK-driven interval (g_timeout_add wired up in
@@ -217,15 +218,4 @@ function _enqueueWithReport(fn) {
       _reportError(e, false);
     }
   });
-}
-// Re-bind the shim setTimeout to use the reporting wrapper.
-if (globalThis.setTimeout && _timers) {
-  globalThis.setTimeout = (fn, _ms, ...args) => {
-    const id = _timerSeq++;
-    _timers.set(id, true);
-    _enqueueWithReport(() => {
-      if (_timers.delete(id)) fn(...args);
-    });
-    return id;
-  };
 }

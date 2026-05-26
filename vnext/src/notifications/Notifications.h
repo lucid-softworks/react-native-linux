@@ -30,6 +30,14 @@ struct ScheduledHandle {
   int64_t fireAtMs = 0; // absolute time, ms-epoch
 };
 
+// One actionable button on a presented notification. `key` is the
+// action id reported back via the response callback when the user
+// clicks it. `label` is what the daemon shows on the button.
+struct CategoryAction {
+  std::string key;
+  std::string label;
+};
+
 // Response callback: fires when a presented notification is dismissed
 // or its default action is taken. The actionId is "default" for a
 // plain click, "dismissed" when the user closes without action, or
@@ -43,8 +51,13 @@ bool ensureInit(const std::string& appName);
 
 // Present a notification immediately. Returns false on libnotify
 // error. The id is stored so cancel(id) can close the visible
-// bubble later.
-bool present(const std::string& id, const std::string& title, const std::string& body);
+// bubble later. `categoryId` (when non-empty) looks up actions
+// registered via setCategory() and attaches them to the bubble as
+// libnotify action buttons.
+bool present(const std::string& id,
+             const std::string& title,
+             const std::string& body,
+             const std::string& categoryId = {});
 
 // Schedule a present() call after `delayMs`. The timer fires on the
 // main GMainContext; cancellation removes the timer source. If the
@@ -52,7 +65,18 @@ bool present(const std::string& id, const std::string& title, const std::string&
 bool schedule(const std::string& id,
               int delayMs,
               const std::string& title,
-              const std::string& body);
+              const std::string& body,
+              const std::string& categoryId = {});
+
+// Register / clear a category. Categories carry action button
+// definitions that get added to the libnotify bubble at fire time.
+// Empty actions or an unknown category id mean a plain
+// notification with no buttons. listCategories() exists so the
+// shim can answer expo's getNotificationCategoriesAsync.
+void setCategory(const std::string& id, std::vector<CategoryAction> actions);
+void clearCategory(const std::string& id);
+std::vector<std::string> listCategoryIds();
+std::vector<CategoryAction> getCategoryActions(const std::string& id);
 
 // Cancel a scheduled-but-unfired notification AND close any
 // presently-visible bubble with the same id. Idempotent.

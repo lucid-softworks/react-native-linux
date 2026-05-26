@@ -1072,20 +1072,30 @@ function SmokeDemo() {
           throw new Error(`scheduleNotificationAsync missing (keys: ${Object.keys(n).join(',')})`);
         }
         const perms = await n.requestPermissionsAsync();
-        // Synthesize a received event by scheduling and confirm the
-        // listener fires. The trigger=null path resolves immediately,
-        // so the listener should be invoked before we get back from
-        // scheduleNotificationAsync's then().
-        let received = false;
-        const sub = n.addNotificationReceivedListener(() => {
-          received = true;
+        // Categories round-trip locally — no notifications fire.
+        let catOk = false;
+        if (typeof n.setNotificationCategoryAsync === 'function') {
+          await n.setNotificationCategoryAsync('rnl-smoke-cat', [
+            {identifier: 'open', buttonTitle: 'Open'},
+            {identifier: 'snooze', buttonTitle: 'Snooze'},
+          ]);
+          const cats = await n.getNotificationCategoriesAsync();
+          catOk =
+            Array.isArray(cats) &&
+            cats.some(c => c.identifier === 'rnl-smoke-cat' && (c.actions || []).length === 2);
+          await n.deleteNotificationCategoryAsync('rnl-smoke-cat');
+        }
+        // Daily trigger — arms a real future setTimeout (now backed
+        // by g_timeout_add via rnLinux.setTimeout). Cancel before
+        // returning so the timer doesn't survive past the probe.
+        const dailyId = await n.scheduleNotificationAsync({
+          content: {title: 'daily', body: 'probe'},
+          trigger: {type: 'daily', hour: 3, minute: 0},
         });
-        await n.scheduleNotificationAsync({
-          content: {title: 'smoke', body: 'listener probe'},
-          trigger: null,
-        });
-        sub.remove();
-        return `perms=${perms?.status ?? 'n/a'} listener=${received ? 'fired' : 'silent'}`;
+        const scheduled = await n.getAllScheduledNotificationsAsync();
+        const dailyOk = Array.isArray(scheduled) && scheduled.some(s => s.identifier === dailyId);
+        await n.cancelScheduledNotificationAsync(dailyId);
+        return `perms=${perms?.status ?? 'n/a'} categories=${catOk ? 'ok' : 'no'} daily=${dailyOk ? 'ok' : 'no'}`;
       }),
 
       // ─── Backlog probes (stub shims; see TODO.md). Each fires a
