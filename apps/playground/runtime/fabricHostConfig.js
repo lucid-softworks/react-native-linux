@@ -187,6 +187,13 @@ function syncScrollHandler(tag, props) {
   rnLinux.fabricOnScroll(tag, handler);
 }
 
+function syncFocusHandlers(tag, props) {
+  const onFocus = props && typeof props.onFocus === 'function' ? props.onFocus : null;
+  const onBlur = props && typeof props.onBlur === 'function' ? props.onBlur : null;
+  rnLinux.fabricOnFocus(tag, onFocus);
+  rnLinux.fabricOnBlur(tag, onBlur);
+}
+
 // onLayout lives on every host element type — register / unregister
 // per-tag so dispatchFabricLayout (called from
 // LinuxComponentView::updateLayoutMetrics) knows which tags need a
@@ -383,6 +390,7 @@ const hostConfig = {
       syncChangeTextHandler(tag, props);
       syncSubmitEditingHandler(tag, props);
       syncKeyPressHandler(tag, props);
+      syncFocusHandlers(tag, props);
       syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'TextInput', type);
     }
@@ -503,6 +511,7 @@ const hostConfig = {
       syncChangeTextHandler(currentInstance.tag, newProps);
       syncSubmitEditingHandler(currentInstance.tag, newProps);
       syncKeyPressHandler(currentInstance.tag, newProps);
+      syncFocusHandlers(currentInstance.tag, newProps);
     }
     if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
     if (type === 'switch') syncSwitchHandler(currentInstance.tag, newProps);

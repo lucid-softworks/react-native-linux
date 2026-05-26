@@ -104,6 +104,12 @@ void dispatchFabricScroll(int tag,
                           double viewportWidth,
                           double viewportHeight);
 
+// TextInput focus / blur dispatchers — fire when GtkText receives /
+// loses focus. Paper's TextInput.Outlined wires its label-animation
+// state directly off these events.
+void dispatchFabricFocus(int tag);
+void dispatchFabricBlur(int tag);
+
 // Dispatch an onLayout event for the given tag. Payload mirrors RN's
 // `{nativeEvent: {layout: {x, y, width, height}}}` shape. Called by
 // LinuxComponentView::updateLayoutMetrics; cheap no-op if no JS handler

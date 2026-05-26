@@ -68,6 +68,13 @@ struct State {
   // TextInput per-keystroke (onKeyPress) handlers.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricKeyPressHandlers;
 
+  // TextInput focus / blur handlers. Paper's TextInput.Outlined animates
+  // its floating label off the JS-side `focused` state derived from
+  // these — without the dispatch the label stays inline and the typed
+  // text overlays it.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricFocusHandlers;
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricBlurHandlers;
+
   // onLayout handlers — fired from LinuxComponentView::updateLayoutMetrics
   // whenever a view's frame changes. Keyed by Fabric tag; payload mirrors
   // RN's {nativeEvent: {layout: {x, y, width, height}}} shape so apps can
@@ -165,6 +172,8 @@ void resetRnLinuxBindings() {
   state().fabricScrollHandlers.clear();
   state().fabricLayoutHandlers.clear();
   state().fabricLayoutLast.clear();
+  state().fabricFocusHandlers.clear();
+  state().fabricBlurHandlers.clear();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -337,6 +346,50 @@ void dispatchFabricScroll(int tag,
     RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.getMessage();
   } catch (const std::exception& e) {
     RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricFocus(int tag) {
+  auto& s = state();
+  if (!s.runtime)
+    return;
+  auto it = s.fabricFocusHandlers.find(tag);
+  if (it == s.fabricFocusHandlers.end())
+    return;
+  jsi::Runtime& rt = *s.runtime;
+  try {
+    jsi::Object nativeEvent(rt);
+    nativeEvent.setProperty(rt, "target", tag);
+    jsi::Object event(rt);
+    event.setProperty(rt, "nativeEvent", nativeEvent);
+    event.setProperty(rt, "target", tag);
+    it->second->call(rt, event);
+  } catch (const jsi::JSError& e) {
+    RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.getMessage();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricBlur(int tag) {
+  auto& s = state();
+  if (!s.runtime)
+    return;
+  auto it = s.fabricBlurHandlers.find(tag);
+  if (it == s.fabricBlurHandlers.end())
+    return;
+  jsi::Runtime& rt = *s.runtime;
+  try {
+    jsi::Object nativeEvent(rt);
+    nativeEvent.setProperty(rt, "target", tag);
+    jsi::Object event(rt);
+    event.setProperty(rt, "nativeEvent", nativeEvent);
+    event.setProperty(rt, "target", tag);
+    it->second->call(rt, event);
+  } catch (const jsi::JSError& e) {
+    RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.getMessage();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.what();
   }
 }
 
@@ -1064,6 +1117,44 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           return jsi::Value::undefined();
         }
         state().fabricScrollHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // TextInput onFocus / onBlur. Paper relies on these to flip its
+  // `focused` state and animate the floating label off the input
+  // baseline up to the outline notch.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnFocus",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricFocusHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricFocusHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnBlur",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricBlurHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricBlurHandlers[tag] =
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });

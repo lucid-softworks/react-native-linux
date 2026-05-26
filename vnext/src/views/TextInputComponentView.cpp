@@ -107,6 +107,29 @@ TextInputComponentView::TextInputComponentView(Tag tag)
                         this,
                         /*destroy=*/nullptr,
                         /*flags=*/static_cast<GConnectFlags>(0));
+  // GtkEventControllerFocus → RN onFocus / onBlur. Paper's
+  // TextInput.Outlined drives its floating-label animation off
+  // these — without them the label stays inline and the user's
+  // typed text overlays it.
+  GtkEventController* focusCtl = gtk_event_controller_focus_new();
+  g_signal_connect_data(focusCtl,
+                        "enter",
+                        G_CALLBACK(+[](GtkEventControllerFocus*, gpointer ud) {
+                          dispatchFabricFocus(static_cast<TextInputComponentView*>(ud)->tag());
+                        }),
+                        this,
+                        nullptr,
+                        static_cast<GConnectFlags>(0));
+  g_signal_connect_data(focusCtl,
+                        "leave",
+                        G_CALLBACK(+[](GtkEventControllerFocus*, gpointer ud) {
+                          dispatchFabricBlur(static_cast<TextInputComponentView*>(ud)->tag());
+                        }),
+                        this,
+                        nullptr,
+                        static_cast<GConnectFlags>(0));
+  gtk_widget_add_controller(widget_, focusCtl);
+
   // GtkEventControllerKey lets us fire onKeyPress for every keystroke
   // before GtkText processes it. We pass through (return FALSE) so
   // editing isn't blocked.

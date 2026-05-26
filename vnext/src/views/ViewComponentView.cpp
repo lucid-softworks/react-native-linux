@@ -189,6 +189,28 @@ void ViewComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
     lastNativeId_ = vp.nativeId;
   }
 
+  // pointerEvents — gate hit testing for this subtree. GTK4's
+  // gtk_widget_pick returns NULL early if a widget's can_target is
+  // FALSE, which also short-circuits descent into children, so a
+  // single set_can_target on this View blocks the whole subtree from
+  // receiving input. Paper's TextInput.Outlined relies on this for
+  // its label/outline overlays so the GtkText underneath actually
+  // receives the click.
+  //
+  // RN's BoxNone means "this view skips hit-test but children still
+  // receive it" — which GTK cannot express directly (can_target=FALSE
+  // takes children with it, can_target=TRUE keeps the parent itself
+  // pickable). Since BoxNone is the most common wrapper shape in
+  // Paper (PortalHost wraps the entire app in one), we leave the
+  // GTK default alone for it: the wrapper stays pickable as a
+  // fallback, but its children are picked first and usually win.
+  // BoxOnly (only this, not children) is the opposite ask; left alone
+  // for the same reason — wrong by spec but doesn't break the tree.
+  const bool canTarget = (vp.pointerEvents != facebook::react::PointerEventsMode::None);
+  if (gtk_widget_get_can_target(widget_) != canTarget) {
+    gtk_widget_set_can_target(widget_, canTarget);
+  }
+
   // Cache the raw operations + origin; final 4×4 matrix is composed
   // in applyTransform() once the layout size is known (operations
   // can reference frame-relative units, and the default transform-
