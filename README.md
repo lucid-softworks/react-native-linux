@@ -93,6 +93,7 @@ react-native-linux/
 │   ├── realworld-expo-camera.md     # GStreamer-backed expo-camera shim
 │   ├── realworld-expo-notifications.md  # libnotify-backed expo-notifications shim
 │   ├── realworld-expo-file-system.md    # POSIX-backed expo-file-system shim
+│   ├── realworld-expo-clipboard.md      # GdkClipboard-backed expo-clipboard shim
 │   └── …
 ├── scripts/vm/                      # Lima dev VM helpers (start.sh, sh.sh, …)
 └── TODO.md                          # Live roadmap
@@ -185,6 +186,7 @@ breaks, and what's been fixed in the process.
 - [docs/realworld-expo-camera.md](./docs/realworld-expo-camera.md) — `expo-camera` via GStreamer
 - [docs/realworld-expo-notifications.md](./docs/realworld-expo-notifications.md) — `expo-notifications` via libnotify
 - [docs/realworld-expo-file-system.md](./docs/realworld-expo-file-system.md) — `expo-file-system` via POSIX + libsoup
+- [docs/realworld-expo-clipboard.md](./docs/realworld-expo-clipboard.md) — `expo-clipboard` via GdkClipboard
 
 The `smoke-demo.tsx` harness in `apps/playground/` covers the next batch:
 `@react-native-async-storage/async-storage`, `react-native-device-info`,

@@ -168,11 +168,12 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-camera` (GStreamer appsink → GdkMemoryTexture; v4l2src/videotestsrc fallback; pngenc snap),
 `expo-location` (GeoClue2 via DBus + auto-spawn demo agent),
 `expo-notifications` (libnotify → freedesktop notification daemon),
-`expo-file-system` (POSIX direct + libsoup downloads; XDG paths).
+`expo-file-system` (POSIX direct + libsoup downloads; XDG paths),
+`expo-clipboard` (GdkClipboard set/get; cross-app reads and image/HTML round-trip still on the gap list).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
-- [ ] **`expo-clipboard`** — `rnLinux.clipboard*` already exists (GdkClipboard). Shim is ~30 LOC: `getStringAsync` / `setStringAsync` / `hasStringAsync`. Quick win.
+- [x] **`expo-clipboard`** — DONE 2026-05-26. See `docs/realworld-expo-clipboard.md`. Gaps: cross-app reads (need async gdk_clipboard_read_text), image/HTML round-trip, change listener.
 - [ ] **`expo-localization`** — read `LC_ALL` / `LANG` / `LC_MESSAGES`, parse to BCP-47, expose `Localization.locale`, `locales[]`, `timezone` (from `/etc/timezone`), `region`, `currency` (from glibc locale data). One C++ helper, JS shim ~80 LOC.
 - [ ] **`expo-haptics`** — GTK doesn't have haptics. Closest analog: `gtk_widget_error_bell()` for the buzz APIs; or stub-with-bell for the rest. Either way: real action, not a no-op. ~50 LOC.
 - [ ] **`expo-keep-awake`** — `org.freedesktop.ScreenSaver.Inhibit` over the session bus (or `org.freedesktop.PowerManagement.Inhibit` fallback). C++ DBus binding mirroring the GeoClue pattern. `activateKeepAwakeAsync(tag)` / `deactivateKeepAwake(tag)` with an inhibit cookie map.

@@ -401,6 +401,56 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-clipboard ───────────────────────────
+// GdkClipboard round-trip. The "copy timestamp" button writes a
+// fresh tag; the "paste" button reads back whatever's on the
+// display clipboard, including text put there by other apps.
+function ExpoClipboardDemo() {
+  const Clipboard = require('expo-clipboard');
+  const [last, setLast] = useState<string>('(empty)');
+  const [err, setErr] = useState<string>('');
+
+  async function copyStamp() {
+    setErr('');
+    try {
+      const stamp = `rn-linux ${new Date().toISOString()}`;
+      await Clipboard.setStringAsync(stamp);
+      setLast(`copied: ${stamp}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function paste() {
+    setErr('');
+    try {
+      const v = await Clipboard.getStringAsync();
+      setLast(v ? `read: ${v}` : '(clipboard returned empty)');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Display-level clipboard via GdkClipboard. Set is sync; reads of values written by other apps
+        need the async read_text path which isn't bound yet (sync fallback returns "").
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={copyStamp}>
+          <Text style={styles.btnText}>copy timestamp</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={paste}>
+          <Text style={styles.btnText}>paste</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.demoLine}>{last}</Text>
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-file-system ───────────────────────────
 // Real POSIX file IO. On mount: write a tagged file under
 // documentDirectory, read it back, list the dir, surface the
@@ -586,8 +636,11 @@ function SmokeDemo() {
       // clean "not yet implemented" message that surfaces here.
       tryProbe('expo-clipboard', async function p() {
         const m = require('expo-clipboard');
-        await m.getStringAsync();
-        return 'wired';
+        const stamp = `rnl-clip-${Date.now()}`;
+        await m.setStringAsync(stamp);
+        const got = await m.getStringAsync();
+        if (got !== stamp) throw new Error(`roundtrip: wrote ${stamp}, read ${got}`);
+        return `roundtripped ${stamp.length} chars`;
       }),
       tryProbe('expo-localization', async function p() {
         const m = require('expo-localization');
@@ -706,6 +759,11 @@ function SmokeDemo() {
           <ExpoFileSystemDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-clipboard')} />
+          <ExpoClipboardDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -718,7 +776,6 @@ function SmokeDemo() {
           </Text>
         </View>
         {[
-          'expo-clipboard',
           'expo-localization',
           'expo-haptics',
           'expo-keep-awake',
