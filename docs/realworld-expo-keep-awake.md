@@ -99,13 +99,18 @@ Click **release** to drop the inhibit.
   through to the logind `who` arg so each app surfaces a
   meaningful name in `systemd-inhibit --list`. Falls back to
   `"react-native-linux"` when blank.
-- **No equivalent on non-systemd Linux.** Devuan, Void, Alpine
-  without elogind, and other systemd-free distros don't run
-  `org.freedesktop.login1`. `isAvailableAsync` returns `false`
-  there and `activateKeepAwakeAsync` silently no-ops. Future
-  improvement: fall back to the session-bus
-  `org.freedesktop.ScreenSaver` interface when a desktop session
-  is running.
+- **Non-systemd Linux fallback** — **DONE.** When the logind
+  `Inhibit` call fails (no daemon owns `org.freedesktop.login1`,
+  or it returned an error), `activate()` falls back to
+  `org.freedesktop.ScreenSaver.Inhibit(application, reason)` on
+  the session bus — the interface every major desktop session
+  (gnome-session, ksmserver, mate-session, xfce4-screensaver,
+  cinnamon-screensaver) implements. The returned uint32 cookie
+  is stored alongside any logind fd handles in the same tag
+  map; `deactivate()` picks the right release path
+  (`close(fd)` vs `UnInhibit(cookie)`) per handle.
+  `isAvailableAsync` now returns `true` if either backend is
+  reachable.
 - **No portal path.** Sandboxed apps (Flatpak, Snap) need the
   `org.freedesktop.portal.Inhibit` interface instead. We can add
   a portal fallback when running under `FLATPAK_ID`.

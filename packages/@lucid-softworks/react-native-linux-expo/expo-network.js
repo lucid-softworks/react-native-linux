@@ -156,7 +156,26 @@ const api = {
   getCellularGenerationAsync,
   useNetworkState,
   addNetworkStateListener,
+  // Linux-only extension — returns every iface the kernel exposes
+  // (loopback, VPN tap devices, bridges, etc.) with type, up-state,
+  // ipv4, ipv6, and mac. Useful for multi-NIC / VPN-aware apps;
+  // cross-platform code should branch on platform before calling.
+  getInterfacesAsync,
 };
+
+async function getInterfacesAsync() {
+  if (typeof rnLinux === 'undefined' || typeof rnLinux.networkInterfaces !== 'function') {
+    return [];
+  }
+  return rnLinux.networkInterfaces().map(i => ({
+    name: i.name,
+    type: i.type,
+    isUp: i.isUp,
+    ipv4: i.ipv4 || null,
+    ipv6: i.ipv6 || null,
+    macAddress: i.macAddress || null,
+  }));
+}
 
 module.exports = api;
 module.exports.default = api;

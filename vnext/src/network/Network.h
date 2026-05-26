@@ -15,6 +15,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace rnlinux::network {
 
@@ -40,6 +41,23 @@ struct NetworkState {
 // Snapshot — cheap, all-sync. Reads /sys/class/net plus a single
 // GNetworkMonitor query.
 NetworkState getState();
+
+// Per-interface enumeration. Walks /sys/class/net and reports
+// every entry the kernel exposes (including loopback, VPN tap
+// devices, bridges) so multi-NIC / VPN-aware apps can branch on
+// what's actually present. Each entry carries an operstate flag
+// (whether the link is up) so consumers can filter for the
+// active set without re-querying the kernel.
+struct NetworkInterface {
+  std::string name;
+  NetType type = NetType::Unknown;
+  bool isUp = false;
+  std::string ipv4;
+  std::string ipv6;
+  std::string macAddress;
+};
+
+std::vector<NetworkInterface> listInterfaces();
 
 // True iff every wireless rfkill node (`type` ∈ {wlan, bluetooth,
 // wwan, gps, wimax, …}) is soft-blocked, AND at least one such

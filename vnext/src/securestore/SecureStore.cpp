@@ -43,15 +43,54 @@ const SecretSchema* getSchema() {
 }
 
 // The default ("login") collection often doesn't exist on headless
-// or fresh sessions. We let libsecret pick it first (real
-// persistent storage on a typical desktop) and fall back to the
-// always-present in-memory SESSION collection so the round-trip
-// still works on Lima dev VMs / CI.
+// or fresh sessions. We try it first (real persistent storage on a
+// typical desktop) and, if missing, attempt to create one so the
+// app gets durable storage instead of silently falling back to the
+// always-present in-memory SESSION collection.
 const char* primaryCollection() {
   return SECRET_COLLECTION_DEFAULT;
 }
 const char* fallbackCollection() {
   return SECRET_COLLECTION_SESSION;
+}
+
+// Lazily create the default collection on first failed store. The
+// keyring daemon prompts the user for a master password when the
+// collection is born — that's fine for production apps (one
+// prompt the first time) but the fallback to SESSION means CI /
+// headless VMs aren't blocked when the prompt can't be answered.
+// Returns true if the collection now exists (newly created or
+// already there); false on hard failures the caller should
+// surface.
+bool ensureDefaultCollection() {
+  static bool tried = false;
+  if (tried)
+    return false; // don't re-prompt on every store
+  tried = true;
+  GError* err = nullptr;
+  SecretService* service = secret_service_get_sync(SECRET_SERVICE_NONE, nullptr, &err);
+  if (!service) {
+    if (err)
+      g_error_free(err);
+    return false;
+  }
+  // `default` is the well-known alias the freedesktop spec
+  // reserves for the user's primary keyring. Most desktops also
+  // alias `login` to the same collection (so gnome-keyring auto-
+  // unlocks at login); we don't need to bother with that here.
+  SecretCollection* col = secret_collection_create_sync(
+      service, "Login", "default", SECRET_COLLECTION_CREATE_NONE, nullptr, &err);
+  g_object_unref(service);
+  if (err) {
+    RNL_LOGW("rnLinux.securestore") << "default collection create failed: " << err->message;
+    g_error_free(err);
+    return false;
+  }
+  if (col) {
+    g_object_unref(col);
+    return true;
+  }
+  return false;
 }
 
 } // namespace
@@ -121,13 +160,24 @@ gboolean storeIn(const char* collection,
 } // namespace
 
 void setItem(const std::string& key, const std::string& value, const std::string& service) {
-  // Try the default collection first, then session. The DEFAULT
-  // alias resolves at the daemon side, so we can't always know up
-  // front whether it'll work — running it and observing the error
-  // is cheaper than introspecting collections first.
+  // Try the default collection first. If the daemon reports it
+  // doesn't exist (fresh user account, no auto-created keyring),
+  // attempt to create one and retry — that lands the entry in
+  // durable storage instead of the in-memory session collection
+  // that we'd otherwise fall back to. On CI/headless boxes where
+  // the create prompt can't be answered, the create fails and we
+  // hit the session fallback below.
   GError* err = nullptr;
   const std::string label = makeLabel(key, service);
   gboolean ok = storeIn(primaryCollection(), key, value, service, label, &err);
+  if (!ok) {
+    if (err)
+      g_error_free(err);
+    err = nullptr;
+    if (ensureDefaultCollection()) {
+      ok = storeIn(primaryCollection(), key, value, service, label, &err);
+    }
+  }
   if (!ok) {
     if (err)
       g_error_free(err);

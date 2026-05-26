@@ -79,11 +79,15 @@ The expo-network section auto-fetches state on mount and exposes a
   device drivers might fall through to `UNKNOWN`. NetworkManager's
   D-Bus API has authoritative device-type metadata if real apps
   need stronger classification.
-- **No per-interface enumeration.** `getNetworkStateAsync` returns
-  the single active interface. Apps that want "all interfaces" or
-  "VPN status separately" would need a richer binding — common
-  enough that listing every iface with type/state should be a
-  follow-up.
+- **Per-interface enumeration** — **DONE.** `getInterfacesAsync()`
+  (Linux-only extension on the expo-network shim) walks
+  `/sys/class/net` and returns `[{name, type, isUp, ipv4, ipv6,
+macAddress}]` for every iface the kernel exposes — including
+  loopback, VPN tap devices, and bridges. `isUp` is a binary
+  flag derived from the kernel's operstate (`up` only; dormant
+  counts as down). IPv6 prefers routable addresses over link-
+  local `fe80::/10`. Useful for multi-NIC / VPN-aware apps;
+  cross-platform code should branch on platform before calling.
 - **`isAirplaneModeEnabledAsync`** — **DONE.** Walks
   `/sys/class/rfkill/rfkill*` and returns `true` iff every
   wireless `type` (wlan/bluetooth/wwan/gps/wimax/uwb) has

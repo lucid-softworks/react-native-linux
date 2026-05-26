@@ -3596,6 +3596,30 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
 
   bindMethod(rt,
              rnLinux,
+             "networkInterfaces",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               const auto list = rnlinux::network::listInterfaces();
+               jsi::Array arr(rt, list.size());
+               for (size_t i = 0; i < list.size(); ++i) {
+                 jsi::Object o(rt);
+                 o.setProperty(rt, "name", jsi::String::createFromUtf8(rt, list[i].name));
+                 o.setProperty(
+                     rt,
+                     "type",
+                     jsi::String::createFromUtf8(rt, rnlinux::network::typeString(list[i].type)));
+                 o.setProperty(rt, "isUp", jsi::Value(list[i].isUp));
+                 o.setProperty(rt, "ipv4", jsi::String::createFromUtf8(rt, list[i].ipv4));
+                 o.setProperty(rt, "ipv6", jsi::String::createFromUtf8(rt, list[i].ipv6));
+                 o.setProperty(
+                     rt, "macAddress", jsi::String::createFromUtf8(rt, list[i].macAddress));
+                 arr.setValueAtIndex(rt, i, o);
+               }
+               return arr;
+             });
+
+  bindMethod(rt,
+             rnLinux,
              "networkSetStateListener",
              1,
              [stateToJs](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count)

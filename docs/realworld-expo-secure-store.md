@@ -88,14 +88,17 @@ token, reads it back, deletes it, reads again, reports
 
 ## Known gaps
 
-- **Login collection auto-creation.** When no default collection
-  exists we silently fall back to the session collection (lost on
-  daemon restart). Production apps want persistent storage; the
-  proper fix is to create a default collection ourselves on first
-  call via `secret_collection_create_sync`. Skipped for the smoke
-  demo because the UX for unlocking a freshly-created collection
-  prompts the user, which doesn't make sense for an app's local
-  storage.
+- **Login collection auto-creation** — **DONE.** When the first
+  `setItem` against the default collection fails, we attempt
+  `secret_collection_create_sync(service, "Login", "default",
+SECRET_COLLECTION_CREATE_NONE, ...)` and retry. On desktops
+  with a real session, the keyring daemon prompts the user once
+  for a master password and the entry lands in durable storage
+  thereafter. On CI / headless boxes where the prompt can't be
+  answered, the create fails and we keep falling back to the
+  in-memory session collection so round-trips still work. The
+  create attempt is gated to once per process so a daemon that
+  refuses creation doesn't re-prompt on every store.
 - **Biometric / passcode prompts.** Some daemons (KWallet) can ask
   via PAM, but no portable API exists across daemons.
   `canUseBiometricAuthentication` returns `false` so cross-platform

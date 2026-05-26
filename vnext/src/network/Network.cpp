@@ -206,6 +206,73 @@ void reset() {
   setStateListener(nullptr);
 }
 
+namespace {
+
+// IPv6 variant of primaryIPv4ForIface — most interfaces have both
+// AF_INET and AF_INET6 entries in getifaddrs; report whichever
+// looks usable (skip link-local fe80::/10 unless that's all there
+// is). Returns empty when the iface has no usable v6 address.
+std::string primaryIPv6ForIface(const std::string& iface) {
+  struct ifaddrs* head = nullptr;
+  if (getifaddrs(&head) != 0 || !head)
+    return {};
+  std::string preferred;
+  std::string linkLocal;
+  for (auto* ifa = head; ifa; ifa = ifa->ifa_next) {
+    if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6)
+      continue;
+    if (!iface.empty() && iface != ifa->ifa_name)
+      continue;
+    if (!(ifa->ifa_flags & IFF_UP))
+      continue;
+    auto* sin6 = reinterpret_cast<sockaddr_in6*>(ifa->ifa_addr);
+    char buf[INET6_ADDRSTRLEN] = {0};
+    if (!inet_ntop(AF_INET6, &sin6->sin6_addr, buf, sizeof(buf)))
+      continue;
+    const std::string addr = buf;
+    // fe80::/10 is link-local; treat as a last resort. Routable
+    // addresses (2000::/3, fd00::/8, ::1 loopback) win.
+    if (addr.rfind("fe80:", 0) == 0) {
+      if (linkLocal.empty())
+        linkLocal = addr;
+    } else {
+      preferred = addr;
+      break;
+    }
+  }
+  freeifaddrs(head);
+  return preferred.empty() ? linkLocal : preferred;
+}
+
+} // namespace
+
+std::vector<NetworkInterface> listInterfaces() {
+  std::vector<NetworkInterface> out;
+  DIR* d = opendir("/sys/class/net");
+  if (!d)
+    return out;
+  struct dirent* ent;
+  while ((ent = readdir(d))) {
+    const std::string name = ent->d_name;
+    if (name == "." || name == "..")
+      continue;
+    NetworkInterface iface;
+    iface.name = name;
+    // operstate file is one of "up", "down", "dormant", "unknown".
+    // We surface a binary up/down so consumers don't have to
+    // memorize the kernel's state names; "dormant" gets lumped
+    // with down since it's not carrying traffic.
+    iface.isUp = slurp("/sys/class/net/" + name + "/operstate") == "up";
+    iface.type = classifyInterface(name);
+    iface.macAddress = macForIface(name);
+    iface.ipv4 = primaryIPv4ForIface(name);
+    iface.ipv6 = primaryIPv6ForIface(name);
+    out.push_back(std::move(iface));
+  }
+  closedir(d);
+  return out;
+}
+
 bool isAirplaneModeEnabled() {
   // /sys/class/rfkill/rfkillN/{type,soft} is the kernel-exposed
   // rfkill state. We treat "airplane mode" as "every wireless
