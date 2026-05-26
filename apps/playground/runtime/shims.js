@@ -124,6 +124,28 @@ if (typeof globalThis.requestAnimationFrame === 'undefined') {
   globalThis.requestAnimationFrame = fn => rnLinux.requestAnimationFrame(fn);
   globalThis.cancelAnimationFrame = id => rnLinux.cancelAnimationFrame(id);
 }
+// RN's standard `global` polyfill — third-party libs reach for it
+// without `typeof` guards (expo-modules-core, async-storage, …).
+// Hermes strict mode throws ReferenceError on unresolved bare
+// identifiers; install the alias so a bare `global.foo` lookup
+// resolves before module code runs.
+if (typeof globalThis.global === 'undefined') {
+  globalThis.global = globalThis;
+}
+
+// Minimal `process` shim. Most RN-targeted libs only look at
+// `process.env.NODE_ENV` (bundler replaces) and `process.platform`.
+// Provide just enough so a probe like `process.cwd?.()` doesn't
+// throw on access — never executed on desktop.
+if (typeof globalThis.process === 'undefined') {
+  globalThis.process = {
+    env: {NODE_ENV: 'development'},
+    platform: 'linux',
+    versions: {},
+    nextTick: fn => Promise.resolve().then(fn),
+  };
+}
+
 if (typeof globalThis.setImmediate === 'undefined') {
   globalThis.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
   globalThis.clearImmediate = id => clearTimeout(id);

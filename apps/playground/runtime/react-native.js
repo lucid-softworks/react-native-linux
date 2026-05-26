@@ -350,6 +350,25 @@ const DeviceEventEmitter = {
   emit: () => {},
 };
 
+// NativeEventEmitter — third-party libs (react-native-device-info,
+// expo-modules) construct `new NativeEventEmitter(NativeModules.X)`
+// at module-eval time, so it has to be a real constructor or the
+// require() walk for the entire library crashes with "is not a
+// constructor". The wrapped native module is allowed to be a stub
+// or even undefined; we just store it and route subscriptions through
+// the same noop bus DeviceEventEmitter uses. Events never fire on
+// desktop, but subscription/cleanup contracts stay intact.
+function NativeEventEmitter(nativeModule) {
+  this._module = nativeModule || null;
+}
+NativeEventEmitter.prototype.addListener = function (_event, _handler) {
+  return _emptySub;
+};
+NativeEventEmitter.prototype.removeListener = function () {};
+NativeEventEmitter.prototype.removeAllListeners = function () {};
+NativeEventEmitter.prototype.removeSubscription = function () {};
+NativeEventEmitter.prototype.emit = function () {};
+
 // I18nManager — many RN libraries read isRTL to mirror layouts.
 // Desktop GTK has no LTR/RTL toggle exposed to JS yet; report LTR.
 const I18nManager = {
@@ -413,4 +432,5 @@ module.exports = {
   AccessibilityInfo,
   AppState,
   DeviceEventEmitter,
+  NativeEventEmitter,
 };

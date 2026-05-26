@@ -69,9 +69,17 @@ const refreshTransformPlugin = {
       // touched. Lower classes via swc target=es5 for any node_modules
       // file that exports a class component. The regex is cheap and
       // skips the bulk of plain-data files.
+      // Any node_modules file containing a class expression — bare
+      // `var X = class {…}` (expo-location's Subscriber), `class
+      // CodedError extends Error` (expo-modules-core), or the
+      // member-expression `class extends React.Component` esbuild
+      // emits when CJS-converting. Hermes 0.12 chokes on all of them.
+      // Cheap precheck: look for the `class` keyword followed by `{`
+      // or `extends`. Anything that matches goes through swc target=es5
+      // and gets lowered to a function constructor.
       const isHermesIncompatibleClass =
         args.path.includes('/node_modules/') &&
-        /\bextends\s+(?:React|R[a-zA-Z]*\.|[A-Z][A-Za-z]*\.)/m.test(lazySource());
+        /\bclass\b(?:\s+[\w$]+)?\s*(?:extends\s+\S+\s*)?\{/.test(lazySource());
       if (!inUserCode && !isNativeSpec && !isHermesIncompatibleClass) return null;
 
       // RN's Native* spec files are usually Flow-flavoured (// @flow,
@@ -131,6 +139,16 @@ const baseOpts = {
     '__REACT_DEVTOOLS_GLOBAL_HOOK__': 'globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__',
     '$RefreshReg$': 'globalThis.$RefreshReg$',
     '$RefreshSig$': 'globalThis.$RefreshSig$',
+    // RN's standard dev-mode global. Real Metro setups inject this
+    // into Hermes; third-party libs (expo-modules-core, lots of
+    // react-native deps) reference it without `typeof` guards. Same
+    // bare-identifier-vs-globalThis trap as above.
+    '__DEV__': 'true',
+    // RN polyfills a `global` alias to globalThis. Third-party libs
+    // (expo, react-native-device-info, …) reach for it without a
+    // `typeof` guard. Hermes strict mode refuses bare unresolved
+    // identifiers, so rewrite at bundle time.
+    'global': 'globalThis',
   },
   loader: {
     '.js': 'jsx',
@@ -194,6 +212,7 @@ const appOpts = {
              'react-reconciler', 'react-refresh/runtime',
              'react-native',
              '@react-native-async-storage/async-storage',
+             'react-native-device-info',
              'expo',
              'expo-status-bar',
              'expo-font',
@@ -219,6 +238,7 @@ const appOpts = {
       '  if (id === "react-refresh/runtime") return rnv.reactRefreshRuntime;\n' +
       '  if (id === "react-native") return rnv.reactNative;\n' +
       '  if (id === "@react-native-async-storage/async-storage") return rnv.asyncStorage;\n' +
+      '  if (id === "react-native-device-info") return rnv.deviceInfo;\n' +
       '  if (id === "expo") return rnv.expo;\n' +
       '  if (id === "expo-status-bar") return rnv.expoStatusBar;\n' +
       '  if (id === "expo-font") return rnv.expoFont;\n' +
