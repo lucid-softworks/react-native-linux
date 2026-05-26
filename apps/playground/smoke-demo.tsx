@@ -230,21 +230,40 @@ function DeviceInfoDemo() {
 }
 
 // ─────────────────────────── SafeAreaContext ───────────────────────────
-function SafeAreaDemo() {
+// Mounted INSIDE a SafeAreaProvider — calling the hooks at the root
+// section level (no provider ancestor) returns the static context
+// defaults, which would lie about what real apps observe.
+function SafeAreaInner() {
+  const insets = SafeAreaContext.useSafeAreaInsets();
+  const frame = SafeAreaContext.useSafeAreaFrame();
   return (
     <View style={styles.demo}>
       <Text style={styles.demoCaption}>
-        SafeAreaProvider export is missing on Linux (the component-class export from
-        react-native-safe-area-context). useSafeAreaInsets exists but with no provider ancestor it
-        returns zeros.
+        Mounted under a real SafeAreaProvider. On Linux there's no notch / status bar / gesture-area
+        to inset around, so every edge reports 0; the frame mirrors the live window-content
+        dimensions (useWindowDimensions inside the shim).
       </Text>
       <Text style={styles.demoLine}>
-        useSafeAreaInsets type: {typeof SafeAreaContext.useSafeAreaInsets}
+        useSafeAreaInsets = top:{insets.top} right:{insets.right} bottom:{insets.bottom} left:
+        {insets.left}
       </Text>
       <Text style={styles.demoLine}>
-        SafeAreaProvider type: {typeof SafeAreaContext.SafeAreaProvider}
+        useSafeAreaFrame = x:{frame.x} y:{frame.y} w:{frame.width} h:{frame.height}
       </Text>
+      <SafeAreaContext.SafeAreaView edges={['top', 'bottom']} style={styles.safeBox}>
+        <Text style={styles.demoLine}>
+          SafeAreaView edges=[top, bottom] — no visible inset on Linux
+        </Text>
+      </SafeAreaContext.SafeAreaView>
     </View>
+  );
+}
+
+function SafeAreaDemo() {
+  return (
+    <SafeAreaContext.SafeAreaProvider>
+      <SafeAreaInner />
+    </SafeAreaContext.SafeAreaProvider>
   );
 }
 
@@ -390,6 +409,15 @@ const styles = StyleSheet.create({
   demoCaption: {color: '#555', fontSize: 12, lineHeight: 16},
   demoLine: {fontSize: 13},
   mono: {fontFamily: 'monospace'},
+  safeBox: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: 6,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#d4d4d4',

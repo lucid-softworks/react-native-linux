@@ -210,8 +210,14 @@ const api = {
   getStartupTimeSync: _sync('startupTime'),
 
   // ─ ABIs ──────────────────────────────────────────────────────
+  // Upstream's .d.ts exports both the `get`-prefixed names (Android
+  // legacy) and the bare ones (canonical). Mirror both.
   supportedAbis: getSupportedAbis,
   supportedAbisSync: getSupportedAbisSync,
+  supported32BitAbis: _stubAsync([]),
+  supported32BitAbisSync: _stubSync([]),
+  supported64BitAbis: getSupportedAbis,
+  supported64BitAbisSync: getSupportedAbisSync,
   getSupportedAbis,
   getSupportedAbisSync,
   getSupported32BitAbis: _stubAsync([]),
