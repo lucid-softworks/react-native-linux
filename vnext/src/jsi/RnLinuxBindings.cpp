@@ -9,6 +9,7 @@
 #include "../location/Location.h"
 #include "../network/Network.h"
 #include "../notifications/Notifications.h"
+#include "../print/Print.h"
 #include "../securestore/SecureStore.h"
 #include "react-native-linux/Logging.h"
 
@@ -2290,6 +2291,104 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                    nullptr);
                return jsi::Value::undefined();
              });
+
+  // ─── Print (expo-print) ──────────────────────────────────────────
+  // GtkPrintOperation for the dialog path, cairo PDF surface for
+  // printToFile. Both render via Pango — HTML input is stripped to
+  // plaintext on the JS side (full HTML rendering would need
+  // WebKitGTK, see docs/realworld-expo-print.md).
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "printText",
+      3,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        const auto text = args[0].asString(rt).utf8(rt);
+        auto okCb = count >= 2 && args[1].isObject() && args[1].asObject(rt).isFunction(rt)
+                        ? std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt))
+                        : nullptr;
+        auto errCb = count >= 3 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt))
+                         : nullptr;
+        GtkWidget* parent = state().rootView;
+        rnlinux::print::printText(
+            parent,
+            text,
+            [okCb]() {
+              auto& s = state();
+              if (!s.runtime || !okCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                okCb->call(jrt);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.print") << "ok handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& s = state();
+              if (!s.runtime || !errCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.print") << "err handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "printExportPdf",
+      4,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        const auto text = args[0].asString(rt).utf8(rt);
+        const auto outPath = args[1].asString(rt).utf8(rt);
+        auto okCb = count >= 3 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)
+                        ? std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt))
+                        : nullptr;
+        auto errCb = count >= 4 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
+                         : nullptr;
+        rnlinux::print::exportToPdf(
+            text,
+            outPath,
+            [okCb, outPath]() {
+              auto& s = state();
+              if (!s.runtime || !okCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                okCb->call(jrt, jsi::String::createFromUtf8(jrt, "file://" + outPath));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.print") << "ok handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& s = state();
+              if (!s.runtime || !errCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.print") << "err handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
 
   // ─── File picker (expo-document-picker / expo-image-picker) ──────
   // GtkFileDialog-backed. opts is {title, mimeFilters[], multiple};

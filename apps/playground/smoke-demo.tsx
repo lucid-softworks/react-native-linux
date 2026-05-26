@@ -401,6 +401,62 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-print ───────────────────────────
+// GtkPrintOperation for the dialog + cairo PDF surface for
+// printToFile. HTML is stripped to plaintext before rendering;
+// full HTML print would mean WebKitGTK.
+function ExpoPrintDemo() {
+  const Print = require('expo-print');
+  const [pdfUri, setPdfUri] = useState<string | null>(null);
+  const [err, setErr] = useState<string>('');
+
+  async function makePdf() {
+    setErr('');
+    try {
+      const r = await Print.printToFileAsync({
+        html:
+          '<h1>react-native-linux print demo</h1>' +
+          '<p>Generated via cairo PDF surface + Pango layout. ' +
+          'HTML is stripped to plaintext on the way in — ' +
+          'a real renderer would mean WebKitGTK.</p>',
+      });
+      setPdfUri(r.uri);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function showDialog() {
+    setErr('');
+    try {
+      await Print.printAsync({
+        html: '<p>Hello from rn-linux! Pick a printer or "Save as PDF" in the dialog.</p>',
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        GtkPrintOperation for the print dialog + cairo PDF surface for printToFile. HTML is stripped
+        to plaintext on the way in.
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={makePdf}>
+          <Text style={styles.btnText}>render to PDF</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={showDialog}>
+          <Text style={styles.btnText}>open print dialog</Text>
+        </Pressable>
+      </View>
+      {pdfUri ? <Text style={styles.demoLine}>wrote: {pdfUri}</Text> : null}
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-document-picker / expo-image-picker ─
 // Both go through one GtkFileDialog backend (rnLinux.pickFiles).
 // Image picker also wraps the existing cameraSnap binding for
@@ -1071,7 +1127,13 @@ function SmokeDemo() {
       tryProbe('expo-print', async function p() {
         const m = require('expo-print');
         if (typeof m.printAsync !== 'function') throw new Error('printAsync missing');
-        return 'wired';
+        // Real round-trip: render to a PDF and check the file
+        // exists and is non-empty.
+        const r = await m.printToFileAsync({html: '<p>smoke test</p>'});
+        const FS = require('expo-file-system');
+        const info = await FS.getInfoAsync(r.uri);
+        if (!info.exists || !info.size) throw new Error('PDF not written');
+        return `pdf ${info.size}B at ${r.uri}`;
       }),
       tryProbe('expo-screen-capture', async function p() {
         const m = require('expo-screen-capture');
@@ -1179,6 +1241,11 @@ function SmokeDemo() {
           <ExpoImagePickerDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-print')} />
+          <ExpoPrintDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -1190,7 +1257,7 @@ function SmokeDemo() {
             implementation; see TODO.md "Expo module backlog" for the backend per module.
           </Text>
         </View>
-        {['expo-image', 'expo-print', 'expo-screen-capture'].map(name => (
+        {['expo-image', 'expo-screen-capture'].map(name => (
           <View key={name} style={styles.section}>
             <ProbeRow probe={pending(name)} />
           </View>

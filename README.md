@@ -199,6 +199,7 @@ breaks, and what's been fixed in the process.
 - [docs/realworld-expo-network.md](./docs/realworld-expo-network.md) — `expo-network` via GNetworkMonitor + sysfs
 - [docs/realworld-expo-battery-sharing.md](./docs/realworld-expo-battery-sharing.md) — `expo-battery` + `expo-sharing` (JS-only)
 - [docs/realworld-expo-pickers.md](./docs/realworld-expo-pickers.md) — `expo-document-picker` + `expo-image-picker` via GtkFileDialog
+- [docs/realworld-expo-print.md](./docs/realworld-expo-print.md) — `expo-print` via GtkPrintOperation + Pango
 
 The `smoke-demo.tsx` harness in `apps/playground/` covers the next batch:
 `@react-native-async-storage/async-storage`, `react-native-device-info`,

@@ -177,7 +177,8 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-network` (GNetworkMonitor for up/internet + /sys/class/net for interface type + IP + MAC; NM-or-netlink-fallback),
 `expo-battery` (reuses /sys/class/power_supply path from device-info; UNKNOWN on machines without a battery),
 `expo-sharing` (routes shareAsync through rnLinux.openURL → xdg-mime default handler),
-`expo-document-picker` + `expo-image-picker` (shared GtkFileDialog backend; image-picker chains launchCameraAsync into the existing cameraSnap).
+`expo-document-picker` + `expo-image-picker` (shared GtkFileDialog backend; image-picker chains launchCameraAsync into the existing cameraSnap),
+`expo-print` (GtkPrintOperation dialog + cairo-PDF surface; HTML→plaintext stripping pending a WebKitGTK render path).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -194,7 +195,7 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [x] **`expo-sharing`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Currently uses `g_app_info_launch_default_for_uri` (single default app per MIME); real picker via xdg-desktop-portal OpenURI is the planned follow-up for sandboxed apps.
 - [ ] **`expo-sensors`** — accelerometer / gyro / magnetometer don't exist on most desktops. iio-sensor-proxy can surface laptop accelerometers on some devices, but coverage is poor. **Skip until there's user demand**, then implement against iio-sensor-proxy over DBus with a clean "no sensors available" error path.
 - [x] **`expo-battery`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Reuses the DeviceInfo /sys/class/power_supply path; live UPower subscription is a follow-up.
-- [ ] **`expo-print`** — `org.freedesktop.portal.Print` (or GtkPrintOperation directly when not in a sandbox). Real print preview dialog. Smaller than it sounds — the portal handles all the UI.
+- [x] **`expo-print`** — DONE 2026-05-26. See `docs/realworld-expo-print.md`. GtkPrintOperation + cairo PDF; HTML→plaintext stripping (WebKitGTK HTML render path is the planned follow-up).
 - [ ] **`expo-screen-capture`** — `gnome-screenshot` via DBus, or the portal `org.freedesktop.portal.ScreenCast`. `requestPermissionsAsync` + `captureAsync` returning a PNG path. Permissions are real on Linux (portal asks).
 - [ ] **`expo-cellular`** / **`expo-sms`** — no telephony on desktop. Return realistic "no SIM" / "not available" responses (not stubs that lie about success).
 
