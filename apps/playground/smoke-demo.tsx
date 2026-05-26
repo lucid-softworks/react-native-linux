@@ -409,8 +409,10 @@ function ExpoCameraDemo() {
 // to render faithfully. See docs/realworld-expo-image.md.
 function ExpoImageDemo() {
   const {Image: ExpoImg} = require('expo-image');
-  const sample =
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/240px-PNG_transparency_demonstration_1.png';
+  // picsum.photos is a stable demo image host that returns a real
+  // JPEG without needing User-Agent gymnastics. Hardcoded seed so
+  // the smoke test sees the same picture every run.
+  const sample = 'https://picsum.photos/seed/rn-linux/240/180';
   return (
     <View style={styles.demo}>
       <Text style={styles.demoCaption}>

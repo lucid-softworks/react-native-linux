@@ -92,6 +92,19 @@ void startHttpFetch(GtkPicture* picture, const std::string& uri) {
     RNL_LOGW("Image") << "bad uri: " << uri;
     return;
   }
+  // Many image hosts (Wikipedia / Wikimedia, GitHub raw, some CDNs)
+  // reject requests with no User-Agent — Wikipedia answers HTTP
+  // 400 outright. libsoup leaves the header empty unless we set
+  // it, so identify ourselves with a stable string that includes
+  // the libsoup version so server logs can attribute issues
+  // upstream if we ever cause one.
+  SoupMessageHeaders* hdrs = soup_message_get_request_headers(msg);
+  if (hdrs) {
+    soup_message_headers_replace(hdrs, "User-Agent", "react-native-linux libsoup/3");
+    // Accept any image type — some servers do strict content
+    // negotiation and would 406 if we leave Accept empty.
+    soup_message_headers_replace(hdrs, "Accept", "image/*,*/*;q=0.8");
+  }
   auto* fetch = new ImageFetch{picture, uri};
   soup_session_send_and_read_async(
       sharedSession(), msg, G_PRIORITY_DEFAULT, nullptr, onImageBytes, fetch);

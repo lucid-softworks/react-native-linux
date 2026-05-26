@@ -116,6 +116,10 @@ jobs:
             libgoogle-glog-dev \
             libgflags-dev \
             zlib1g-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libnotify-dev \
+            libsecret-1-dev \
             python3 python3-pip
           # Folly's CMake reaches for Boost (context / filesystem / regex /
           # thread …) + a bunch of MODULE-required find_package() calls:
@@ -124,6 +128,14 @@ jobs:
           # the configure isn't constantly toggling Folly compile flags
           # between runs. Our CMakeLists for the playground app also
           # pulls in libsoup3 for the image loader's network backend.
+          #
+          # The four trailing dev packages back the expo-* shims that
+          # landed during the realworld-* harness work: GStreamer for
+          # expo-camera (live preview + snap), libnotify for
+          # expo-notifications, libsecret for expo-secure-store.
+          # Runtime plugins (gstreamer1.0-plugins-good for pngenc,
+          # gstreamer1.0-plugins-base for videotestsrc) ship with
+          # libgstreamer-plugins-base1.0-dev's runtime dep chain.
 
       - uses: pnpm/action-setup@v6
         with:
