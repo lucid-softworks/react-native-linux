@@ -183,14 +183,21 @@ const StorageAccessFramework = {
   },
 };
 
-// Disk-space helpers — return -1 to surface "unknown" rather than
-// lie. A `statvfs` binding would be a few lines if real apps depend
-// on these.
+// Disk-space helpers — backed by statvfs(3) on the filesystem that
+// holds documentDirectory (where expo apps actually write). Strip
+// the trailing slash so statvfs sees a real path, not "<dir>/".
+function _docDirPath() {
+  const d = _constants.documentDirectory || '/';
+  const stripped = d.startsWith('file://') ? d.slice('file://'.length) : d;
+  return stripped.length > 1 && stripped.endsWith('/') ? stripped.slice(0, -1) : stripped;
+}
 async function getFreeDiskStorageAsync() {
-  return -1;
+  if (!_hasNative || typeof rnLinux.fsFreeDiskBytes !== 'function') return -1;
+  return Number(rnLinux.fsFreeDiskBytes(_docDirPath()));
 }
 async function getTotalDiskCapacityAsync() {
-  return -1;
+  if (!_hasNative || typeof rnLinux.fsTotalDiskBytes !== 'function') return -1;
+  return Number(rnLinux.fsTotalDiskBytes(_docDirPath()));
 }
 
 // Content URI helpers — Android-only on real expo. Throw rather than

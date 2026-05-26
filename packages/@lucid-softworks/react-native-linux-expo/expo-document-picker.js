@@ -7,12 +7,18 @@
 const _hasNative = typeof rnLinux !== 'undefined' && typeof rnLinux.pickFiles === 'function';
 
 function _toAsset(file) {
-  return {
+  // Native side populates width/height via gdk_pixbuf_get_file_info
+  // for image MIME types; everything else gets 0 (mapped to
+  // undefined here so non-image consumers don't see bogus fields).
+  const asset = {
     uri: 'file://' + file.path,
     name: file.name,
     size: file.size,
     mimeType: file.mimeType || null,
   };
+  if (typeof file.width === 'number' && file.width > 0) asset.width = file.width;
+  if (typeof file.height === 'number' && file.height > 0) asset.height = file.height;
+  return asset;
 }
 
 // expo-document-picker's options:

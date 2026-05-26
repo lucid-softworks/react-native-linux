@@ -22,6 +22,11 @@ struct PickedFile {
   std::string name;     // basename
   int64_t size = 0;     // bytes (best-effort via stat)
   std::string mimeType; // best-effort guess via gio
+  // Image-only — populated via gdk_pixbuf_get_file_info, which
+  // reads only the header (no decode). Zero for non-images or
+  // unsupported formats.
+  int32_t width = 0;
+  int32_t height = 0;
 };
 
 struct PickOptions {

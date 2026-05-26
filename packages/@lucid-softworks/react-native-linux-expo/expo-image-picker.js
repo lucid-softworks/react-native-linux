@@ -72,14 +72,19 @@ function _mimeFiltersFor(mediaTypes) {
 }
 
 function _toAsset(file) {
+  // gdk_pixbuf_get_file_info filled in width/height for images on
+  // the native side; 0 is "unknown" (non-image pick, or a format
+  // gdk-pixbuf doesn't recognize). Upstream uses null for unknown.
+  const w = typeof file.width === 'number' && file.width > 0 ? file.width : null;
+  const h = typeof file.height === 'number' && file.height > 0 ? file.height : null;
   return {
     uri: 'file://' + file.path,
     fileName: file.name,
     fileSize: file.size,
     mimeType: file.mimeType || null,
     type: file.mimeType && file.mimeType.startsWith('video/') ? 'video' : 'image',
-    width: null,
-    height: null,
+    width: w,
+    height: h,
     duration: null,
   };
 }

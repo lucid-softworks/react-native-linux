@@ -59,8 +59,9 @@ The expo-print section has two buttons:
 | API                             | Behavior on Linux                                                        |
 | ------------------------------- | ------------------------------------------------------------------------ |
 | `printAsync({html})`            | Real — strips HTML, renders via Pango, opens GtkPrintOperation dialog    |
-| `printAsync({uri})`             | Throws — no libsoup fetch in this binding (use file:// path via {html})  |
-| `printToFileAsync({html, ...})` | Real — writes a cairo-PDF to `cacheDirectory/print-<ts>.pdf`             |
+| `printAsync({uri})`             | Real — fetches the URI (file://, http(s)://, data:) then prints as HTML  |
+| `printToFileAsync({html, ...})` | Real — writes a cairo-PDF; result has real `numberOfPages` from Pango    |
+| `printToFileAsync({uri})`       | Real — fetches the URI then writes a cairo-PDF                           |
 | `selectPrinterAsync()`          | Throws — iOS-only (system print dialog handles selection inline)         |
 | `Orientation` enum              | Accepted, discarded — the print dialog lets the user pick                |
 | `options.width / height`        | Accepted, discarded — A4 by default; the print dialog handles paper size |
@@ -72,10 +73,14 @@ The expo-print section has two buttons:
   embedding WebKitGTK (~50 MB on disk, GtkWidget-based, real
   font/image/CSS support); the natural follow-up if any real app
   has print fidelity needs.
-- **`printAsync({uri})` is unimplemented.** Printing an existing
-  PDF / image file would mean rendering it onto our cairo
-  context — straightforward for PDFs via poppler-glib, more
-  involved for images. Skipped for the first cut.
+- **`printAsync({uri})`** — **DONE for HTML / plaintext payloads.**
+  The shim fetches `file://` via `fsReadString`, `http(s)://` via
+  `fsDownload` + read, and `data:` URIs by decoding inline, then
+  feeds the content through the same HTML-to-text path as
+  `{html}`. Printing an existing PDF / image file (where the
+  fetched bytes are not HTML) still won't render correctly — that
+  needs poppler-glib for PDFs and gdk-pixbuf onto the cairo
+  context for images, which is the natural follow-up.
 - **No `base64`** in `printToFileAsync` result. Reading the
   file back + base64-encoding doubles the per-call cost; the
   caller can pull it via `expo-file-system.readAsStringAsync(uri,
@@ -83,6 +88,7 @@ The expo-print section has two buttons:
 - **No font customization** in the layout. Body is hardcoded to
   Sans 11pt. Adding a few config options (font family, size,
   margin, default orientation) is a small follow-up.
-- **`numberOfPages` in the printToFileAsync result is `null`**.
-  We compute the pagination internally during export; threading
-  it back through the JS shim would be ~5 lines.
+- **`numberOfPages` in the printToFileAsync result** — **DONE.**
+  Pango's pagination result is threaded back through the JSI
+  callback so the resolved promise's `numberOfPages` is the real
+  count (clamped to `>= 1`).

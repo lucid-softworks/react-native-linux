@@ -62,12 +62,12 @@ Two demos in the smoke test:
 
 ### expo-document-picker
 
-| API                                  | Behavior on Linux                                     |
-| ------------------------------------ | ----------------------------------------------------- |
-| `getDocumentAsync({type, multiple})` | Real — GtkFileDialog with the given MIME filter       |
-| `result.canceled`                    | `true` on user dismissal (GTK_DIALOG_ERROR_DISMISSED) |
-| `result.assets[]`                    | `{uri (file://), name, size, mimeType}` per selection |
-| `options.copyToCacheDirectory`       | Accepted, discarded — original path is returned       |
+| API                                  | Behavior on Linux                                                                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `getDocumentAsync({type, multiple})` | Real — GtkFileDialog with the given MIME filter                                                                              |
+| `result.canceled`                    | `true` on user dismissal (GTK_DIALOG_ERROR_DISMISSED)                                                                        |
+| `result.assets[]`                    | `{uri (file://), name, size, mimeType, width?, height?}` (width/height present for image picks via gdk_pixbuf_get_file_info) |
+| `options.copyToCacheDirectory`       | Accepted, discarded — original path is returned                                                                              |
 
 ### expo-image-picker
 
@@ -87,12 +87,16 @@ Two demos in the smoke test:
   option pops a native crop dialog on iOS/Android; GTK has no
   equivalent. Apps would build their own crop UI in JS or skip
   the feature on Linux.
-- **No width / height / duration extraction.** Returned assets
-  have `width=null, height=null, duration=null` since reading
-  those would need image/video decoding per file (libsoup +
-  gdk-pixbuf for images, gstreamer for video). The caller can
-  load the URI via `<Image>` and read measured dimensions if
-  they need them.
+- **Image width / height extraction** — **DONE.** Picked image
+  files are passed through `gdk_pixbuf_get_file_info()`, which
+  parses only the image header (no full decode) and reports pixel
+  dimensions. Both expo-image-picker and expo-document-picker
+  surface `width` / `height` on returned assets. Non-image picks
+  (and formats gdk-pixbuf can't recognize) still report `null`.
+- **No video duration / dimension extraction.** Would need a
+  GStreamer `discoverer` pass per file. Asset `duration` stays
+  `null` for video picks; video dimensions stay `null` as well
+  (gdk-pixbuf doesn't read video containers).
 - **`launchCameraAsync` is one-shot photo only.** Video capture
   (`mediaTypes: Videos`) isn't wired through to a video-recording
   pipeline. The existing cameraSnap produces a single PNG; full

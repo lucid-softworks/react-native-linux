@@ -45,15 +45,80 @@ const Orientation = {
   landscape: 'landscape',
 };
 
-function _payloadText(options) {
+// Fetch the content at a uri and return its raw text. Supports
+// file:// (read directly), http(s):// (download to a temp path
+// then read), and data: URIs (decode inline). Pulls from native
+// bindings rather than `require('expo-file-system')` because
+// this shim is bundled into vendor.bundle, which bypasses metro
+// alias resolution and would otherwise load the upstream npm
+// package and crash on requireNativeModule.
+async function _fetchUriToText(uri) {
+  if (uri.startsWith('data:')) {
+    const comma = uri.indexOf(',');
+    if (comma < 0) return '';
+    const header = uri.slice(5, comma);
+    const body = uri.slice(comma + 1);
+    if (header.includes(';base64')) {
+      try {
+        return globalThis.atob(body);
+      } catch (_) {
+        return body;
+      }
+    }
+    try {
+      return decodeURIComponent(body);
+    } catch (_) {
+      return body;
+    }
+  }
+  if (uri.startsWith('file://')) {
+    const path = uri.slice('file://'.length);
+    if (typeof rnLinux.fsReadString === 'function') {
+      return String(rnLinux.fsReadString(path, 'utf8'));
+    }
+    throw new Error('expo-print: fsReadString binding missing');
+  }
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    if (typeof rnLinux.fsDownload !== 'function' || typeof rnLinux.fsReadString !== 'function') {
+      throw new Error('expo-print: HTTP uri fetch needs fsDownload + fsReadString bindings');
+    }
+    // Download to a temp path inside cacheDirectory, read back,
+    // then unlink. Synchronous read is fine — we just dropped the
+    // bytes there ourselves so the page cache is warm.
+    let dir = '/tmp/';
+    if (typeof rnLinux.fsConstants === 'function') {
+      const c = rnLinux.fsConstants();
+      if (c && c.cacheDirectory) dir = c.cacheDirectory.replace('file://', '');
+    }
+    const dest = `${dir}print-fetch-${Date.now()}.html`;
+    await new Promise((resolve, reject) => {
+      rnLinux.fsDownload(
+        uri,
+        dest,
+        () => resolve(),
+        msg => reject(new Error(msg)),
+      );
+    });
+    try {
+      return String(rnLinux.fsReadString(dest, 'utf8'));
+    } finally {
+      if (typeof rnLinux.fsDelete === 'function') {
+        try {
+          rnLinux.fsDelete(dest, true);
+        } catch (_) {}
+      }
+    }
+  }
+  throw new Error(`expo-print: unsupported uri scheme — ${uri.slice(0, 16)}…`);
+}
+
+async function _payloadText(options) {
   if (typeof options?.html === 'string') return _htmlToText(options.html);
   if (typeof options?.uri === 'string') {
-    // We can't fetch a URI to print synchronously without pulling
-    // in libsoup here; throw with a clear message rather than
-    // print an empty page.
-    throw new Error(
-      'expo-print: printing from {uri} is not implemented on Linux yet — pass {html} instead',
-    );
+    const raw = await _fetchUriToText(options.uri);
+    // Most {uri} payloads are HTML; if the content looks like raw
+    // text already (no angle brackets at all), pass through.
+    return /<[^>]+>/.test(raw) ? _htmlToText(raw) : raw;
   }
   return '';
 }
@@ -62,7 +127,7 @@ async function printAsync(options) {
   if (!_hasNative) {
     throw new Error('expo-print: native rnLinux.printText not bound');
   }
-  const text = _payloadText(options);
+  const text = await _payloadText(options);
   return new Promise((resolve, reject) => {
     rnLinux.printText(
       text,
@@ -76,19 +141,12 @@ async function printToFileAsync(options) {
   if (!_hasNative) {
     throw new Error('expo-print: native rnLinux.printExportPdf not bound');
   }
-  const text = _payloadText(options);
+  const text = await _payloadText(options);
   // expo-print returns a Promise<{uri, numberOfPages, base64?}>.
   // We don't compute base64 (would mean reading the file back +
   // encoding — cheap, but adds latency); the caller can read it
-  // via expo-file-system if needed.
-  //
-  // For the output path, we reach for rnLinux.fsConstants
-  // directly rather than `require('expo-file-system')` — when
-  // this shim file is bundled into vendor.bundle by esbuild,
-  // require() bypasses our metro alias and tries to resolve the
-  // upstream npm package, which throws on its requireNativeModule
-  // call. The native binding gives us the same data without that
-  // detour.
+  // via expo-file-system if needed. numberOfPages is reported by
+  // the native side from Pango's pagination result.
   let dir = '/tmp/';
   if (typeof rnLinux !== 'undefined' && typeof rnLinux.fsConstants === 'function') {
     const c = rnLinux.fsConstants();
@@ -101,7 +159,12 @@ async function printToFileAsync(options) {
     rnLinux.printExportPdf(
       text,
       path,
-      uri => resolve({uri, numberOfPages: null, base64: undefined}),
+      (uri, numberOfPages) =>
+        resolve({
+          uri,
+          numberOfPages: typeof numberOfPages === 'number' && numberOfPages > 0 ? numberOfPages : 1,
+          base64: undefined,
+        }),
       msg => reject(new Error(msg)),
     );
   });

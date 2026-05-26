@@ -6,10 +6,11 @@
 //
 // What's real vs not:
 //   * text: set + get round-trip is real, including cross-app
-//     pastes for sets we wrote. Reads of the same-process clipboard
-//     are sync via gdk_clipboard_get_content; reads of OTHER apps'
-//     selections need the async read_text path that's not bound
-//     yet (the sync fallback returns "" for those).
+//     pastes (the async path negotiates the MIME transfer with
+//     whichever app put the text on the clipboard via
+//     gdk_clipboard_read_text_async). The legacy synchronous
+//     getter only sees this process's own writes — useful as a
+//     fast in-process round-trip but doesn't see other apps.
 //   * images / HTML / files: GdkClipboard supports them natively
 //     but the upstream API shapes (base64 PNG, HTML+plaintext
 //     fallback, file list) need more plumbing. Stubbed to throw
@@ -24,6 +25,18 @@ const _hasNative =
 
 async function getStringAsync(_options) {
   if (!_hasNative) return '';
+  // Prefer the async path — it negotiates the MIME transfer with
+  // whatever app put the text on the clipboard, so we see
+  // cross-app pastes. The sync path only sees writes from our own
+  // process and is kept as a synchronous fallback for old call sites.
+  if (typeof rnLinux.clipboardGetStringAsync === 'function') {
+    return new Promise((resolve, reject) => {
+      rnLinux.clipboardGetStringAsync(
+        text => resolve(typeof text === 'string' ? text : ''),
+        msg => reject(new Error(msg)),
+      );
+    });
+  }
   return String(rnLinux.clipboardGetStringSync());
 }
 
@@ -42,10 +55,11 @@ function setString(text) {
 async function hasStringAsync() {
   if (!_hasNative) return false;
   // GdkClipboard doesn't surface a clean "has text" predicate
-  // without round-tripping the content. Reading + checking length
-  // is the cheapest approximation; a falser-than-correct result on
-  // an empty-string copy is acceptable for the upstream contract.
-  const v = rnLinux.clipboardGetStringSync();
+  // without round-tripping the content. Read via the same async
+  // path getStringAsync uses so cross-app text registers; a
+  // false-negative on an empty-string copy is acceptable for the
+  // upstream contract.
+  const v = await getStringAsync();
   return typeof v === 'string' && v.length > 0;
 }
 

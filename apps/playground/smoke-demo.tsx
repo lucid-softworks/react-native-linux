@@ -877,8 +877,9 @@ function ExpoClipboardDemo() {
   return (
     <View style={styles.demo}>
       <Text style={styles.demoCaption}>
-        Display-level clipboard via GdkClipboard. Set is sync; reads of values written by other apps
-        need the async read_text path which isn't bound yet (sync fallback returns "").
+        Display-level clipboard via GdkClipboard. Set is sync; reads route through
+        gdk_clipboard_read_text_async so paste returns whatever's on the clipboard, including text
+        copied from other apps.
       </Text>
       <View style={styles.row}>
         <Pressable style={styles.btn} onPress={copyStamp}>
@@ -1107,7 +1108,11 @@ function SmokeDemo() {
         const m = require('expo-file-system');
         if (!m.documentDirectory) throw new Error('documentDirectory missing');
         const info = await m.getInfoAsync(m.documentDirectory);
-        return `documentDirectory=${m.documentDirectory} exists=${info.exists}`;
+        const free = await m.getFreeDiskStorageAsync();
+        const total = await m.getTotalDiskCapacityAsync();
+        const gib = (n: number) => (n / 1024 / 1024 / 1024).toFixed(1);
+        const disk = free > 0 && total > 0 ? ` free=${gib(free)}G/${gib(total)}G` : '';
+        return `documentDirectory=${m.documentDirectory} exists=${info.exists}${disk}`;
       }),
       tryProbe('expo-secure-store', async function p() {
         const m = require('expo-secure-store');
@@ -1132,7 +1137,14 @@ function SmokeDemo() {
         if (!m.Image) throw new Error('Image export missing');
         if (typeof m.Image.prefetch !== 'function') throw new Error('Image.prefetch missing');
         if (typeof m.useImage !== 'function') throw new Error('useImage missing');
-        return 'Image + prefetch + useImage wired (over RN.Image)';
+        if (typeof m.Image.clearDiskCache !== 'function')
+          throw new Error('Image.clearDiskCache missing');
+        // Make sure the cache-clear path doesn't throw and that we
+        // can surface the cache directory path back to JS.
+        const ok = await m.Image.clearDiskCache();
+        const cachePath = await m.Image.getCachePathAsync('');
+        if (!ok) throw new Error('clearDiskCache returned false');
+        return `prefetch/useImage/clearDiskCache wired (cache: ${cachePath || 'n/a'})`;
       }),
       tryProbe('expo-document-picker', async function p() {
         const m = require('expo-document-picker');
@@ -1160,12 +1172,14 @@ function SmokeDemo() {
         const m = require('expo-print');
         if (typeof m.printAsync !== 'function') throw new Error('printAsync missing');
         // Real round-trip: render to a PDF and check the file
-        // exists and is non-empty.
+        // exists, is non-empty, and the resolved numberOfPages
+        // came back as a real number from Pango's pagination.
         const r = await m.printToFileAsync({html: '<p>smoke test</p>'});
         const FS = require('expo-file-system');
         const info = await FS.getInfoAsync(r.uri);
         if (!info.exists || !info.size) throw new Error('PDF not written');
-        return `pdf ${info.size}B at ${r.uri}`;
+        const pages = typeof r.numberOfPages === 'number' ? r.numberOfPages : '?';
+        return `pdf ${info.size}B (${pages} page${pages === 1 ? '' : 's'}) at ${r.uri}`;
       }),
       tryProbe('expo-screen-capture', async function p() {
         const m = require('expo-screen-capture');

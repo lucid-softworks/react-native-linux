@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -295,6 +296,37 @@ void move(const std::string& from, const std::string& to) {
     return;
   }
   throw std::runtime_error(std::string("move: ") + std::strerror(errno));
+}
+
+// ─── statvfs (disk space) ─────────────────────────────────────────
+
+namespace {
+
+// Wrap statvfs once; both helpers want the same syscall. Returns
+// false on any error (caller substitutes -1). f_frsize is the
+// preferred multiplier per POSIX — f_bsize is the IO hint and is
+// not always equal to the block size used in f_blocks counts.
+bool statvfsFor(const std::string& path, struct statvfs& out) {
+  return statvfs(path.c_str(), &out) == 0;
+}
+
+} // namespace
+
+int64_t freeDiskBytes(const std::string& path) {
+  struct statvfs s {};
+  if (!statvfsFor(path, s))
+    return -1;
+  // f_bavail is "blocks free to unprivileged users" — the right
+  // number for "how much can I write", as opposed to f_bfree which
+  // includes root-reserved blocks an app process can't actually use.
+  return static_cast<int64_t>(s.f_bavail) * static_cast<int64_t>(s.f_frsize);
+}
+
+int64_t totalDiskBytes(const std::string& path) {
+  struct statvfs s {};
+  if (!statvfsFor(path, s))
+    return -1;
+  return static_cast<int64_t>(s.f_blocks) * static_cast<int64_t>(s.f_frsize);
 }
 
 // ─── download (libsoup async) ─────────────────────────────────────

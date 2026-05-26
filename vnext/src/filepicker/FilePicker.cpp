@@ -2,6 +2,7 @@
 
 #include "react-native-linux/Logging.h"
 
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gtk/gtk.h>
 #include <sys/stat.h>
 
@@ -53,6 +54,19 @@ PickedFile gfileToPickedFile(GFile* gfile) {
   }
   if (err)
     g_error_free(err);
+  // gdk_pixbuf_get_file_info parses only the image header — fast
+  // and bounded even for large images. Returns NULL for formats it
+  // can't recognize, which is the right "unknown" signal (we leave
+  // width/height at 0 in that case). expo-image-picker callers
+  // expect `width` / `height` on the asset object.
+  if (!pf.path.empty() && pf.mimeType.rfind("image/", 0) == 0) {
+    int w = 0;
+    int h = 0;
+    if (gdk_pixbuf_get_file_info(pf.path.c_str(), &w, &h)) {
+      pf.width = static_cast<int32_t>(w);
+      pf.height = static_cast<int32_t>(h);
+    }
+  }
   return pf;
 }
 

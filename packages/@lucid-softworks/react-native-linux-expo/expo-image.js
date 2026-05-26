@@ -21,7 +21,10 @@
 //                                                                   subclass with cairo blur)
 //   * `priority`, `recyclingKey`, `responsivePolicy`              — accepted, ignored
 //   * `Image.prefetch(uri)`                                       — best-effort warmup
-//   * `Image.clearMemoryCache` / `clearDiskCache`                 — no-op (no inspectable cache)
+//   * `Image.clearDiskCache` / `clearMemoryCache`                 — real; wipes the SoupCache
+//                                                                   the HTTP image fetcher attaches
+//                                                                   under XDG_CACHE_HOME/rn-linux-
+//                                                                   playground/soup-image-cache
 //   * `useImage(source)` hook                                     — resolves to {uri, width,
 //                                                                   height} via getInfoAsync
 //
@@ -162,21 +165,30 @@ async function prefetch(uri, _cachePolicy, _headers) {
 
 async function clearMemoryCache() {
   // libsoup's cache is on disk; no in-memory texture cache we
-  // own. Return true to match upstream's "did the call succeed"
-  // contract.
-  return true;
+  // own. Falls through to clearDiskCache so the "make sure my
+  // next fetch is fresh" intent is preserved.
+  return clearDiskCache();
 }
 
 async function clearDiskCache() {
-  // libsoup's HTTP cache is at $XDG_CACHE_HOME/libsoup/; we
-  // don't reach in to wipe it (would surprise other consumers).
-  // Documented as a gap.
-  return true;
+  // Real — the image SoupSession has a SoupCache attached at
+  // XDG_CACHE_HOME/rn-linux-playground/soup-image-cache. The
+  // native binding wipes both the in-memory entries and the
+  // on-disk files, so the next HTTP fetch is guaranteed to hit
+  // the network.
+  if (typeof rnLinux !== 'undefined' && typeof rnLinux.imageClearCache === 'function') {
+    return Boolean(rnLinux.imageClearCache());
+  }
+  return false;
 }
 
 async function getCachePathAsync(_url) {
-  // libsoup's cache isn't keyed by predictable filenames. Return
-  // null rather than guess.
+  // SoupCache keys responses by a SHA-1 of the URL — derivable
+  // but not a stable contract. Return the cache directory itself
+  // so the path is at least useful for `du -sh`-style checks.
+  if (typeof rnLinux !== 'undefined' && typeof rnLinux.imageCacheDir === 'function') {
+    return String(rnLinux.imageCacheDir());
+  }
   return null;
 }
 

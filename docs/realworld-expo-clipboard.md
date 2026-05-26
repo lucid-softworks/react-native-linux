@@ -55,11 +55,14 @@ and displays it inline.
 
 ## Known gaps
 
-- **Cross-app paste reads** need the async `gdk_clipboard_read_text_async`
-  path. The sync binding returns `""` for content placed by other
-  apps — the value lives in the GTK content provider only after a
-  successful async fetch round-trip. ~30 LOC of additional JSI
-  binding + JS promisification.
+- **Cross-app paste reads** — **DONE.** `getStringAsync` /
+  `hasStringAsync` now route through
+  `rnLinux.clipboardGetStringAsync` →
+  `gdk_clipboard_read_text_async`, which negotiates the MIME
+  transfer with whichever app put the text on the clipboard. The
+  legacy sync `clipboardGetStringSync` is still there for the
+  fast in-process round-trip but only sees this process's own
+  writes.
 - **Images** (`getImageAsync` / `setImageAsync`) would round-trip
   base64 PNG through `GdkTexture` + `gdk_clipboard_set_texture`,
   same path the camera snap demo uses. Not bound yet.

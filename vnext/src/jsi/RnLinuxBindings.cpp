@@ -11,6 +11,7 @@
 #include "../notifications/Notifications.h"
 #include "../print/Print.h"
 #include "../securestore/SecureStore.h"
+#include "../views/ImageComponentView.h"
 #include "react-native-linux/Logging.h"
 
 #include <array>
@@ -1436,6 +1437,85 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::String::createFromUtf8(rt, out);
       });
 
+  // Cross-app clipboard read. The sync getter above only sees the
+  // same process's own writes (GdkClipboard's content provider
+  // holds those locally); fetching text another app put on the
+  // selection requires the async read_text_async path that
+  // negotiates the MIME transfer with the source app.
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardGetStringAsync",
+      2,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt))
+          return jsi::Value::undefined();
+        auto onResult = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        auto onError = count >= 2 && args[1].isObject() && args[1].asObject(rt).isFunction(rt)
+                           ? std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt))
+                           : nullptr;
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb) {
+          if (onError) {
+            auto& s = state();
+            if (s.runtime) {
+              try {
+                onError->call(*s.runtime, jsi::String::createFromUtf8(*s.runtime, "no clipboard"));
+                s.runtime->drainMicrotasks();
+              } catch (...) {
+              }
+            }
+          }
+          return jsi::Value::undefined();
+        }
+        // The async callback can fire after a JS reload swaps the
+        // runtime out. Capture by shared_ptr; the trampoline
+        // checks state().runtime is still live before calling.
+        struct Ctx {
+          std::shared_ptr<jsi::Function> onResult;
+          std::shared_ptr<jsi::Function> onError;
+        };
+        auto* ctx = new Ctx{std::move(onResult), std::move(onError)};
+        gdk_clipboard_read_text_async(
+            cb,
+            nullptr,
+            +[](GObject* src, GAsyncResult* res, gpointer userData) {
+              auto* ctx = static_cast<Ctx*>(userData);
+              auto& s = state();
+              GError* err = nullptr;
+              gchar* text = gdk_clipboard_read_text_finish(GDK_CLIPBOARD(src), res, &err);
+              if (s.runtime) {
+                jsi::Runtime& jrt = *s.runtime;
+                try {
+                  if (text) {
+                    if (ctx->onResult)
+                      ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, text));
+                  } else if (err && ctx->onError) {
+                    ctx->onError->call(jrt,
+                                       jsi::String::createFromUtf8(
+                                           jrt, err->message ? err->message : "(read failed)"));
+                  } else if (ctx->onResult) {
+                    // No text on the clipboard right now — that's
+                    // not an error; expo's contract is empty
+                    // string for "nothing readable as text".
+                    ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, ""));
+                  }
+                  jrt.drainMicrotasks();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.clipboard") << "async cb threw: " << e.what();
+                }
+              }
+              if (text)
+                g_free(text);
+              if (err)
+                g_error_free(err);
+              delete ctx;
+            },
+            ctx);
+        return jsi::Value::undefined();
+      });
+
   // Appearance.getColorScheme backing. Reads the GTK setting
   // `gtk-application-prefer-dark-theme` and returns 'dark' or 'light'.
   // GTK exposes this via GtkSettings, which is global per display. The
@@ -2116,6 +2196,31 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsFreeDiskBytes",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        // No-arg form asks for the FS holding documentDirectory —
+        // that's what an expo app actually wants when it calls
+        // getFreeDiskStorageAsync().
+        std::string path =
+            (count >= 1 && args[0].isString()) ? args[0].asString(rt).utf8(rt) : std::string{"/"};
+        return jsi::Value(static_cast<double>(rnlinux::filesystem::freeDiskBytes(path)));
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsTotalDiskBytes",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        std::string path =
+            (count >= 1 && args[0].isString()) ? args[0].asString(rt).utf8(rt) : std::string{"/"};
+        return jsi::Value(static_cast<double>(rnlinux::filesystem::totalDiskBytes(path)));
+      });
+
   // ─── Notifications (expo-notifications) ─────────────────────────
   // Single response listener; replaces on each call. C++ stores the
   // jsi::Function shared_ptr so libnotify's closed-signal trampoline
@@ -2275,6 +2380,26 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // expo-image's Image.clearDiskCache lands here. Wipes both the
+  // in-memory SoupCache entries and the on-disk cache directory
+  // (XDG_CACHE_HOME/rn-linux-playground/soup-image-cache).
+  bindMethod(rt,
+             rnLinux,
+             "imageClearCache",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               rnlinux::clearImageCache();
+               return jsi::Value(true);
+             });
+
+  bindMethod(rt,
+             rnLinux,
+             "imageCacheDir",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               return jsi::String::createFromUtf8(rt, rnlinux::imageCacheDir());
+             });
+
   bindMethod(rt,
              rnLinux,
              "reloadApp",
@@ -2363,13 +2488,18 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         rnlinux::print::exportToPdf(
             text,
             outPath,
-            [okCb, outPath]() {
+            [okCb, outPath](int pageCount) {
               auto& s = state();
               if (!s.runtime || !okCb)
                 return;
               jsi::Runtime& jrt = *s.runtime;
               try {
-                okCb->call(jrt, jsi::String::createFromUtf8(jrt, "file://" + outPath));
+                // Two-arg call: (uri, numberOfPages). The JS shim
+                // resolves the printToFileAsync promise with both
+                // so callers get expo-print's documented shape.
+                okCb->call(jrt,
+                           jsi::String::createFromUtf8(jrt, "file://" + outPath),
+                           jsi::Value(pageCount));
                 jrt.drainMicrotasks();
               } catch (const std::exception& e) {
                 RNL_LOGE("rnLinux.print") << "ok handler threw: " << e.what();
@@ -2443,6 +2573,10 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                   o.setProperty(jrt, "size", jsi::Value(static_cast<double>(picked[i].size)));
                   o.setProperty(
                       jrt, "mimeType", jsi::String::createFromUtf8(jrt, picked[i].mimeType));
+                  // width / height are 0 for non-image picks; the
+                  // JS shims map 0 → null so expo's contract holds.
+                  o.setProperty(jrt, "width", jsi::Value(picked[i].width));
+                  o.setProperty(jrt, "height", jsi::Value(picked[i].height));
                   arr.setValueAtIndex(jrt, i, o);
                 }
                 jsi::Object result(jrt);

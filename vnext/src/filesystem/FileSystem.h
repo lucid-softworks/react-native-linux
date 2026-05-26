@@ -67,4 +67,11 @@ void download(const std::string& url,
               DownloadSuccess onSuccess,
               DownloadError onError);
 
+// statvfs-backed disk-space helpers. `path` should be any path on
+// the target filesystem (we use documentDirectory's parent on the
+// JS side). Returns -1 on failure rather than throwing — expo apps
+// usually treat unknown-disk as a soft signal, not a hard error.
+int64_t freeDiskBytes(const std::string& path);
+int64_t totalDiskBytes(const std::string& path);
+
 } // namespace rnlinux::filesystem

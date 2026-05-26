@@ -14,7 +14,9 @@
 #define RNL_HAVE_LIBSOUP3 1
 #endif
 
+#include <cstdlib>
 #include <cstring>
+#include <glib/gstdio.h>
 
 namespace rnlinux {
 
@@ -36,10 +38,41 @@ bool isHttpScheme(const std::string& uri) {
 }
 
 #ifdef RNL_HAVE_LIBSOUP3
+// Process-wide SoupCache anchored under XDG_CACHE_HOME — clearable
+// from JS via `Image.clearDiskCache`. Kept as a separate global so
+// the JSI binding can reach in without owning the session.
+SoupCache* sharedCache() {
+  static SoupCache* c = nullptr;
+  if (c)
+    return c;
+  std::string dir = rnlinux::imageCacheDir();
+  g_mkdir_with_parents(dir.c_str(), 0700);
+  // SOUP_CACHE_SINGLE_USER means we don't bother stripping cookies /
+  // auth on store — fine because the app's HTTP fetches are anon.
+  // libsoup-3 split the max-size knob out into its own setter; 64 MiB
+  // is enough for tens of thousands of typical image responses and
+  // small enough not to surprise users on disk-constrained boxes.
+  c = soup_cache_new(dir.c_str(), SOUP_CACHE_SINGLE_USER);
+  if (c)
+    soup_cache_set_max_size(c, 64 * 1024 * 1024);
+  return c;
+}
+
 // One process-wide SoupSession — sessions are thread-safe and reusing
-// one gets HTTP keep-alive across image loads.
+// one gets HTTP keep-alive across image loads. We attach the cache
+// here so all image fetches go through it transparently.
 SoupSession* sharedSession() {
-  static SoupSession* s = soup_session_new();
+  static SoupSession* s = []() {
+    SoupSession* sess = soup_session_new();
+    SoupCache* cache = sharedCache();
+    if (cache) {
+      soup_session_add_feature(sess, SOUP_SESSION_FEATURE(cache));
+      // Load whatever's on disk from a previous run — without this
+      // every cold-start fetch misses the cache.
+      soup_cache_load(cache);
+    }
+    return sess;
+  }();
   return s;
 }
 
@@ -201,6 +234,49 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
   }
   gtk_picture_set_paintable(GTK_PICTURE(widget_), GDK_PAINTABLE(tex));
   g_object_unref(tex);
+}
+
+// ─── Cache helpers (exported via the JSI bindings) ────────────────
+
+std::string imageCacheDir() {
+  // XDG_CACHE_HOME with the standard ~/.cache fallback. We keep the
+  // image cache under a named subdir rather than libsoup's default
+  // so a clear here doesn't wipe other consumers' libsoup caches.
+  std::string base;
+  if (const char* c = std::getenv("XDG_CACHE_HOME"); c && *c) {
+    base = c;
+  } else if (const char* h = std::getenv("HOME"); h && *h) {
+    base = std::string(h) + "/.cache";
+  } else {
+    base = "/tmp";
+  }
+  return base + "/rn-linux-playground/soup-image-cache";
+}
+
+void clearImageCache() {
+#ifdef RNL_HAVE_LIBSOUP3
+  // Drain the live cache first so in-flight responses don't repopulate
+  // the directory between our call and the unlink. soup_cache_clear
+  // does both memory and on-disk entries under SOUP_CACHE_SINGLE_USER.
+  if (SoupCache* cache = sharedCache()) {
+    soup_cache_clear(cache);
+    soup_cache_flush(cache);
+  }
+#endif
+  // Belt-and-braces: also remove anything lingering on disk in case
+  // the cache wasn't initialized (e.g. no http loads happened yet
+  // this session) or a prior version of the app left orphan files.
+  const std::string dir = imageCacheDir();
+  GDir* d = g_dir_open(dir.c_str(), 0, nullptr);
+  if (!d)
+    return;
+  const char* name;
+  while ((name = g_dir_read_name(d))) {
+    std::string p = dir + "/" + name;
+    // Cache files are flat — no need to recurse.
+    g_unlink(p.c_str());
+  }
+  g_dir_close(d);
 }
 
 } // namespace rnlinux

@@ -78,8 +78,8 @@ The expo-image section renders a sample HTTPS PNG via
 | `autoplay` / `allowDownscaling`                                                     | Accepted, ignored                                                      |
 | `<ImageBackground>`                                                                 | Real — Image nested under absolutely-positioned children               |
 | `Image.prefetch(uri)`                                                               | Warms libsoup cache via downloadAsync + delete                         |
-| `Image.clearMemoryCache / clearDiskCache`                                           | No-op returning `true`                                                 |
-| `Image.getCachePathAsync(uri)`                                                      | Returns `null` (libsoup cache isn't predictably keyed)                 |
+| `Image.clearMemoryCache / clearDiskCache`                                           | Real — wipes the SoupCache under XDG_CACHE_HOME/.../soup-image-cache   |
+| `Image.getCachePathAsync(uri)`                                                      | Returns the cache directory path (entries are SHA-1-keyed, not stable) |
 | `useImage(source)` hook                                                             | Resolves source to `{uri}` (width/height stay unknown)                 |
 | `ImageContentFit / ImageContentPosition / ImageCachePolicy / ImageTransition` enums | Match upstream string/object values                                    |
 
@@ -92,11 +92,14 @@ The expo-image section renders a sample HTTPS PNG via
   paintables.
 - **No blur.** Would need a GdkPaintable that runs a Gaussian
   blur shader (or cairo CPU blur) over its source paintable.
-- **No advanced cache control.** libsoup's HTTP cache is at
-  `$XDG_CACHE_HOME/libsoup/`; we don't peek in or wipe it.
-  `clearDiskCache` returns true but does nothing — fixing would
-  mean either inspecting libsoup's cache directory directly or
-  swapping the loader for one we fully control.
+- **Advanced cache control** — **DONE.** The HTTP fetcher attaches
+  a `SoupCache` at
+  `$XDG_CACHE_HOME/rn-linux-playground/soup-image-cache` so cached
+  responses survive process restarts. `Image.clearDiskCache()`
+  drives `soup_cache_clear()` + `soup_cache_flush()` and unlinks
+  any lingering files; `Image.getCachePathAsync()` returns the
+  cache directory. Per-URL cache lookup isn't surfaced because
+  SoupCache keys by a SHA-1 hash that isn't a stable contract.
 - **`useImage` returns only `{uri}`.** No width / height
   resolution since that would mean either parsing the image
   header (gdk-pixbuf) or fully loading it. `Image.getSize` from

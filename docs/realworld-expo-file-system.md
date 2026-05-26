@@ -76,26 +76,26 @@ the round-trip, then deletes the file. Shows
 
 ## API surface
 
-| API                                  | Behavior on Linux                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| `documentDirectory`                  | `file://$XDG_DATA_HOME/<app-id>/`                                              |
-| `cacheDirectory`                     | `file://$XDG_CACHE_HOME/<app-id>/`                                             |
-| `bundleDirectory`                    | `file://${exe_dir}/assets/`                                                    |
-| `readAsStringAsync(uri, {enc})`      | POSIX read; `utf8` and `base64` encodings supported                            |
-| `writeAsStringAsync(uri, c, {enc})`  | Atomic write via `.tmp-rnl` + rename                                           |
-| `getInfoAsync(uri, {md5})`           | `stat`; MD5 streamed via `g_checksum_*` when requested                         |
-| `deleteAsync(uri, {idempotent})`     | `unlink` for files; recursive walk + rmdir for directories                     |
-| `makeDirectoryAsync(uri, {imm})`     | `mkdir(2)` or hand-rolled `mkdir -p` for intermediates                         |
-| `readDirectoryAsync(uri)`            | `opendir`/`readdir`; `.` and `..` filtered                                     |
-| `copyAsync({from, to})`              | 64 KiB streamed copy                                                           |
-| `moveAsync({from, to})`              | `rename(2)`; copy+delete fallback on EXDEV                                     |
-| `downloadAsync(url, fileUri)`        | libsoup async GET → file. Returns `{uri, status, size}`                        |
-| `uploadAsync`                        | Throws — multipart/binary upload not implemented yet                           |
-| `createDownloadResumable` / class    | `downloadAsync()` works; `pauseAsync`/`cancelAsync` throw                      |
-| `StorageAccessFramework.*`           | Most ops mapped onto regular file ops; permission stub returns `granted=false` |
-| `getFreeDiskStorageAsync` / `…Total` | Returns `-1` ("unknown") — a `statvfs` binding would be a few lines            |
-| `getContentUriAsync`                 | Throws — Android-only `content://` scheme has no Linux equivalent              |
-| `EncodingType.UTF8` / `Base64`       | Real                                                                           |
+| API                                  | Behavior on Linux                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| `documentDirectory`                  | `file://$XDG_DATA_HOME/<app-id>/`                                                 |
+| `cacheDirectory`                     | `file://$XDG_CACHE_HOME/<app-id>/`                                                |
+| `bundleDirectory`                    | `file://${exe_dir}/assets/`                                                       |
+| `readAsStringAsync(uri, {enc})`      | POSIX read; `utf8` and `base64` encodings supported                               |
+| `writeAsStringAsync(uri, c, {enc})`  | Atomic write via `.tmp-rnl` + rename                                              |
+| `getInfoAsync(uri, {md5})`           | `stat`; MD5 streamed via `g_checksum_*` when requested                            |
+| `deleteAsync(uri, {idempotent})`     | `unlink` for files; recursive walk + rmdir for directories                        |
+| `makeDirectoryAsync(uri, {imm})`     | `mkdir(2)` or hand-rolled `mkdir -p` for intermediates                            |
+| `readDirectoryAsync(uri)`            | `opendir`/`readdir`; `.` and `..` filtered                                        |
+| `copyAsync({from, to})`              | 64 KiB streamed copy                                                              |
+| `moveAsync({from, to})`              | `rename(2)`; copy+delete fallback on EXDEV                                        |
+| `downloadAsync(url, fileUri)`        | libsoup async GET → file. Returns `{uri, status, size}`                           |
+| `uploadAsync`                        | Throws — multipart/binary upload not implemented yet                              |
+| `createDownloadResumable` / class    | `downloadAsync()` works; `pauseAsync`/`cancelAsync` throw                         |
+| `StorageAccessFramework.*`           | Most ops mapped onto regular file ops; permission stub returns `granted=false`    |
+| `getFreeDiskStorageAsync` / `…Total` | Real — `statvfs(3)` on the FS holding `documentDirectory` (`f_bavail × f_frsize`) |
+| `getContentUriAsync`                 | Throws — Android-only `content://` scheme has no Linux equivalent                 |
+| `EncodingType.UTF8` / `Base64`       | Real                                                                              |
 
 ## Known gaps
 
@@ -107,9 +107,11 @@ the round-trip, then deletes the file. Shows
 - **Uploads** (`uploadAsync`, multipart / binary) are unimplemented.
   Adding them needs `SoupMultipart` for the multipart path and a
   body-stream for binary — straightforward, not yet done.
-- **Disk space** (`getFreeDiskStorageAsync` / `getTotalDiskCapacityAsync`)
-  returns `-1`. A `statvfs("/")` binding is a few lines whenever a
-  real app depends on it.
+- **Disk space** (`getFreeDiskStorageAsync` /
+  `getTotalDiskCapacityAsync`) — **DONE.** Backed by `statvfs(3)` on
+  the filesystem that holds `documentDirectory`. Free reports
+  `f_bavail × f_frsize` (unprivileged-writable bytes, not
+  root-reserved); total reports `f_blocks × f_frsize`.
 - **`content://` URIs** are Android-only. We throw on
   `getContentUriAsync`; for cross-platform code that branches on
   scheme, this is the right failure mode.

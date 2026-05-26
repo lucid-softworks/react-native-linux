@@ -176,7 +176,7 @@ void printText(GtkWidget* parent, const std::string& text, OnDone onDoneCb, OnEr
 
 void exportToPdf(const std::string& text,
                  const std::string& outPath,
-                 OnDone onDoneCb,
+                 OnPdfDone onDoneCb,
                  OnError onErrorCb) {
   // Synchronous cairo PDF write — no dialog, no async dance.
   cairo_surface_t* surface =
@@ -200,7 +200,7 @@ void exportToPdf(const std::string& text,
   cairo_surface_finish(surface);
   cairo_surface_destroy(surface);
   if (onDoneCb)
-    onDoneCb();
+    onDoneCb(lay.pageCount);
 }
 
 } // namespace rnlinux::print

@@ -19,6 +19,7 @@ typedef struct _GtkWidget GtkWidget;
 namespace rnlinux::print {
 
 using OnDone = std::function<void()>;
+using OnPdfDone = std::function<void(int pageCount)>;
 using OnError = std::function<void(const std::string&)>;
 
 // Show the print dialog. Returns immediately; callbacks fire on
@@ -28,11 +29,11 @@ void printText(GtkWidget* parent, const std::string& text, OnDone onDone, OnErro
 
 // Render to a PDF file. Same Pango layout pipeline as printText,
 // but the output is a cairo PDF surface instead of a print
-// context. onDone fires with no args; the JS shim already knows
-// the path it asked us to write.
+// context. onDone fires with the page count Pango paginated into
+// so the JS shim can surface it as expo-print's `numberOfPages`.
 void exportToPdf(const std::string& text,
                  const std::string& outPath,
-                 OnDone onDone,
+                 OnPdfDone onDone,
                  OnError onError);
 
 } // namespace rnlinux::print
