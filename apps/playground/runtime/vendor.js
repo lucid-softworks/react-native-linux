@@ -55,6 +55,7 @@ const expoConstantsMod = require('@lucid-softworks/react-native-linux-expo/expo-
 const expoCameraMod = require('@lucid-softworks/react-native-linux-expo/expo-camera');
 const expoLinkingMod = require('@lucid-softworks/react-native-linux-expo/expo-linking');
 const expoLocationMod = require('@lucid-softworks/react-native-linux-expo/expo-location');
+const expoNotificationsMod = require('@lucid-softworks/react-native-linux-expo/expo-notifications');
 const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-native-safe-area-context');
 const screensMod = require('@lucid-softworks/react-native-linux-expo/react-native-screens');
 const reanimatedMod = require('@lucid-softworks/react-native-linux-expo/react-native-reanimated');
@@ -84,6 +85,7 @@ globalThis.__rnv = {
   expoCamera: expoCameraMod,
   expoLinking: expoLinkingMod,
   expoLocation: expoLocationMod,
+  expoNotifications: expoNotificationsMod,
   safeAreaContext: safeAreaCtxMod,
   screens: screensMod,
   reanimated: reanimatedMod,

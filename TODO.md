@@ -159,6 +159,35 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [ ] `AccessibilityInfo` via AT-SPI2
 - [ ] `Alert` → `GtkAlertDialog`
 
+## Expo module backlog (real backends, not stubs)
+
+Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
+`@react-native-async-storage/async-storage` (XDG JSON file),
+`react-native-device-info` (DMI + /proc + /sys + /etc),
+`react-native-safe-area-context` (live window dims),
+`expo-camera` (GStreamer appsink → GdkMemoryTexture; v4l2src/videotestsrc fallback; pngenc snap),
+`expo-location` (GeoClue2 via DBus + auto-spawn demo agent),
+`expo-notifications` (libnotify → freedesktop notification daemon).
+
+Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
+
+- [ ] **`expo-clipboard`** — `rnLinux.clipboard*` already exists (GdkClipboard). Shim is ~30 LOC: `getStringAsync` / `setStringAsync` / `hasStringAsync`. Quick win.
+- [ ] **`expo-localization`** — read `LC_ALL` / `LANG` / `LC_MESSAGES`, parse to BCP-47, expose `Localization.locale`, `locales[]`, `timezone` (from `/etc/timezone`), `region`, `currency` (from glibc locale data). One C++ helper, JS shim ~80 LOC.
+- [ ] **`expo-haptics`** — GTK doesn't have haptics. Closest analog: `gtk_widget_error_bell()` for the buzz APIs; or stub-with-bell for the rest. Either way: real action, not a no-op. ~50 LOC.
+- [ ] **`expo-keep-awake`** — `org.freedesktop.ScreenSaver.Inhibit` over the session bus (or `org.freedesktop.PowerManagement.Inhibit` fallback). C++ DBus binding mirroring the GeoClue pattern. `activateKeepAwakeAsync(tag)` / `deactivateKeepAwake(tag)` with an inhibit cookie map.
+- [ ] **`expo-file-system`** — POSIX-direct. `readAsStringAsync`, `writeAsStringAsync`, `deleteAsync`, `moveAsync`, `copyAsync`, `getInfoAsync`, `makeDirectoryAsync`, `readDirectoryAsync`, `downloadAsync` (libsoup), `getFreeDiskStorageAsync`. C++ helpers for off-thread reads of large files; the rest can be sync wrapped in `Promise.resolve`. `documentDirectory` = `XDG_DATA_HOME/<app-id>/`, `cacheDirectory` = `XDG_CACHE_HOME/<app-id>/`, `bundleDirectory` = `${exe_dir}/assets/`.
+- [ ] **`expo-secure-store`** — `libsecret` over the session bus, schema `org.freedesktop.Secret.Service`. C++ binding: `setItemAsync(key, value, opts)` / `getItemAsync(key, opts)` / `deleteItemAsync(key, opts)`. The user's keyring (gnome-keyring / kwallet) handles the actual storage. `apt install libsecret-1-dev`.
+- [ ] **`expo-network`** — NetworkManager over DBus (`org.freedesktop.NetworkManager`). `getNetworkStateAsync` (online + connectionType), `getIpAddressAsync` (reuse device-info path), `getMacAddressAsync`. Subscription to NM's `StateChanged` signal for the listener API. Fallback when NM isn't running: parse `/sys/class/net/*/operstate`.
+- [ ] **`expo-image`** — drop-in replacement for RN `Image`. Already mostly possible: reuse the libsoup loader from our ImageComponentView, add `transition` / `placeholder` / `cachePolicy` support. New Fabric component `ExpoImage` backed by GtkPicture with our own GdkPaintable subclass for cross-fade transitions.
+- [ ] **`expo-document-picker`** — `GtkFileChooserDialog` (or the newer `GtkFileDialog` from GTK 4.10). C++ binding takes `multiple`, `type[]` MIME filters, returns selected paths as `{assets: [{uri, name, size, mimeType}]}`. ~150 LOC + dialog plumbing on the main GTK thread.
+- [ ] **`expo-image-picker`** — same `GtkFileChooser` backend as document-picker but with image-MIME pre-filter. Share most of the code. Real "from camera" path could chain into our existing GStreamer snap. `launchImageLibraryAsync` / `launchCameraAsync`.
+- [ ] **`expo-sharing`** — `org.freedesktop.portal.OpenURI` (Flatpak portal, also works outside Flatpak via xdg-desktop-portal) OR `g_app_info_launch_default_for_uri` fallback. `shareAsync(url, options)` → opens the portal share sheet. xdg-mime types drive the per-app target list.
+- [ ] **`expo-sensors`** — accelerometer / gyro / magnetometer don't exist on most desktops. iio-sensor-proxy can surface laptop accelerometers on some devices, but coverage is poor. **Skip until there's user demand**, then implement against iio-sensor-proxy over DBus with a clean "no sensors available" error path.
+- [ ] **`expo-battery`** — already covered by `react-native-device-info`'s power state, but a dedicated `expo-battery` shim that maps to the same source would let upstream-typed code work unchanged. ~40 LOC, pure JS shim over the existing C++.
+- [ ] **`expo-print`** — `org.freedesktop.portal.Print` (or GtkPrintOperation directly when not in a sandbox). Real print preview dialog. Smaller than it sounds — the portal handles all the UI.
+- [ ] **`expo-screen-capture`** — `gnome-screenshot` via DBus, or the portal `org.freedesktop.portal.ScreenCast`. `requestPermissionsAsync` + `captureAsync` returning a PNG path. Permissions are real on Linux (portal asks).
+- [ ] **`expo-cellular`** / **`expo-sms`** — no telephony on desktop. Return realistic "no SIM" / "not available" responses (not stubs that lie about success).
+
 ## Phase 10 — Stretch / nice-to-haves
 
 - [ ] libadwaita widgets

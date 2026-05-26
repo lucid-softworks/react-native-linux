@@ -54,6 +54,11 @@ pkg_check_modules(Gst REQUIRED IMPORTED_TARGET
   gstreamer-1.0
   gstreamer-app-1.0
   gstreamer-video-1.0)
+
+# libnotify — desktop notifications via the freedesktop spec on the
+# session bus. The daemon (gnome-shell / xfce4-notifyd / dunst / …)
+# is the user's concern, not ours.
+pkg_check_modules(Notify REQUIRED IMPORTED_TARGET libnotify)
 include(ReactNativeHeaders)  # locate node_modules/react-native
 include(FetchHermes)      # Hermes runtime
 include(FetchFolly)       # Folly (subset)
@@ -120,6 +125,7 @@ set(RNL_SOURCES
   src/camera/Camera.cpp
   src/components/CameraView.cpp
   src/views/CameraComponentView.cpp
+  src/notifications/Notifications.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -292,6 +298,7 @@ target_link_libraries(react_native_linux
     $<TARGET_NAME_IF_EXISTS:PkgConfig::Soup>
   PRIVATE
     PkgConfig::Gst
+    PkgConfig::Notify
     Threads::Threads
     Hermes::Hermes
     Folly::folly

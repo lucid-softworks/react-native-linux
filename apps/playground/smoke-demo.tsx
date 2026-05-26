@@ -401,6 +401,72 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-notifications ───────────────────────────
+// Real libnotify-backed local notifications. "Present" fires
+// immediately; "Schedule 3s" wires through g_timeout_add. The
+// response listener fires when the user dismisses the bubble (close
+// signal from the freedesktop notifications spec).
+function ExpoNotificationsDemo() {
+  const ExpoNotifications = require('expo-notifications');
+  const [lastAction, setLastAction] = useState<string>('(none yet)');
+  const [pending, setPending] = useState(0);
+
+  useEffect(() => {
+    const sub = ExpoNotifications.addNotificationResponseReceivedListener((r: any) => {
+      setLastAction(`${r.actionIdentifier} on ${r.notification.request.identifier}`);
+    });
+    return () => sub.remove();
+  }, [ExpoNotifications]);
+
+  async function presentNow() {
+    await ExpoNotifications.scheduleNotificationAsync({
+      content: {title: 'Hello from RN-Linux', body: 'Fired via libnotify on the session bus.'},
+      trigger: null,
+    });
+  }
+
+  async function schedule3s() {
+    await ExpoNotifications.scheduleNotificationAsync({
+      content: {title: 'Scheduled notification', body: 'Delayed 3 seconds via g_timeout_add.'},
+      trigger: {seconds: 3},
+    });
+    refreshPending();
+  }
+
+  async function cancelAll() {
+    await ExpoNotifications.cancelAllScheduledNotificationsAsync();
+    refreshPending();
+  }
+
+  async function refreshPending() {
+    const list = await ExpoNotifications.getAllScheduledNotificationsAsync();
+    setPending(list.length);
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Local notifications via libnotify (org.freedesktop.Notifications). The visible bubble is
+        whatever daemon the desktop is running — gnome-shell, xfce4-notifyd, mako, dunst, etc.
+        Dismissing it fires the response listener below.
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={presentNow}>
+          <Text style={styles.btnText}>present</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={schedule3s}>
+          <Text style={styles.btnText}>schedule 3s</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={cancelAll}>
+          <Text style={styles.btnText}>cancel all</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.demoLine}>pending: {pending}</Text>
+      <Text style={styles.demoLine}>last response: {lastAction}</Text>
+    </View>
+  );
+}
+
 // ─────────────────────────── Root ───────────────────────────
 function SmokeDemo() {
   const [probes, setProbes] = useState<Probe[]>([]);
@@ -457,6 +523,14 @@ function SmokeDemo() {
         const services = await loc.hasServicesEnabledAsync();
         return `perms=${perms?.status ?? 'n/a'} services=${services ? 'on' : 'off'}`;
       }),
+      tryProbe('expo-notifications', async function notificationsProbe() {
+        const n = require('expo-notifications');
+        if (typeof n.scheduleNotificationAsync !== 'function') {
+          throw new Error(`scheduleNotificationAsync missing (keys: ${Object.keys(n).join(',')})`);
+        }
+        const perms = await n.requestPermissionsAsync();
+        return `perms=${perms?.status ?? 'n/a'}`;
+      }),
     ];
     Promise.all(runs).then(setProbes);
   }, []);
@@ -496,6 +570,11 @@ function SmokeDemo() {
         <View style={styles.section}>
           <ProbeRow probe={pending('expo-location')} />
           <ExpoLocationDemo />
+        </View>
+
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-notifications')} />
+          <ExpoNotificationsDemo />
         </View>
       </ScrollView>
     </SafeAreaView>

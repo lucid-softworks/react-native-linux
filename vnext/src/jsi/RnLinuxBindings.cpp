@@ -3,6 +3,7 @@
 #include "../camera/Camera.h"
 #include "../deviceinfo/DeviceInfo.h"
 #include "../location/Location.h"
+#include "../notifications/Notifications.h"
 #include "react-native-linux/Logging.h"
 
 #include <array>
@@ -194,6 +195,12 @@ void resetRnLinuxBindings() {
   }
   state().locationOnFix.reset();
   state().locationOnError.reset();
+  // Notifications state is decoupled from this State struct (lives
+  // in vnext/src/notifications), but it captures jsi::Function refs
+  // into the old runtime too — clear it through the same reload
+  // boundary so libnotify's signal callbacks don't fire into a
+  // freed Hermes.
+  rnlinux::notifications::reset();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -1768,6 +1775,108 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                s.locationOnError.reset();
                return jsi::Value::undefined();
              });
+
+  // ─── Notifications (expo-notifications) ─────────────────────────
+  // Single response listener; replaces on each call. C++ stores the
+  // jsi::Function shared_ptr so libnotify's closed-signal trampoline
+  // can call into JS without needing to track per-notification state.
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "notificationsPresent",
+      3,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 3)
+          return jsi::Value(false);
+        const auto id = args[0].asString(rt).utf8(rt);
+        const auto title = args[1].asString(rt).utf8(rt);
+        const auto body = args[2].asString(rt).utf8(rt);
+        return jsi::Value(rnlinux::notifications::present(id, title, body));
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "notificationsSchedule",
+      4,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 4)
+          return jsi::Value(false);
+        const auto id = args[0].asString(rt).utf8(rt);
+        const int delayMs = static_cast<int>(args[1].asNumber());
+        const auto title = args[2].asString(rt).utf8(rt);
+        const auto body = args[3].asString(rt).utf8(rt);
+        return jsi::Value(rnlinux::notifications::schedule(id, delayMs, title, body));
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "notificationsCancel",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        rnlinux::notifications::cancel(args[0].asString(rt).utf8(rt));
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(rt,
+             rnLinux,
+             "notificationsCancelAll",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               rnlinux::notifications::cancelAll();
+               return jsi::Value::undefined();
+             });
+
+  bindMethod(rt,
+             rnLinux,
+             "notificationsListScheduled",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               const auto list = rnlinux::notifications::listScheduled();
+               jsi::Array arr(rt, list.size());
+               for (size_t i = 0; i < list.size(); ++i) {
+                 jsi::Object o(rt);
+                 o.setProperty(rt, "id", jsi::String::createFromUtf8(rt, list[i].id));
+                 o.setProperty(rt, "title", jsi::String::createFromUtf8(rt, list[i].title));
+                 o.setProperty(rt, "body", jsi::String::createFromUtf8(rt, list[i].body));
+                 o.setProperty(rt, "fireAt", jsi::Value(static_cast<double>(list[i].fireAtMs)));
+                 arr.setValueAtIndex(rt, i, o);
+               }
+               return arr;
+             });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "notificationsSetResponseListener",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || args[0].isNull() || args[0].isUndefined()) {
+          rnlinux::notifications::setResponseCallback(nullptr);
+          return jsi::Value::undefined();
+        }
+        auto fn = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        rnlinux::notifications::setResponseCallback(
+            [fn](const std::string& id, const std::string& action) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                fn->call(jrt,
+                         jsi::String::createFromUtf8(jrt, id),
+                         jsi::String::createFromUtf8(jrt, action));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.notif") << "response handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
 
   // ─── Camera one-shot capture (expo-camera.takePictureAsync) ──────
   // GStreamer pipeline runs to EOS off the JS thread; the result /

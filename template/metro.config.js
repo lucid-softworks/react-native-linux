@@ -18,6 +18,7 @@ const linuxExpoShims = {
   'expo-font': '@lucid-softworks/react-native-linux-expo/expo-font',
   'expo-linking': '@lucid-softworks/react-native-linux-expo/expo-linking',
   'expo-location': '@lucid-softworks/react-native-linux-expo/expo-location',
+  'expo-notifications': '@lucid-softworks/react-native-linux-expo/expo-notifications',
   'expo-router': '@lucid-softworks/react-native-linux-expo/expo-router',
   'expo-splash-screen': '@lucid-softworks/react-native-linux-expo/expo-splash-screen',
   'expo-status-bar': '@lucid-softworks/react-native-linux-expo/expo-status-bar',
