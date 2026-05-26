@@ -12,7 +12,12 @@
     "packages/@lucid-softworks/react-native-linux": {
       "package-name": "@lucid-softworks/react-native-linux",
       "release-type": "node",
-      "extra-files": ["../../../vnext/CMakeLists.txt"],
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "/vnext/CMakeLists.txt"
+        }
+      ],
       "changelog-path": "CHANGELOG.md"
     },
     "packages/@lucid-softworks/cli": {
