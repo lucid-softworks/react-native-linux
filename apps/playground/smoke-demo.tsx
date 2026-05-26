@@ -11,7 +11,16 @@
 //   scripts/vm/run-playground.sh
 
 import {useEffect, useState} from 'react';
-import {Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {
+  Image,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import {registerRootComponent} from 'expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DeviceInfo from 'react-native-device-info';
@@ -342,18 +351,52 @@ function ExpoLocationDemo() {
   );
 }
 
-// ─────────────────────────── Expo modules placeholder ───────────────────────────
-function ExpoModulePlaceholder({lib, hint}: {lib: string; hint: string}) {
+// ─────────────────────────── expo-camera ───────────────────────────
+// Real GStreamer pipeline behind <CameraView> (videotestsrc pattern
+// "ball" on dev VMs with no /dev/video*, v4l2src otherwise). The
+// snap button runs a separate one-shot pipeline that writes a PNG;
+// we render it inline via <Image> so the round-trip is visible.
+function ExpoCameraDemo() {
+  const ExpoCamera = require('expo-camera');
+  const [snapUri, setSnapUri] = useState<string | null>(null);
+  const [snapErr, setSnapErr] = useState<string>('');
+  const [pending, setPending] = useState(false);
+
+  async function snap() {
+    setPending(true);
+    setSnapErr('');
+    try {
+      const r = await ExpoCamera.takePictureAsync({});
+      setSnapUri(r.uri);
+    } catch (e) {
+      setSnapErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <View style={styles.demo}>
       <Text style={styles.demoCaption}>
-        {lib} calls requireNativeModule() at import time, which throws because there's no native
-        module registered for it. {hint}
+        Live GStreamer preview into a GtkPicture (videotestsrc pattern on dev VMs without
+        /dev/video*, v4l2src on real hardware). Snap runs a one-shot pngenc pipeline; the resulting
+        PNG is rendered inline below.
       </Text>
-      <Text style={styles.demoLine}>
-        Gap: wire expo-modules-core to a Linux native registry so individual expo packages can
-        self-register.
-      </Text>
+      <View style={{height: 200, backgroundColor: '#000', borderRadius: 4, overflow: 'hidden'}}>
+        <ExpoCamera.CameraView style={{flex: 1}} />
+      </View>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={snap} disabled={pending}>
+          <Text style={styles.btnText}>{pending ? 'snapping…' : 'snap'}</Text>
+        </Pressable>
+      </View>
+      {snapUri ? (
+        <>
+          <Text style={styles.demoLine}>{snapUri}</Text>
+          <Image source={{uri: snapUri}} style={{width: 160, height: 120, marginTop: 4}} />
+        </>
+      ) : null}
+      {snapErr ? <Text style={[styles.demoLine, styles.fail]}>{snapErr}</Text> : null}
     </View>
   );
 }
@@ -394,10 +437,14 @@ function SmokeDemo() {
       }),
       tryProbe('expo-camera', async function cameraProbe() {
         const cam = require('expo-camera');
-        const Camera = cam.Camera ?? cam.default;
-        if (!Camera) throw new Error(`Camera export missing (keys: ${Object.keys(cam).join(',')})`);
-        const perms = await Camera.requestCameraPermissionsAsync?.();
-        return `perms=${perms?.status ?? 'n/a (no native module)'}`;
+        if (typeof cam.requestCameraPermissionsAsync !== 'function') {
+          throw new Error(
+            `requestCameraPermissionsAsync missing (keys: ${Object.keys(cam).join(',')})`,
+          );
+        }
+        const perms = await cam.requestCameraPermissionsAsync();
+        const has = await cam.isAvailableAsync();
+        return `perms=${perms?.status ?? 'n/a'} native=${has ? 'on' : 'off'}`;
       }),
       tryProbe('expo-location', async function locationProbe() {
         const loc = require('expo-location');
@@ -443,10 +490,7 @@ function SmokeDemo() {
 
         <View style={styles.section}>
           <ProbeRow probe={pending('expo-camera')} />
-          <ExpoModulePlaceholder
-            lib="expo-camera"
-            hint="Would render a CameraView with live video preview here."
-          />
+          <ExpoCameraDemo />
         </View>
 
         <View style={styles.section}>

@@ -52,6 +52,7 @@ const expoSplashScreenMod = require('@lucid-softworks/react-native-linux-expo/ex
 const expoWebBrowserMod = require('@lucid-softworks/react-native-linux-expo/expo-web-browser');
 const expoSymbolsMod = require('@lucid-softworks/react-native-linux-expo/expo-symbols');
 const expoConstantsMod = require('@lucid-softworks/react-native-linux-expo/expo-constants');
+const expoCameraMod = require('@lucid-softworks/react-native-linux-expo/expo-camera');
 const expoLinkingMod = require('@lucid-softworks/react-native-linux-expo/expo-linking');
 const expoLocationMod = require('@lucid-softworks/react-native-linux-expo/expo-location');
 const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-native-safe-area-context');
@@ -80,6 +81,7 @@ globalThis.__rnv = {
   expoWebBrowser: expoWebBrowserMod,
   expoSymbols: expoSymbolsMod,
   expoConstants: expoConstantsMod,
+  expoCamera: expoCameraMod,
   expoLinking: expoLinkingMod,
   expoLocation: expoLocationMod,
   safeAreaContext: safeAreaCtxMod,

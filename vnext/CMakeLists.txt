@@ -45,6 +45,15 @@ pkg_check_modules(Pango REQUIRED IMPORTED_TARGET pangocairo)
 # remote `source.uri` values. Optional: when not present, http(s)
 # URIs log a warning and fall back to a placeholder.
 pkg_check_modules(Soup IMPORTED_TARGET libsoup-3.0)
+
+# GStreamer — backs CameraView's live preview + the one-shot snap
+# pipeline (vnext/src/camera/). gstreamer-1.0 carries core types,
+# gstreamer-app-1.0 brings appsink (frames → GdkMemoryTexture), and
+# gstreamer-video-1.0 has GstVideoInfo for caps parsing.
+pkg_check_modules(Gst REQUIRED IMPORTED_TARGET
+  gstreamer-1.0
+  gstreamer-app-1.0
+  gstreamer-video-1.0)
 include(ReactNativeHeaders)  # locate node_modules/react-native
 include(FetchHermes)      # Hermes runtime
 include(FetchFolly)       # Folly (subset)
@@ -108,6 +117,9 @@ set(RNL_SOURCES
   src/storage/AsyncStorage.cpp
   src/deviceinfo/DeviceInfo.cpp
   src/location/Location.cpp
+  src/camera/Camera.cpp
+  src/components/CameraView.cpp
+  src/views/CameraComponentView.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -279,6 +291,7 @@ target_link_libraries(react_native_linux
     GTK4::GTK4
     $<TARGET_NAME_IF_EXISTS:PkgConfig::Soup>
   PRIVATE
+    PkgConfig::Gst
     Threads::Threads
     Hermes::Hermes
     Folly::folly

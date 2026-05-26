@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 
 const linuxExpoShims = {
   expo: '@lucid-softworks/react-native-linux-expo/expo',
+  'expo-camera': '@lucid-softworks/react-native-linux-expo/expo-camera',
   'expo-constants': '@lucid-softworks/react-native-linux-expo/expo-constants',
   'expo-font': '@lucid-softworks/react-native-linux-expo/expo-font',
   'expo-linking': '@lucid-softworks/react-native-linux-expo/expo-linking',

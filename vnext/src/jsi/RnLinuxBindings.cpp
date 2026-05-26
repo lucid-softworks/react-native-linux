@@ -1,5 +1,6 @@
 #include "RnLinuxBindings.h"
 
+#include "../camera/Camera.h"
 #include "../deviceinfo/DeviceInfo.h"
 #include "../location/Location.h"
 #include "react-native-linux/Logging.h"
@@ -1767,6 +1768,63 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                s.locationOnError.reset();
                return jsi::Value::undefined();
              });
+
+  // ─── Camera one-shot capture (expo-camera.takePictureAsync) ──────
+  // GStreamer pipeline runs to EOS off the JS thread; the result /
+  // error callback fires back on the GTK main loop, which is the JS
+  // thread, so calling into the runtime is safe without locking.
+
+  bindMethod(rt,
+             rnLinux,
+             "cameraHasDevice",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               return jsi::Value(rnlinux::camera::hasV4l2Device());
+             });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "cameraSnap",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        auto resultCb = (count > 0 && args[0].isObject() && args[0].asObject(rt).isFunction(rt))
+                            ? std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt))
+                            : nullptr;
+        auto errCb = (count > 1 && args[1].isObject() && args[1].asObject(rt).isFunction(rt))
+                         ? std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt))
+                         : nullptr;
+        rnlinux::camera::snap(
+            [resultCb](const rnlinux::camera::SnapResult& r) {
+              auto& st = state();
+              if (!st.runtime || !resultCb)
+                return;
+              jsi::Runtime& jrt = *st.runtime;
+              try {
+                jsi::Object obj(jrt);
+                obj.setProperty(jrt, "uri", jsi::String::createFromUtf8(jrt, r.uri));
+                obj.setProperty(jrt, "width", jsi::Value(r.width));
+                obj.setProperty(jrt, "height", jsi::Value(r.height));
+                resultCb->call(jrt, obj);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.camera") << "snap result handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& st = state();
+              if (!st.runtime || !errCb)
+                return;
+              jsi::Runtime& jrt = *st.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.camera") << "snap error handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
 
   bindMethod(rt,
              rnLinux,

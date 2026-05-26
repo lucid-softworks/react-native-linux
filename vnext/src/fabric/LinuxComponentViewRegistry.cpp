@@ -1,6 +1,7 @@
 #include "LinuxComponentViewRegistry.h"
 
 #include "../views/ActivityIndicatorComponentView.h"
+#include "../views/CameraComponentView.h"
 #include "../views/ImageComponentView.h"
 #include "../views/ParagraphComponentView.h"
 #include "../views/ScrollViewComponentView.h"
@@ -29,6 +30,7 @@ LinuxComponentViewRegistry::LinuxComponentViewRegistry() {
   registerComponent("Switch", [](Tag t) { return std::make_unique<SwitchComponentView>(t); });
   registerComponent("ActivityIndicator",
                     [](Tag t) { return std::make_unique<ActivityIndicatorComponentView>(t); });
+  registerComponent("CameraView", [](Tag t) { return std::make_unique<CameraComponentView>(t); });
 }
 
 void LinuxComponentViewRegistry::registerComponent(std::string name, Factory factory) {

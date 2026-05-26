@@ -221,6 +221,7 @@ const appOpts = {
     'expo-splash-screen',
     'expo-web-browser',
     'expo-symbols',
+    'expo-camera',
     'expo-constants',
     'expo-linking',
     'expo-location',
@@ -250,6 +251,7 @@ const appOpts = {
       '  if (id === "expo-web-browser") return rnv.expoWebBrowser;\n' +
       '  if (id === "expo-symbols") return rnv.expoSymbols;\n' +
       '  if (id === "expo-constants") return rnv.expoConstants;\n' +
+      '  if (id === "expo-camera") return rnv.expoCamera;\n' +
       '  if (id === "expo-linking") return rnv.expoLinking;\n' +
       '  if (id === "expo-location") return rnv.expoLocation;\n' +
       '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +

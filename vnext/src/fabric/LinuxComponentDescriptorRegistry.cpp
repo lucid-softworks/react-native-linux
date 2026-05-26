@@ -1,6 +1,7 @@
 #include "LinuxComponentDescriptorRegistry.h"
 
 #include "../components/ActivityIndicator.h"
+#include "../components/CameraView.h"
 #include "../components/Switch.h"
 #include "../components/TextInput.h"
 #include "react-native-linux/Logging.h"
@@ -63,6 +64,10 @@ void registerCoreDescriptors(ComponentDescriptorProviderRegistry& registry) {
   // Cross-platform ActivityIndicator — backed by GtkSpinner.
   registry.add(
       facebook::react::concreteComponentDescriptorProvider<ActivityIndicatorComponentDescriptor>());
+
+  // CameraView — GtkPicture driven by a GStreamer appsink pipeline
+  // (vnext/src/camera/Camera.cpp). Used by the expo-camera shim.
+  registry.add(facebook::react::concreteComponentDescriptorProvider<CameraComponentDescriptor>());
 }
 
 } // namespace rnlinux

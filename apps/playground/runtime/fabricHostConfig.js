@@ -422,6 +422,19 @@ const hostConfig = {
       return makeInstance(tag, fabricNode, 'ActivityIndicator', type);
     }
 
+    if (type === 'camera') {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'CameraView',
+        currentSurfaceId,
+        buildFabricProps(type, props),
+        internalInstanceHandle,
+      );
+      syncLayoutHandler(tag, props);
+      return makeInstance(tag, fabricNode, 'CameraView', type);
+    }
+
     if (type === 'text') {
       // Outer <Text> → Paragraph (Yoga layout + AttributedString
       // owner). Top-level text-style props become the default

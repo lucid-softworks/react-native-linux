@@ -90,6 +90,7 @@ react-native-linux/
 │   ├── packaging.md
 │   ├── realworld-paper.md           # gaps surfaced by react-native-paper
 │   ├── realworld-expo-location.md   # GeoClue2-backed expo-location shim
+│   ├── realworld-expo-camera.md     # GStreamer-backed expo-camera shim
 │   └── …
 ├── scripts/vm/                      # Lima dev VM helpers (start.sh, sh.sh, …)
 └── TODO.md                          # Live roadmap
@@ -179,6 +180,7 @@ breaks, and what's been fixed in the process.
 
 - [docs/realworld-paper.md](./docs/realworld-paper.md) — `react-native-paper@^5`
 - [docs/realworld-expo-location.md](./docs/realworld-expo-location.md) — `expo-location` via GeoClue2
+- [docs/realworld-expo-camera.md](./docs/realworld-expo-camera.md) — `expo-camera` via GStreamer
 
 The `smoke-demo.tsx` harness in `apps/playground/` covers the next batch:
 `@react-native-async-storage/async-storage`, `react-native-device-info`,
