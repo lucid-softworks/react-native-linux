@@ -29,7 +29,7 @@ Working end-to-end, verified live in the playground:
 What's broken right now:
 
 - **Reconciler refs**: passing `ref={r}` to a host instance (`<View ref={r}>`) crashes Fabric at `UIManager::startSurface`. The fix is wiring `commitAttachRef` / `commitDetachRef` properly in `fabricHostConfig.js`. Animated.View dodges this via a generated `nativeID` side channel (see below); other apps that ref host instances will break. **[fixed 2026-05-25 — actually a missing `console` shim + missing `forwardRef` + the `createNode` 5th-arg being `instanceHandle` not state]**
-- **LogBox panel doesn't visibly clear on Reload / Dismiss** (2026-05-26). The boundary's click handlers DO fire — diagnostic logs prove `_reload pressed` / `_dismiss pressed` → reset hook → `render() called, state.error=null` all execute. But the new children re-mount doesn't visibly replace the panel widgets in GTK. Mutations get queued via SchedulerDelegate (we see the "transaction queued" lines) but no follow-up `performTransaction` actually fires within reasonable time. Working theory: boundary's `props.children` is the stale React element from cold-mount (since fabric.js's hot-reload path doesn't call `updateContainer` with the new element, only `performReactRefresh`) — React's reconciler may be treating the children as referentially equal to what was there pre-error and skipping the mount cycle. To investigate: pass the freshly-evaluated `pendingElement` through `updateContainer` on the reload path, OR force-bump the boundary's children identity via a key. Sync-throw render errors now show the panel correctly (commit c5b08503 routes the C++-caught JSError through ErrorUtils); the panel just sticks. **Demo: Modules tab → "Throw render error" / "Throw async error" — both surface the LogBox; neither button on the panel produces a visible recovery.**
+- **LogBox panel doesn't visibly clear on Reload / Dismiss** **[fixed 2026-05-26 — two stacked bugs]**: (1) Hermes was built Debug and `HadesGC::checkWellFormed()` ran on every YG collection, making a 400-node remount take seconds and starving GTK's idle dispatch (mounting transactions queued but never ran). Release build dropped GC pauses from 100s of ms to single digits. (2) After the boundary catches, `performReactRefresh` on the live fiber tree hits a stale family and remounts in `Object.freeze` / `Set.prototype.forEach` for tens of seconds. Boundary's `componentDidCatch` now sets `__rnLinuxRecoveredFromError`; `fabric.js`'s `tryMount` checks the flag on the next bundle re-eval and falls back to a clean `reconciler.updateContainer` remount instead. Per-screen ErrorBoundaries in the `expo-router` shim mean a tab crash only unmounts the screen subtree (pathname useState survives, Dismiss recovers on the same tab).
 - **Steady-state FPS on the Lima VM** is paint-bound at ~30 FPS with Animated.loop active, ~50 FPS idle. The full investigation lives in the perf section below — short answer: software cairo + TigerVNC/TurboVNC encode is the floor, hardware GPU is the only real fix.
 
 Perf optimizations that landed (2026-05-25 perf push):
@@ -45,12 +45,11 @@ Perf optimizations that landed (2026-05-25 perf push):
 
 Honest gaps for arbitrary RN apps to drop in:
 
-- React refs to host instances crash the reconciler (see above).
 - Inline nested `<Text>` for mixed-style runs (Fabric collapses our intermediate Text shadow nodes; one Paragraph per outer `<Text>` today).
 - `tintColor` on Image (needs a custom GdkPaintable subclass).
 - `numberOfLines` / `ellipsizeMode` plumbed from Paragraph props (TextLayoutManager already accepts them).
 - `Animated.useNativeDriver` — flag is currently ignored, but the underlying native-driver code path exists; just needs a flag check in `animated.js`'s `timing()`.
-- `Switch` / `ActivityIndicator` / `RefreshControl` / `KeyboardAvoidingView` / `SafeAreaView` — not wired yet.
+- `RefreshControl` / `KeyboardAvoidingView` — not wired yet. (`Switch`, `ActivityIndicator`, `SafeAreaView` landed; `Switch` / `ActivityIndicator` now have `MeasurableYogaNode` + `measureContent` so they don't collapse to 0×0 in flex layouts.)
 - TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
 - Clipboard / real Linking / Alert / AT-SPI2 accessibility.
 
@@ -115,12 +114,12 @@ Honest gaps for arbitrary RN apps to drop in:
 
 - [x] stderr backend
 - [x] Crash handler (`std::set_terminate` + sigaction backtrace)
-- [ ] LogBox / RedBox UI in GTK
+- [x] LogBox / RedBox UI in GTK — shared `ErrorBoundary` (in `@lucid-softworks/react-native-linux-expo/error-boundary`) used by `fabric.js` as a catch-all backstop AND by the `expo-router` shim per route. `componentDidCatch` sets `__rnLinuxRecoveredFromError`; `fabric.js`'s `tryMount` skips `performReactRefresh` on the next bundle re-eval and does a full `updateContainer` remount instead.
 - [ ] LinuxLogger wired into LogBox JS-side
 
 ### 5.8 — DevTools / DX
 
-- [x] Smooth hot reload: re-eval in same Hermes runtime (no GTK flash, no init delay)
+- [x] Smooth hot reload: re-eval in same Hermes runtime (no GTK flash, no init delay). `rnLinux.reloadApp` defers via `g_idle_add` so re-eval runs outside the JS click handler; mount transactions queue at `G_PRIORITY_HIGH_IDLE` so they aren't starved by sustained rAF / input traffic.
 - [x] Fast Refresh — `react-refresh` runtime + swc `jsc.transform.react.refresh = true`; state preserved across edits
 - [x] HMR push socket — esbuild watch's onEnd pushes the new bundle directly to the playground over `$XDG_RUNTIME_DIR/rn-linux.<app-id>.sock`; the file-monitor reload is kept as fallback and suppressed for 500 ms after a socket push
 - [x] esbuild bundler + per-file swc transform; tsx entry; sourcemaps inline
@@ -145,11 +144,11 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [~] `numberOfLines` / `ellipsizeMode` — TextLayoutManager accepts them, host config doesn't pass them through yet
 - [x] Window resize / maximize — viewport widget with a custom GtkLayoutManager (natural=(0,0), allocate-child-to-full-size) breaks the GtkFixed-children-bbox propagation; resize/maximize/restore push real (w, h) into `resizeRootSurface()` on every tick
 - [ ] `tintColor` on Image (needs a custom GdkPaintable that colour-tints)
-- [ ] `Switch` → `GtkSwitch`
-- [ ] `ActivityIndicator` → `GtkSpinner`
+- [x] `Switch` → `GtkSwitch` (shadow node implements `measureContent` so flex siblings don't overlap)
+- [x] `ActivityIndicator` → `GtkSpinner` (same `measureContent` story; uses 16×16 default)
 - [ ] `RefreshControl`
 - [ ] `KeyboardAvoidingView` (mostly no-op on desktop)
-- [ ] `SafeAreaView` (no-op on desktop, but apps import it so a passthrough wrapper helps)
+- [x] `SafeAreaView` — passthrough wrapper in `react-native-safe-area-context` shim
 - [ ] `Modal` as a separate `GtkWindow` with `transient-for` instead of in-window overlay
 - [x] `FlatList` virtualization — JS-side windowing via onScroll. Renders ~14 visible items + spacers preserving total scroll extent. Multi-column path skips windowing (item-size estimate ambiguous).
 - [~] `Animated.useNativeDriver` — C++ side (`rnLinux.setNativeProp`) + JS dispatcher (`animated.js`) exist for opacity + transform.translateX/Y; honoring the `useNativeDriver: true` flag in `timing()` is the remaining hookup, plus per-frame batching so multiple property writes flush as one GTK invalidation
@@ -178,18 +177,28 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 
 In priority order toward "drop a real RN app in and have it work":
 
-1. **Fix React refs** — `<View ref={r}>` crashes Fabric. Wire `commitAttachRef` / `commitDetachRef` in `fabricHostConfig.js`. This blocks basically every non-trivial app (libraries lean heavily on refs for measure/scroll/focus). Without this, app authors hit a wall as soon as they `useRef()` against a host component.
-2. **`SafeAreaView` passthrough** (3 lines of JS). Apps universally import it; on desktop it can be a no-op. Cheap unlock.
+1. **Try a real app harness** — pull a non-trivial Expo screen or `react-native-paper` showcase into `apps/`. The "honest gaps" list below is best-guess; running real code reveals the actual blockers. **This re-orders everything else, so do it first.**
+2. **TurboModule manager** — replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules — required for anything beyond first-party shims (NetInfo, the @react-native-community packages, …).
 3. **`numberOfLines` / `ellipsizeMode`** — forward from ParagraphAttributes (TextLayoutManager already honours them) to GtkLabel's `set_lines` / `set_ellipsize`. Text-heavy apps look very wrong without this.
 4. **Inline nested `<Text>` styling** — Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates. Read BaseTextShadowNode's `dynamic_cast` path; probably a `LeafYogaNode` / `Trait::FormsView` thing. RN apps mix bold/colored fragments inside one `<Text>` constantly.
-5. **`Switch` + `ActivityIndicator` + `RefreshControl`** — direct GTK wrappers (GtkSwitch, GtkSpinner, GtkScrolledWindow's "edge-reached" signal). Each is a few hundred lines.
-6. **Try a real app** — pull `react-native-paper` showcase or a basic Expo screen. The list above is best-guess; the actual blockers reveal themselves only when you run real code. Land an "app harness" doc with results.
-7. **TurboModule manager** — replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules. Required for AsyncStorage, NetInfo, anything from react-native-community.
-8. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
-9. **`tintColor`** — custom GdkPaintable that delegates to source paintable but masks with a colour. Common in icon-heavy UIs.
-10. **Long-press, real Fabric EventEmitter, keyboard events** — once the simpler components are landing, gesture coverage starts mattering for parity.
+5. **`RefreshControl`** — GtkScrolledWindow's "edge-reached" signal. A few hundred lines.
+6. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
+7. **`tintColor`** — custom GdkPaintable that delegates to source paintable but masks with a colour. Common in icon-heavy UIs.
+8. **Long-press, real Fabric EventEmitter, keyboard events** — once the simpler components are landing, gesture coverage starts mattering for parity.
 
-Resize lag and FPS perf are real but second-order: the app needs to RUN before being smooth matters. The perf scaffolding from this session (CSS cache, opacity cache, set_size_request diff, paint-only transforms, FlatList virtualization, Hermes stack bump, TurboVNC) gives a healthy floor; bare-metal Linux is the final unblock for 60 FPS regardless.
+Resize lag and FPS perf are real but second-order: the app needs to RUN before being smooth matters. The perf scaffolding from earlier sessions (CSS cache, opacity cache, set_size_request diff, paint-only transforms, FlatList virtualization, Hermes stack bump, TurboVNC) gives a healthy floor; bare-metal Linux is the final unblock for 60 FPS regardless.
+
+## Production-ready gaps (beyond MVP)
+
+Once arbitrary RN apps load and run, the structural things between "works" and "ship to users":
+
+- **Real-app harness** — a published demo or two living under `apps/`, run on every CI build, gating merges on visible regression. The cheapest production-readiness signal you can get.
+- **TurboModule manager + codegen** — third-party native modules can't autolink today. Lots of common libraries (FBSDK, MMKV, RNFS, sentry-react-native, …) need this. Blocks any RN ecosystem package with a `react-native.config.js`.
+- **Dedicated JS thread** — currently single-threaded, JS work runs on the GTK main loop. Doesn't matter at MVP scale but real apps will jank under sustained load (large lists, complex animations, heavy effects). Bigger refactor — touches `RuntimeExecutor`, `g_idle_add` crossing, every JSI binding's threading assumption.
+- **Accessibility (AT-SPI2)** — hard requirement for enterprise / regulated / EU-accessibility-act-affected shipping. Currently `AccessibilityInfo` is a stub. The schedulerDidSendAccessibilityEvent hook exists but doesn't emit through AT-SPI.
+- **Distro packaging** — AppImage script exists. Flatpak + .deb/.rpm + Snap are how Linux desktop apps actually ship in 2026. A `react-native-linux pack --target=flatpak` CLI subcommand wrapping flatpak-builder is the right shape.
+- **Hermes inspector** — Chrome DevTools attach for production-grade debugging. Port-bind + websocket bridge.
+- **CI on real hardware** — Lima/QEMU CI is fine for headless build verification but the FPS / GPU paths only show on real GTK. A self-hosted Linux runner with a real X/Wayland session would catch perf regressions invisible to the VM.
 
 ## Open questions
 
