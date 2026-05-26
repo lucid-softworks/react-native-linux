@@ -12,8 +12,10 @@
 #include <react/renderer/components/view/ViewEventEmitter.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
+#include <react/renderer/core/LayoutConstraints.h>
 #include <react/renderer/core/PropsParserContext.h>
 #include <react/renderer/core/propsConversions.h>
+#include <react/renderer/graphics/Size.h>
 
 namespace rnlinux {
 
@@ -45,7 +47,17 @@ class ActivityIndicatorShadowNode final
   static facebook::react::ShadowNodeTraits BaseTraits() {
     auto traits = ConcreteViewShadowNode::BaseTraits();
     traits.set(facebook::react::ShadowNodeTraits::Trait::LeafYogaNode);
+    traits.set(facebook::react::ShadowNodeTraits::Trait::MeasurableYogaNode);
     return traits;
+  }
+
+  // GtkSpinner's default style is a 16 × 16 px square in Adwaita.
+  // Without a measureContent the shadow node reports 0×0 to Yoga,
+  // which collapses the spinner under any flex sibling.
+  facebook::react::Size
+  measureContent(const facebook::react::LayoutContext& /*layoutContext*/,
+                 const facebook::react::LayoutConstraints& layoutConstraints) const override {
+    return layoutConstraints.clamp(facebook::react::Size{16, 16});
   }
 };
 
