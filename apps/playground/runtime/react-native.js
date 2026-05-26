@@ -89,6 +89,14 @@ const Platform = {
 // GTK doesn't surface a separate "screen" rect from JS-accessible
 // state in a windowed app (multi-monitor display info would require
 // reading the GdkMonitor list).
+// useWindowDimensions — RN hook returning the current 'window'
+// dimensions, re-rendering on resize. Real implementation subscribes
+// to Dimensions change events; we don't fire those yet, so the value
+// is captured once at mount. Good enough for most layout code.
+function useWindowDimensions() {
+  return Dimensions.get('window');
+}
+
 const _zeroDim = {width: 0, height: 0, scale: 1, fontScale: 1};
 const Dimensions = {
   get: kind => {
@@ -302,6 +310,46 @@ const NativeModules = new Proxy(
   },
 );
 
+// AccessibilityInfo — Paper subscribes to reduceMotionChanged on
+// mount. We have no AT-SPI bridge yet so all values are
+// optimistic-defaults; the addEventListener contract returns a
+// subscription with .remove() and an unsubscribe function for
+// back-compat with the pre-0.65 callback-removal API.
+const _emptySub = {remove: () => {}};
+const AccessibilityInfo = {
+  isReduceMotionEnabled: () => Promise.resolve(false),
+  isScreenReaderEnabled: () => Promise.resolve(false),
+  isReduceTransparencyEnabled: () => Promise.resolve(false),
+  isBoldTextEnabled: () => Promise.resolve(false),
+  isGrayscaleEnabled: () => Promise.resolve(false),
+  isInvertColorsEnabled: () => Promise.resolve(false),
+  isHighTextContrastEnabled: () => Promise.resolve(false),
+  addEventListener: (_event, _handler) => _emptySub,
+  removeEventListener: () => {},
+  announceForAccessibility: () => {},
+  setAccessibilityFocus: () => {},
+  fetch: () => Promise.resolve(false),
+};
+
+// AppState — many libs subscribe to foreground/background transitions.
+// Desktop apps are always 'active' until window-state events get wired
+// up; the subscription API stays consistent so cleanups don't crash.
+const AppState = {
+  currentState: 'active',
+  addEventListener: (_event, _handler) => _emptySub,
+  removeEventListener: () => {},
+};
+
+// DeviceEventEmitter — RN's pre-TurboModule event bus. A noop
+// implementation keeps libraries that emit / subscribe through it
+// from crashing; events just never fire.
+const DeviceEventEmitter = {
+  addListener: (_event, _handler) => _emptySub,
+  removeListener: () => {},
+  removeAllListeners: () => {},
+  emit: () => {},
+};
+
 // I18nManager — many RN libraries read isRTL to mirror layouts.
 // Desktop GTK has no LTR/RTL toggle exposed to JS yet; report LTR.
 const I18nManager = {
@@ -350,6 +398,7 @@ module.exports = {
   // Platform globals
   Platform,
   Dimensions,
+  useWindowDimensions,
   Appearance,
   useColorScheme,
   Linking,
@@ -361,4 +410,7 @@ module.exports = {
   I18nManager,
   PixelRatio,
   processColor,
+  AccessibilityInfo,
+  AppState,
+  DeviceEventEmitter,
 };

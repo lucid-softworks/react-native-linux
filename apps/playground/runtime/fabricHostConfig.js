@@ -144,6 +144,16 @@ function buildFabricProps(type, props) {
     // the line and we end up with a horizontal scrolled window
     // policy where the caller wanted vertical.)
     if (props[k] === undefined) continue;
+    // Skip function values at the top level. Fabric's RawPropsParser
+    // calls jsi::dynamicFromValue on every prop; that helper substitutes
+    // null for functions found *inside* an object property but THROWS
+    // for a top-level function ("JS Functions are not convertible to
+    // dynamic"). Real RN libraries (react-native-paper's TextInput,
+    // most ref-forwarding wrappers) pass handler / callback / ref
+    // functions as top-level props on the host element. We register
+    // the handlers we care about via separate sync* paths against the
+    // Fabric tag, so dropping them from the prop bag is correct.
+    if (typeof props[k] === 'function') continue;
     out[k] = props[k];
   }
   // Style merges in after direct props so it wins (RN precedence).

@@ -63,6 +63,17 @@ AnimatedValue.prototype.__getValue = function () {
   return this._value;
 };
 
+// stopAnimation matches RN's API surface — paper / reanimated / etc.
+// call it on layout effects to cancel mid-flight transitions before
+// remounting. We don't track in-flight animations per-Value yet, so
+// this is a no-op that satisfies the call site.
+AnimatedValue.prototype.stopAnimation = function (cb) {
+  if (typeof cb === 'function') cb(this._value);
+};
+// removeAllListeners — same: paper cleans up subscriptions on unmount.
+AnimatedValue.prototype.removeAllListeners = function () {
+  this._listeners = {};
+};
 AnimatedValue.prototype.addListener = function (cb) {
   const id = String(++nextValueId);
   this._listeners.set(id, cb);
