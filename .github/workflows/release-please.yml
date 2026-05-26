@@ -12,14 +12,25 @@ on:
   push:
     branches: [main]
 
+# Serialise release-please runs on main so a quick follow-up push can't
+# race the first one and produce two release PRs (the action is
+# self-aware, but the publish step that follows isn't).
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
   id-token: write # required for npm provenance attestations
 
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '9.15.5'
+
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       paths_released: ${{ steps.release.outputs.paths_released }}
@@ -34,15 +45,15 @@ jobs:
   publish:
     needs: release-please
     if: needs.release-please.outputs.releases_created == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
-      - uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile

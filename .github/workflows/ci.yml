@@ -5,21 +5,36 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel in-flight runs for the same ref so a quick second push doesn't
+# queue duplicate work. main pushes share a single slot per workflow.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Default to read-only repo permissions — individual jobs opt in to
+# more if they need to (none currently do; release-please.yml handles
+# write-bearing work).
+permissions:
+  contents: read
+
+# Single source of truth for tool versions used across every job.
+# Bumping these here updates every step at once. Keep the pnpm value
+# in lockstep with the repo-root packageManager field.
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '9.15.5'
 
 jobs:
   lint-js:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
-      - uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
@@ -30,27 +45,28 @@ jobs:
   lint-cpp:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install clang-format
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang-format
       - name: Check C++ formatting
         run: |
-          # Same find command as `pnpm lint:cpp`, kept in sync.
+          # Same find expression as `pnpm lint:cpp`. Keep them in sync —
+          # if either drifts we'll lint different files in CI vs. locally.
           find vnext template/linux -name '*.cpp' -o -name '*.h' \
             | xargs clang-format --dry-run --Werror
 
   autolink-drift:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
-      - uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install template deps (so RN CLI can resolve)
@@ -60,8 +76,8 @@ jobs:
         working-directory: template
         # Until the CLI is `tsc`-built, this is a smoke test — it will fail
         # cleanly if the JS surface drifts (autolink-linux missing,
-        # unexpected new dependency declared). Once Phase 6 lands a real
-        # playground with native deps, this becomes a hard gate.
+        # unexpected new dependency declared). Once a real playground with
+        # native deps lands, this becomes a hard gate.
         run: pnpm exec react-native autolink-linux --check || true
 
   configure-vnext:
@@ -71,7 +87,7 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install native build deps
         run: |
@@ -84,10 +100,10 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
-      - uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -107,23 +123,23 @@ jobs:
           cmake -S vnext -B vnext/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DREACT_NATIVE_ROOT=${{ github.workspace }}/template/node_modules/react-native
-        # NB: a full `cmake --build` is not yet expected to succeed — the
-        # native code is structurally complete but several Fabric headers are
-        # still stubbed. Configure-only is the gate for now.
+        # NB: a full `cmake --build` is not yet expected to succeed on
+        # every PR — the native code is structurally complete but a few
+        # Fabric headers are still stubbed. Configure-only is the gate.
 
   coverage:
-    # Gated separately from configure-vnext: this job will go green only
-    # once the full vnext build succeeds. Today it runs the JS-side jest
+    # Gated separately from configure-vnext: this job will go green once
+    # the full vnext build succeeds. Today it runs the JS-side jest
     # coverage and uploads its lcov.info as an artifact.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
-      - uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: JS coverage
