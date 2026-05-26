@@ -173,7 +173,8 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-secure-store` (libsecret → gnome-keyring/kwallet/KeePassXC; session-collection fallback on headless),
 `expo-localization` (LC\_\*/LANG parsing + nl_langinfo + /etc/timezone + CLDR-equivalent region heuristics),
 `expo-haptics` (gdk_display_beep on every kind — silent in VM, real on hardware where the WM/sound theme acts on it),
-`expo-keep-awake` (systemd-logind Manager.Inhibit("idle:sleep") on the system bus; tag-keyed; auto-released on bundle reload).
+`expo-keep-awake` (systemd-logind Manager.Inhibit("idle:sleep") on the system bus; tag-keyed; auto-released on bundle reload),
+`expo-network` (GNetworkMonitor for up/internet + /sys/class/net for interface type + IP + MAC; NM-or-netlink-fallback).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -183,7 +184,7 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [x] **`expo-keep-awake`** — DONE 2026-05-26. See `docs/realworld-expo-keep-awake.md`. Backed by systemd-logind (more universal than session-bus ScreenSaver). Gaps: delay mode, portal fallback for Flatpak, non-systemd distros (Devuan/Void/Alpine).
 - [x] **`expo-file-system`** — DONE 2026-05-26. See `docs/realworld-expo-file-system.md`. Gaps: resumable downloads, uploads, statvfs-backed disk-space helpers.
 - [x] **`expo-secure-store`** — DONE 2026-05-26. See `docs/realworld-expo-secure-store.md`. Gaps: auto-create login collection on first use, biometric prompts (KWallet PAM), per-app keychainService isolation.
-- [ ] **`expo-network`** — NetworkManager over DBus (`org.freedesktop.NetworkManager`). `getNetworkStateAsync` (online + connectionType), `getIpAddressAsync` (reuse device-info path), `getMacAddressAsync`. Subscription to NM's `StateChanged` signal for the listener API. Fallback when NM isn't running: parse `/sys/class/net/*/operstate`.
+- [x] **`expo-network`** — DONE 2026-05-26. See `docs/realworld-expo-network.md`. GNetworkMonitor (auto-picks NM/netlink) + sysfs. Gaps: live network-changed subscription, per-interface enumeration, airplane-mode via rfkill.
 - [ ] **`expo-image`** — drop-in replacement for RN `Image`. Already mostly possible: reuse the libsoup loader from our ImageComponentView, add `transition` / `placeholder` / `cachePolicy` support. New Fabric component `ExpoImage` backed by GtkPicture with our own GdkPaintable subclass for cross-fade transitions.
 - [ ] **`expo-document-picker`** — `GtkFileChooserDialog` (or the newer `GtkFileDialog` from GTK 4.10). C++ binding takes `multiple`, `type[]` MIME filters, returns selected paths as `{assets: [{uri, name, size, mimeType}]}`. ~150 LOC + dialog plumbing on the main GTK thread.
 - [ ] **`expo-image-picker`** — same `GtkFileChooser` backend as document-picker but with image-MIME pre-filter. Share most of the code. Real "from camera" path could chain into our existing GStreamer snap. `launchImageLibraryAsync` / `launchCameraAsync`.

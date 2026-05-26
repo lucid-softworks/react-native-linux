@@ -6,6 +6,7 @@
 #include "../keepawake/KeepAwake.h"
 #include "../locale/Locale.h"
 #include "../location/Location.h"
+#include "../network/Network.h"
 #include "../notifications/Notifications.h"
 #include "../securestore/SecureStore.h"
 #include "react-native-linux/Logging.h"
@@ -2287,6 +2288,29 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                    },
                    nullptr);
                return jsi::Value::undefined();
+             });
+
+  // ─── Network (expo-network) ──────────────────────────────────────
+  // Synchronous snapshot from GNetworkMonitor + /sys/class/net.
+  // Live subscriptions to "network-changed" aren't bound JSI-side
+  // yet — JS shim returns a no-op listener for now.
+
+  bindMethod(rt,
+             rnLinux,
+             "networkState",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               const auto s = rnlinux::network::getState();
+               jsi::Object o(rt);
+               o.setProperty(rt,
+                             "type",
+                             jsi::String::createFromUtf8(rt, rnlinux::network::typeString(s.type)));
+               o.setProperty(rt, "isConnected", jsi::Value(s.isConnected));
+               o.setProperty(rt, "isInternetReachable", jsi::Value(s.isInternetReachable));
+               o.setProperty(rt, "ipAddress", jsi::String::createFromUtf8(rt, s.ipAddress));
+               o.setProperty(rt, "macAddress", jsi::String::createFromUtf8(rt, s.macAddress));
+               o.setProperty(rt, "interfaceName", jsi::String::createFromUtf8(rt, s.interfaceName));
+               return o;
              });
 
   // ─── Keep awake (expo-keep-awake) ────────────────────────────────

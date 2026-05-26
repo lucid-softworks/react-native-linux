@@ -136,6 +136,7 @@ set(RNL_SOURCES
   src/securestore/SecureStore.cpp
   src/locale/Locale.cpp
   src/keepawake/KeepAwake.cpp
+  src/network/Network.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )

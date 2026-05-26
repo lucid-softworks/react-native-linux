@@ -401,6 +401,48 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-network ───────────────────────────
+function ExpoNetworkDemo() {
+  const Network = require('expo-network');
+  const [s, setS] = useState<any>(null);
+  const [ip, setIp] = useState<string>('');
+  const [mac, setMac] = useState<string>('');
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    (async () => {
+      setS(await Network.getNetworkStateAsync());
+      setIp(await Network.getIpAddressAsync());
+      setMac(await Network.getMacAddressAsync());
+    })();
+  }, [tick, Network]);
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        GIO's GNetworkMonitor (auto-picks NetworkManager if present, netlink fallback otherwise) +
+        /sys/class/net inspection for interface type, IP, MAC.
+      </Text>
+      {s ? (
+        <>
+          <Text style={styles.demoLine}>
+            type={s.type} connected={String(s.isConnected)} internet=
+            {String(s.isInternetReachable)}
+          </Text>
+          <Text style={styles.demoLine}>
+            ip={ip || '(none)'} mac={mac || '(none)'}
+          </Text>
+        </>
+      ) : null}
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={() => setTick(t => t + 1)}>
+          <Text style={styles.btnText}>refresh</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-keep-awake ───────────────────────────
 // systemd-logind Manager.Inhibit("idle:sleep"). Holding the fd
 // keeps the inhibit alive; closing it releases. The button
@@ -848,7 +890,8 @@ function SmokeDemo() {
       tryProbe('expo-network', async function p() {
         const m = require('expo-network');
         const s = await m.getNetworkStateAsync();
-        return `state=${JSON.stringify(s)}`;
+        const ip = await m.getIpAddressAsync();
+        return `type=${s.type} connected=${s.isConnected} internet=${s.isInternetReachable} ip=${ip || '(none)'}`;
       }),
       tryProbe('expo-image', async function p() {
         const m = require('expo-image');
@@ -962,6 +1005,11 @@ function SmokeDemo() {
           <ExpoKeepAwakeDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-network')} />
+          <ExpoNetworkDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -974,7 +1022,6 @@ function SmokeDemo() {
           </Text>
         </View>
         {[
-          'expo-network',
           'expo-image',
           'expo-document-picker',
           'expo-image-picker',

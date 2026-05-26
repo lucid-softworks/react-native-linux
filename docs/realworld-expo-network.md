@@ -1,0 +1,88 @@
+# Real-app harness: expo-network via GNetworkMonitor + sysfs
+
+`expo-network` is backed by GIO's `GNetworkMonitor` for the binary
+"up?" / "internet?" signals and `/sys/class/net` for interface
+classification, IP, and MAC. `GNetworkMonitor` auto-selects
+NetworkManager when present and falls back to a pure netlink
+monitor when not — so this works on Lima dev VMs, headless
+servers, and consumer desktops without taking an explicit
+dependency on NM.
+
+## Architecture
+
+```
+JS app
+  ↓ require('expo-network')        ← metro/esbuild rewrite, linux only
+@lucid-softworks/react-native-linux-expo/expo-network.js
+  ├─ getNetworkStateAsync()        →  rnLinux.networkState()
+  ├─ getIpAddressAsync()           →  rnLinux.networkState().ipAddress
+  ├─ getMacAddressAsync()          →  rnLinux.networkState().macAddress
+  ├─ useNetworkState() hook
+  └─ addNetworkStateListener()     → no-op (network-changed not bound yet)
+  ↓
+vnext/src/jsi/RnLinuxBindings.cpp
+  ↓
+vnext/src/network/Network.cpp
+  ├─ Walk /sys/class/net → first non-loopback iface with operstate=up
+  ├─ Classify via name prefix (wl* → WIFI, en*/eth* → ETHERNET,
+  │  wwan*/ppp*/rmnet* → CELLULAR, bnep*/pan* → BLUETOOTH,
+  │  tun*/tap*/vpn*/wg* → VPN) with /sys/class/net/<iface>/type
+  │  as a fallback for unmatched names
+  └─ g_network_monitor_get_default()
+     → get_network_available     (isConnected)
+     → get_connectivity == FULL  (isInternetReachable)
+```
+
+## VM / host setup
+
+Nothing. `GNetworkMonitor` is in GIO; we already link it for every
+other DBus consumer (geoclue, notifications, secure-store,
+keep-awake, file-system).
+
+## Running the smoke demo
+
+```sh
+cd apps/playground
+RN_ENTRY=smoke-demo.tsx node bundle.mjs
+scripts/vm/sh.sh 'scripts/vm/run-playground.sh'
+```
+
+The expo-network section auto-fetches state on mount and exposes a
+**refresh** button. Probe shows
+`type=… connected=true internet=… ip=…`.
+
+## API surface
+
+| API                            | Behavior on Linux                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `getNetworkStateAsync()`       | Real — `{type, isConnected, isInternetReachable}` from GNetworkMonitor + sysfs            |
+| `getIpAddressAsync()`          | Real — first non-loopback IPv4 of the active interface                                    |
+| `getMacAddressAsync()`         | Real — `/sys/class/net/<iface>/address` of the active interface                           |
+| `useNetworkState()` hook       | Snapshot-on-mount; no live subscription yet                                               |
+| `addNetworkStateListener()`    | Returns no-op subscription (network-changed signal not bound JSI-side yet)                |
+| `isAirplaneModeEnabledAsync()` | Returns `false` — no portable Linux signal                                                |
+| `getCellularGenerationAsync()` | Returns `UNKNOWN` — Android-only concept                                                  |
+| `NetworkStateType` enum        | `NONE / UNKNOWN / WIFI / CELLULAR / ETHERNET / BLUETOOTH / VPN / WIMAX / OTHER` (strings) |
+| `CellularGeneration` enum      | Exported as numeric constants for cross-platform branching                                |
+
+## Known gaps
+
+- **No live `network-changed` subscription.** `GNetworkMonitor`
+  emits a `network-changed` signal whenever connectivity flips;
+  binding it through to fire `addNetworkStateListener` callbacks
+  is a small follow-up (mirroring the JS callback registry from
+  the location / notifications work).
+- **Interface classification is heuristic.** Name prefixes plus
+  `/sys/class/net/<iface>/type` cover the common cases; exotic
+  device drivers might fall through to `UNKNOWN`. NetworkManager's
+  D-Bus API has authoritative device-type metadata if real apps
+  need stronger classification.
+- **No per-interface enumeration.** `getNetworkStateAsync` returns
+  the single active interface. Apps that want "all interfaces" or
+  "VPN status separately" would need a richer binding — common
+  enough that listing every iface with type/state should be a
+  follow-up.
+- **`isAirplaneModeEnabledAsync` always false.** Could be wired
+  to `rfkill list` (system-level) or NetworkManager's
+  `WirelessEnabled` property (when NM is running). Skipped for
+  the first cut.
