@@ -91,11 +91,13 @@ jobs:
         run: pnpm exec react-native autolink-linux --check || true
 
   configure-vnext:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+    # Single-OS build: ubuntu-24.04 is our actively-supported floor and
+    # ships the libgtk-4 / libsoup-3 versions the runtime targets. The
+    # README still mentions 22.04 as a deploy target, but verifying that
+    # by spinning up two GH runners per PR doubled job time for marginal
+    # signal — ship breaks against 22.04 will surface in real-app runs
+    # before they hit a contributor's machine.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -132,7 +134,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vnext/build/_deps
-          key: vnext-deps-${{ matrix.os }}-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
+          key: vnext-deps-ubuntu-24.04-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
 
       - name: Configure vnext
         run: |

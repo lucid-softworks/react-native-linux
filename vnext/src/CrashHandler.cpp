@@ -56,7 +56,11 @@ void signalHandler(int sig, siginfo_t* info, void* /*ctx*/) {
     ::write(STDERR_FILENO, msg, static_cast<size_t>(len));
   }
 
-  struct sigaction sa{};
+  // `sa = {}` instead of `sa{}` — older clang-format (Ubuntu 24.04
+  // ships v18, brew on macOS ships v22) disagree on whether to put a
+  // space between the identifier and the C++17 brace-init list. The
+  // explicit `=` form is rendered the same way by every version.
+  struct sigaction sa = {};
   sa.sa_handler = SIG_DFL;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
@@ -81,7 +85,7 @@ void installCrashHandler() {
     return;
   }
 
-  struct sigaction sa{};
+  struct sigaction sa = {};
   sa.sa_sigaction = &signalHandler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_SIGINFO | SA_RESTART;

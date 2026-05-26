@@ -105,7 +105,7 @@ react-native-linux/
 | Package manager | pnpm 9                               |
 | Build system    | CMake (Ninja)                        |
 | Minimum RN      | `^0.76`                              |
-| Minimum distro  | Ubuntu 22.04 LTS                     |
+| Minimum distro  | Ubuntu 24.04 LTS (CI gates on this)  |
 | License         | MIT                                  |
 
 ## Quick start (intended UX once the runtime builds)
