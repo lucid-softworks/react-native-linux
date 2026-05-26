@@ -152,6 +152,8 @@ async function prefetch(uri, _cachePolicy, _headers) {
     rnLinux.fsDownload(
       uri,
       tmp,
+      {},
+      null,
       () => {
         try {
           rnLinux.fsDelete(tmp, true);
@@ -236,6 +238,8 @@ async function _getImageSize(uri) {
       rnLinux.fsDownload(
         uri,
         dest,
+        {},
+        null,
         () => resolve(),
         msg => reject(new Error(msg)),
       );

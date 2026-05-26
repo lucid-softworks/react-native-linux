@@ -2715,21 +2715,56 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // fsDownload(url, dest, options, onProgress, onSuccess, onError)
+  // — returns an opaque handle string the JS shim passes back to
+  // fsDownloadCancel for resumable/pause flows.
+  // options = {resumeFromBytes?: number}; onProgress is nullable.
   bindMethod(
       rt,
       rnLinux,
       "fsDownload",
-      4,
+      6,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 4)
+        if (count < 5)
           return jsi::Value::undefined();
         const auto url = args[0].asString(rt).utf8(rt);
         const auto dest = args[1].asString(rt).utf8(rt);
-        auto okCb = std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt));
-        auto errCb = std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt));
-        rnlinux::filesystem::download(
+        rnlinux::filesystem::DownloadOptions opts;
+        if (args[2].isObject()) {
+          auto o = args[2].asObject(rt);
+          if (o.hasProperty(rt, "resumeFromBytes")) {
+            auto v = o.getProperty(rt, "resumeFromBytes");
+            if (v.isNumber())
+              opts.resumeFromBytes = static_cast<int64_t>(v.asNumber());
+          }
+        }
+        auto progressCb = args[3].isObject() && args[3].asObject(rt).isFunction(rt)
+                              ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
+                              : std::shared_ptr<jsi::Function>{};
+        auto okCb = std::make_shared<jsi::Function>(args[4].asObject(rt).asFunction(rt));
+        auto errCb = count >= 6 && args[5].isObject() && args[5].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[5].asObject(rt).asFunction(rt))
+                         : std::shared_ptr<jsi::Function>{};
+        const auto handle = rnlinux::filesystem::download(
             url,
             dest,
+            opts,
+            progressCb ? rnlinux::filesystem::DownloadProgress{[progressCb](int64_t written,
+                                                                            int64_t total) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                progressCb->call(jrt,
+                                 jsi::Value(static_cast<double>(written)),
+                                 jsi::Value(static_cast<double>(total)));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "download progress threw: " << e.what();
+              }
+            }}
+                       : nullptr,
             [okCb](const std::string& path, int status, int64_t bytes) {
               auto& s = state();
               if (!s.runtime)
@@ -2748,7 +2783,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
             },
             [errCb](const std::string& msg) {
               auto& s = state();
-              if (!s.runtime)
+              if (!s.runtime || !errCb)
                 return;
               jsi::Runtime& jrt = *s.runtime;
               try {
@@ -2756,6 +2791,182 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                 jrt.drainMicrotasks();
               } catch (const std::exception& e) {
                 RNL_LOGE("rnLinux.fs") << "download err handler threw: " << e.what();
+              }
+            });
+        return jsi::String::createFromUtf8(rt, handle);
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsDownloadCancel",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString())
+          return jsi::Value::undefined();
+        rnlinux::filesystem::downloadCancel(args[0].asString(rt).utf8(rt));
+        return jsi::Value::undefined();
+      });
+
+  // fsUploadMultipart(url, method, fields[], headers[], onSuccess, onError)
+  // fields[i] = {name, isFile, textValue?, filePath?, filename?, mimeType?}
+  // headers[i] = [name, value]
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsUploadMultipart",
+      6,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 5)
+          return jsi::Value::undefined();
+        const auto url = args[0].asString(rt).utf8(rt);
+        const auto method = args[1].isString() ? args[1].asString(rt).utf8(rt) : std::string{};
+        std::vector<rnlinux::filesystem::UploadField> fields;
+        if (args[2].isObject() && args[2].asObject(rt).isArray(rt)) {
+          auto arr = args[2].asObject(rt).asArray(rt);
+          const size_t n = arr.size(rt);
+          fields.reserve(n);
+          for (size_t i = 0; i < n; ++i) {
+            auto v = arr.getValueAtIndex(rt, i);
+            if (!v.isObject())
+              continue;
+            auto o = v.asObject(rt);
+            rnlinux::filesystem::UploadField f;
+            if (o.hasProperty(rt, "name") && o.getProperty(rt, "name").isString())
+              f.name = o.getProperty(rt, "name").asString(rt).utf8(rt);
+            if (o.hasProperty(rt, "isFile") && o.getProperty(rt, "isFile").isBool())
+              f.isFile = o.getProperty(rt, "isFile").getBool();
+            if (o.hasProperty(rt, "textValue") && o.getProperty(rt, "textValue").isString())
+              f.textValue = o.getProperty(rt, "textValue").asString(rt).utf8(rt);
+            if (o.hasProperty(rt, "filePath") && o.getProperty(rt, "filePath").isString())
+              f.filePath = o.getProperty(rt, "filePath").asString(rt).utf8(rt);
+            if (o.hasProperty(rt, "filename") && o.getProperty(rt, "filename").isString())
+              f.filename = o.getProperty(rt, "filename").asString(rt).utf8(rt);
+            if (o.hasProperty(rt, "mimeType") && o.getProperty(rt, "mimeType").isString())
+              f.mimeType = o.getProperty(rt, "mimeType").asString(rt).utf8(rt);
+            fields.push_back(std::move(f));
+          }
+        }
+        std::vector<std::pair<std::string, std::string>> headers;
+        if (args[3].isObject() && args[3].asObject(rt).isArray(rt)) {
+          auto arr = args[3].asObject(rt).asArray(rt);
+          const size_t n = arr.size(rt);
+          headers.reserve(n);
+          for (size_t i = 0; i < n; ++i) {
+            auto v = arr.getValueAtIndex(rt, i);
+            if (!v.isObject() || !v.asObject(rt).isArray(rt))
+              continue;
+            auto pair = v.asObject(rt).asArray(rt);
+            if (pair.size(rt) < 2)
+              continue;
+            const auto k = pair.getValueAtIndex(rt, 0);
+            const auto val = pair.getValueAtIndex(rt, 1);
+            if (k.isString() && val.isString())
+              headers.emplace_back(k.asString(rt).utf8(rt), val.asString(rt).utf8(rt));
+          }
+        }
+        auto okCb = std::make_shared<jsi::Function>(args[4].asObject(rt).asFunction(rt));
+        auto errCb = count >= 6 && args[5].isObject() && args[5].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[5].asObject(rt).asFunction(rt))
+                         : std::shared_ptr<jsi::Function>{};
+        rnlinux::filesystem::uploadMultipart(
+            url,
+            method,
+            fields,
+            headers,
+            [okCb](int status, const std::string& body) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                jsi::Object o(jrt);
+                o.setProperty(jrt, "status", jsi::Value(status));
+                o.setProperty(jrt, "body", jsi::String::createFromUtf8(jrt, body));
+                okCb->call(jrt, o);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "upload ok handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& s = state();
+              if (!s.runtime || !errCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "upload err handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsUploadBinary",
+      6,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 5)
+          return jsi::Value::undefined();
+        const auto url = args[0].asString(rt).utf8(rt);
+        const auto method = args[1].isString() ? args[1].asString(rt).utf8(rt) : std::string{};
+        const auto filePath = args[2].asString(rt).utf8(rt);
+        const auto mimeType = args[3].isString() ? args[3].asString(rt).utf8(rt) : std::string{};
+        std::vector<std::pair<std::string, std::string>> headers;
+        if (args[4].isObject() && args[4].asObject(rt).isArray(rt)) {
+          auto arr = args[4].asObject(rt).asArray(rt);
+          for (size_t i = 0; i < arr.size(rt); ++i) {
+            auto v = arr.getValueAtIndex(rt, i);
+            if (!v.isObject() || !v.asObject(rt).isArray(rt))
+              continue;
+            auto pair = v.asObject(rt).asArray(rt);
+            if (pair.size(rt) < 2)
+              continue;
+            const auto k = pair.getValueAtIndex(rt, 0);
+            const auto val = pair.getValueAtIndex(rt, 1);
+            if (k.isString() && val.isString())
+              headers.emplace_back(k.asString(rt).utf8(rt), val.asString(rt).utf8(rt));
+          }
+        }
+        auto okCb = std::make_shared<jsi::Function>(args[5].asObject(rt).asFunction(rt));
+        auto errCb = count >= 7 && args[6].isObject() && args[6].asObject(rt).isFunction(rt)
+                         ? std::make_shared<jsi::Function>(args[6].asObject(rt).asFunction(rt))
+                         : std::shared_ptr<jsi::Function>{};
+        rnlinux::filesystem::uploadBinary(
+            url,
+            method,
+            filePath,
+            mimeType,
+            headers,
+            [okCb](int status, const std::string& body) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                jsi::Object o(jrt);
+                o.setProperty(jrt, "status", jsi::Value(status));
+                o.setProperty(jrt, "body", jsi::String::createFromUtf8(jrt, body));
+                okCb->call(jrt, o);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "upload ok handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& s = state();
+              if (!s.runtime || !errCb)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "upload err handler threw: " << e.what();
               }
             });
         return jsi::Value::undefined();

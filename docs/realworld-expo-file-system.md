@@ -76,37 +76,45 @@ the round-trip, then deletes the file. Shows
 
 ## API surface
 
-| API                                  | Behavior on Linux                                                                 |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| `documentDirectory`                  | `file://$XDG_DATA_HOME/<app-id>/`                                                 |
-| `cacheDirectory`                     | `file://$XDG_CACHE_HOME/<app-id>/`                                                |
-| `bundleDirectory`                    | `file://${exe_dir}/assets/`                                                       |
-| `readAsStringAsync(uri, {enc})`      | POSIX read; `utf8` and `base64` encodings supported                               |
-| `writeAsStringAsync(uri, c, {enc})`  | Atomic write via `.tmp-rnl` + rename                                              |
-| `getInfoAsync(uri, {md5})`           | `stat`; MD5 streamed via `g_checksum_*` when requested                            |
-| `deleteAsync(uri, {idempotent})`     | `unlink` for files; recursive walk + rmdir for directories                        |
-| `makeDirectoryAsync(uri, {imm})`     | `mkdir(2)` or hand-rolled `mkdir -p` for intermediates                            |
-| `readDirectoryAsync(uri)`            | `opendir`/`readdir`; `.` and `..` filtered                                        |
-| `copyAsync({from, to})`              | 64 KiB streamed copy                                                              |
-| `moveAsync({from, to})`              | `rename(2)`; copy+delete fallback on EXDEV                                        |
-| `downloadAsync(url, fileUri)`        | libsoup async GET → file. Returns `{uri, status, size}`                           |
-| `uploadAsync`                        | Throws — multipart/binary upload not implemented yet                              |
-| `createDownloadResumable` / class    | `downloadAsync()` works; `pauseAsync`/`cancelAsync` throw                         |
-| `StorageAccessFramework.*`           | Most ops mapped onto regular file ops; permission stub returns `granted=false`    |
-| `getFreeDiskStorageAsync` / `…Total` | Real — `statvfs(3)` on the FS holding `documentDirectory` (`f_bavail × f_frsize`) |
-| `getContentUriAsync`                 | Throws — Android-only `content://` scheme has no Linux equivalent                 |
-| `EncodingType.UTF8` / `Base64`       | Real                                                                              |
+| API                                         | Behavior on Linux                                                                         |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `documentDirectory`                         | `file://$XDG_DATA_HOME/<app-id>/`                                                         |
+| `cacheDirectory`                            | `file://$XDG_CACHE_HOME/<app-id>/`                                                        |
+| `bundleDirectory`                           | `file://${exe_dir}/assets/`                                                               |
+| `readAsStringAsync(uri, {enc})`             | POSIX read; `utf8` and `base64` encodings supported                                       |
+| `writeAsStringAsync(uri, c, {enc})`         | Atomic write via `.tmp-rnl` + rename                                                      |
+| `getInfoAsync(uri, {md5})`                  | `stat`; MD5 streamed via `g_checksum_*` when requested                                    |
+| `deleteAsync(uri, {idempotent})`            | `unlink` for files; recursive walk + rmdir for directories                                |
+| `makeDirectoryAsync(uri, {imm})`            | `mkdir(2)` or hand-rolled `mkdir -p` for intermediates                                    |
+| `readDirectoryAsync(uri)`                   | `opendir`/`readdir`; `.` and `..` filtered                                                |
+| `copyAsync({from, to})`                     | 64 KiB streamed copy                                                                      |
+| `moveAsync({from, to})`                     | `rename(2)`; copy+delete fallback on EXDEV                                                |
+| `downloadAsync(url, fileUri)`               | libsoup async GET → file. Returns `{uri, status, size}`                                   |
+| `uploadAsync({uploadType: MULTIPART}) `     | Real — `SoupMultipart` form-data with file + extra parameters as text fields              |
+| `uploadAsync({uploadType: BINARY_CONTENT})` | Real — file bytes as the request body, mimeType → content-type                            |
+| `createDownloadResumable` / class           | Real — `pauseAsync` snapshots bytes-on-disk; `resumeAsync` resends with `Range: bytes=N-` |
+| `StorageAccessFramework.*`                  | Most ops mapped onto regular file ops; permission stub returns `granted=false`            |
+| `getFreeDiskStorageAsync` / `…Total`        | Real — `statvfs(3)` on the FS holding `documentDirectory` (`f_bavail × f_frsize`)         |
+| `getContentUriAsync`                        | Throws — Android-only `content://` scheme has no Linux equivalent                         |
+| `EncodingType.UTF8` / `Base64`              | Real                                                                                      |
 
 ## Known gaps
 
-- **Resumable downloads** (`DownloadResumable.pauseAsync` /
-  `cancelAsync`) aren't implemented. Doing them properly needs HTTP
-  Range support driving the libsoup request + a durable resume
-  token. Right now `resumeAsync` falls through to a full
-  `downloadAsync`.
-- **Uploads** (`uploadAsync`, multipart / binary) are unimplemented.
-  Adding them needs `SoupMultipart` for the multipart path and a
-  body-stream for binary — straightforward, not yet done.
+- **Resumable downloads** — **DONE.** `DownloadResumable` wraps a
+  GCancellable-aware libsoup request. `pauseAsync` cancels the
+  in-flight read and snapshots `bytesWritten` from the on-disk
+  partial via `fsGetInfo`; `resumeAsync` issues a fresh request
+  with `Range: bytes=N-` and appends to the existing file. The
+  savable snapshot (`{url, fileUri, options, resumeData:
+{bytesWritten}}`) survives a process restart — pass it to a
+  fresh `createDownloadResumable` to keep going.
+- **Uploads** — **DONE.** Two paths: `SoupMultipart` for
+  `uploadType: MULTIPART` (the file becomes one form-data field;
+  extra `parameters` become text fields), and
+  `soup_message_set_request_body_from_bytes` for
+  `uploadType: BINARY_CONTENT` (the file bytes are the request
+  body, `mimeType` → `Content-Type`). Custom `httpMethod` and
+  `headers` flow through to the SoupMessage.
 - **Disk space** (`getFreeDiskStorageAsync` /
   `getTotalDiskCapacityAsync`) — **DONE.** Backed by `statvfs(3)` on
   the filesystem that holds `documentDirectory`. Free reports
@@ -118,6 +126,12 @@ the round-trip, then deletes the file. Shows
 - **No file-system event watcher.** expo-file-system doesn't expose
   one either; consumers usually reach for `chokidar` for that. If
   needed, `inotify` would be the obvious backend.
-- **Download progress events.** We deliver completion-only today.
-  libsoup supports byte-count notifications via `soup_message_*`
-  signals; adding them is a follow-up.
+- **Download progress events** — **DONE.** The native
+  `fsDownload` accepts an `onProgress(bytesWritten, totalBytes)`
+  callback that fires every ~200ms during the body drain
+  (throttled so it doesn't flood JS on fast transfers). The
+  `DownloadResumable.callback` from upstream's
+  `createDownloadResumable(..., callback)` plumbs through with
+  expo's `{totalBytesWritten, totalBytesExpectedToWrite}` shape.
+  Servers that omit `Content-Length` (chunked transfer) leave
+  `totalBytes` at `-1`; consumers should branch on that.

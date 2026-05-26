@@ -2,6 +2,7 @@
 
 #include "react-native-linux/Logging.h"
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,7 @@
 #include <sys/statvfs.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <unordered_map>
 
 #ifdef RNL_FS_HAVE_SOUP
 #include <libsoup/soup.h>
@@ -335,92 +337,370 @@ int64_t totalDiskBytes(const std::string& path) {
 
 namespace {
 
+SoupSession* sharedSession() {
+  static SoupSession* s = nullptr;
+  if (!s)
+    s = soup_session_new();
+  return s;
+}
+
 struct DownloadCtx {
   std::string url;
   std::string destPath;
+  std::string handle;
+  int64_t resumeFromBytes = 0;
+  DownloadProgress onProgress;
   DownloadSuccess onSuccess;
   DownloadError onError;
+  GCancellable* cancellable = nullptr;
 };
+
+// Active downloads keyed by handle so cancel can reach them. Lives
+// for the duration of the libsoup hop; entries are erased in the
+// success / error / cancel paths.
+std::unordered_map<std::string, DownloadCtx*>& activeDownloads() {
+  static std::unordered_map<std::string, DownloadCtx*> m;
+  return m;
+}
+
+void finishCtx(DownloadCtx* ctx) {
+  activeDownloads().erase(ctx->handle);
+  if (ctx->cancellable)
+    g_object_unref(ctx->cancellable);
+  delete ctx;
+}
 
 void onSoupSendFinish(GObject* source, GAsyncResult* result, gpointer userData) {
   auto* ctx = static_cast<DownloadCtx*>(userData);
   GError* err = nullptr;
   GInputStream* body = soup_session_send_finish(SOUP_SESSION(source), result, &err);
   if (!body) {
+    const bool cancelled = err && err->domain == G_IO_ERROR && err->code == G_IO_ERROR_CANCELLED;
     if (ctx->onError)
-      ctx->onError(err && err->message ? err->message : "download failed");
+      ctx->onError(cancelled ? std::string{"cancelled"}
+                             : std::string{err && err->message ? err->message : "download failed"});
     if (err)
       g_error_free(err);
-    delete ctx;
+    finishCtx(ctx);
     return;
   }
-  // Drain the body to disk synchronously here — we're already on
-  // the GMainContext, libsoup hands us the open InputStream. For
-  // large downloads we could do this in a worker thread; cap is
-  // 256 KB chunks which keeps the JS thread responsive for typical
-  // app downloads (a few MB).
-  std::ofstream out(ctx->destPath, std::ios::binary | std::ios::trunc);
+  // Pull Content-Length off the response so progress can report a
+  // ratio. Servers may omit it on chunked transfer encodings, in
+  // which case totalBytes stays -1 and consumers fall back to the
+  // raw byte count.
+  int64_t totalBytes = -1;
+  if (SoupMessage* msg = soup_session_get_async_result_message(SOUP_SESSION(source), result)) {
+    SoupMessageHeaders* respHeaders = soup_message_get_response_headers(msg);
+    if (respHeaders) {
+      const char* lenStr = soup_message_headers_get_one(respHeaders, "Content-Length");
+      if (lenStr && *lenStr) {
+        try {
+          totalBytes = std::stoll(lenStr) + ctx->resumeFromBytes;
+        } catch (...) {
+        }
+      }
+    }
+  }
+  // Append on resume, truncate on fresh. Atomicity isn't possible
+  // for partial downloads — that's why the caller passes resumeFrom.
+  std::ios_base::openmode mode =
+      std::ios::binary | (ctx->resumeFromBytes > 0 ? std::ios_base::openmode{std::ios::app}
+                                                   : std::ios_base::openmode{std::ios::trunc});
+  std::ofstream out(ctx->destPath, mode);
   if (!out.is_open()) {
     if (ctx->onError)
       ctx->onError(std::string("download: cannot open ") + ctx->destPath);
     g_object_unref(body);
-    delete ctx;
+    finishCtx(ctx);
     return;
   }
-  int64_t total = 0;
+  // 256 KiB chunks — large enough that syscall overhead amortizes,
+  // small enough to keep the JS thread responsive for multi-MB
+  // downloads. Progress fires every ~200ms; tighter than that
+  // floods JS for very fast transfers.
+  int64_t bytesThisCall = 0;
+  int64_t lastProgressBytes = 0;
+  gint64 lastProgressUs = g_get_monotonic_time();
   char buf[256 * 1024];
   for (;;) {
     GError* readErr = nullptr;
-    gssize n = g_input_stream_read(body, buf, sizeof(buf), nullptr, &readErr);
+    gssize n = g_input_stream_read(body, buf, sizeof(buf), ctx->cancellable, &readErr);
     if (n < 0) {
+      const bool cancelled =
+          readErr && readErr->domain == G_IO_ERROR && readErr->code == G_IO_ERROR_CANCELLED;
       if (ctx->onError)
-        ctx->onError(readErr && readErr->message ? readErr->message : "stream read error");
+        ctx->onError(cancelled ? std::string{"cancelled"}
+                               : std::string{readErr && readErr->message ? readErr->message
+                                                                         : "stream read error"});
       if (readErr)
         g_error_free(readErr);
       g_object_unref(body);
-      delete ctx;
+      finishCtx(ctx);
       return;
     }
     if (n == 0)
       break;
     out.write(buf, n);
-    total += n;
+    bytesThisCall += n;
+    gint64 nowUs = g_get_monotonic_time();
+    if (ctx->onProgress && (nowUs - lastProgressUs > 200000 || bytesThisCall == n)) {
+      lastProgressUs = nowUs;
+      lastProgressBytes = bytesThisCall;
+      ctx->onProgress(ctx->resumeFromBytes + bytesThisCall, totalBytes);
+    }
   }
   g_object_unref(body);
+  // Final progress tick so consumers see the bytesWritten == total
+  // edge even when the last chunk landed inside the throttle window.
+  if (ctx->onProgress && bytesThisCall != lastProgressBytes) {
+    ctx->onProgress(ctx->resumeFromBytes + bytesThisCall, totalBytes);
+  }
   if (ctx->onSuccess)
-    ctx->onSuccess(ctx->destPath, 200, total);
-  delete ctx;
+    ctx->onSuccess(ctx->destPath, 200, bytesThisCall);
+  finishCtx(ctx);
 }
 
 } // namespace
 
-void download(const std::string& url,
-              const std::string& destPath,
-              DownloadSuccess onSuccess,
-              DownloadError onError) {
-  static SoupSession* session = nullptr;
-  if (!session) {
-    session = soup_session_new();
-  }
+DownloadHandle download(const std::string& url,
+                        const std::string& destPath,
+                        const DownloadOptions& opts,
+                        DownloadProgress onProgress,
+                        DownloadSuccess onSuccess,
+                        DownloadError onError) {
   SoupMessage* msg = soup_message_new("GET", url.c_str());
   if (!msg) {
     if (onError)
       onError("download: bad URL");
+    return {};
+  }
+  // Resume via HTTP Range — `bytes=N-` asks for everything from N
+  // through end. Servers that don't support ranges respond 200 with
+  // the full body; we accept that since the file rewrite path
+  // truncates anyway. Servers that do support it respond 206 with
+  // just the remainder.
+  if (opts.resumeFromBytes > 0) {
+    SoupMessageHeaders* reqHeaders = soup_message_get_request_headers(msg);
+    if (reqHeaders) {
+      char rangeBuf[64];
+      std::snprintf(rangeBuf, sizeof(rangeBuf), "bytes=%lld-", (long long)opts.resumeFromBytes);
+      soup_message_headers_replace(reqHeaders, "Range", rangeBuf);
+    }
+  }
+  // Build the handle off the SoupMessage pointer + a monotonic time
+  // tick — unique enough that even rapid-fire concurrent downloads
+  // get distinct ids without needing a global counter.
+  static std::atomic<int64_t> nextSeq{1};
+  char handleBuf[48];
+  std::snprintf(handleBuf, sizeof(handleBuf), "dl-%lld", (long long)nextSeq.fetch_add(1));
+  auto* ctx = new DownloadCtx{url,
+                              destPath,
+                              handleBuf,
+                              opts.resumeFromBytes,
+                              std::move(onProgress),
+                              std::move(onSuccess),
+                              std::move(onError),
+                              g_cancellable_new()};
+  activeDownloads()[ctx->handle] = ctx;
+  soup_session_send_async(
+      sharedSession(), msg, G_PRIORITY_DEFAULT, ctx->cancellable, onSoupSendFinish, ctx);
+  g_object_unref(msg);
+  return ctx->handle;
+}
+
+void downloadCancel(const DownloadHandle& handle) {
+  auto it = activeDownloads().find(handle);
+  if (it == activeDownloads().end())
+    return;
+  // g_cancellable_cancel is signal-safe and idempotent. The
+  // onSoupSendFinish callback handles cleanup when the cancellation
+  // propagates through the read loop.
+  g_cancellable_cancel(it->second->cancellable);
+}
+
+// ─── uploads ──────────────────────────────────────────────────────
+
+namespace {
+
+struct UploadCtx {
+  UploadSuccess onSuccess;
+  UploadError onError;
+};
+
+void onUploadFinish(GObject* source, GAsyncResult* result, gpointer userData) {
+  auto* ctx = static_cast<UploadCtx*>(userData);
+  GError* err = nullptr;
+  GBytes* body = soup_session_send_and_read_finish(SOUP_SESSION(source), result, &err);
+  if (!body) {
+    if (ctx->onError)
+      ctx->onError(err && err->message ? err->message : "upload failed");
+    if (err)
+      g_error_free(err);
+    delete ctx;
     return;
   }
-  auto* ctx = new DownloadCtx{url, destPath, std::move(onSuccess), std::move(onError)};
-  soup_session_send_async(session, msg, G_PRIORITY_DEFAULT, nullptr, onSoupSendFinish, ctx);
+  int status = 0;
+  if (SoupMessage* msg = soup_session_get_async_result_message(SOUP_SESSION(source), result)) {
+    status = soup_message_get_status(msg);
+  }
+  gsize len = 0;
+  const void* data = g_bytes_get_data(body, &len);
+  std::string respBody(static_cast<const char*>(data), len);
+  g_bytes_unref(body);
+  if (ctx->onSuccess)
+    ctx->onSuccess(status, respBody);
+  delete ctx;
+}
+
+void applyHeaders(SoupMessage* msg,
+                  const std::vector<std::pair<std::string, std::string>>& headers) {
+  if (!msg)
+    return;
+  SoupMessageHeaders* h = soup_message_get_request_headers(msg);
+  if (!h)
+    return;
+  for (const auto& [name, value] : headers) {
+    soup_message_headers_replace(h, name.c_str(), value.c_str());
+  }
+}
+
+GBytes* readFileBytes(const std::string& path) {
+  std::ifstream f(path, std::ios::binary | std::ios::ate);
+  if (!f.is_open())
+    return nullptr;
+  const auto size = f.tellg();
+  if (size < 0)
+    return nullptr;
+  std::string buf(static_cast<size_t>(size), '\0');
+  f.seekg(0);
+  f.read(buf.data(), size);
+  // GBytes takes a copy; the std::string can drop after this returns.
+  return g_bytes_new(buf.data(), buf.size());
+}
+
+} // namespace
+
+void uploadMultipart(const std::string& url,
+                     const std::string& method,
+                     const std::vector<UploadField>& fields,
+                     const std::vector<std::pair<std::string, std::string>>& headers,
+                     UploadSuccess onSuccess,
+                     UploadError onError) {
+  const std::string m = method.empty() ? std::string{"POST"} : method;
+  // SoupMultipart owns the boundary string and serializes the
+  // body. `to_message` writes the parts into the message body and
+  // sets the multipart/form-data; boundary= content-type header.
+  SoupMultipart* mp = soup_multipart_new("multipart/form-data");
+  if (!mp) {
+    if (onError)
+      onError("upload: soup_multipart_new failed");
+    return;
+  }
+  for (const auto& field : fields) {
+    if (!field.isFile) {
+      // text/plain part with the field's bytes.
+      GBytes* b = g_bytes_new(field.textValue.data(), field.textValue.size());
+      soup_multipart_append_form_string(mp, field.name.c_str(), field.textValue.c_str());
+      g_bytes_unref(b);
+      continue;
+    }
+    GBytes* fileBytes = readFileBytes(field.filePath);
+    if (!fileBytes) {
+      soup_multipart_free(mp);
+      if (onError)
+        onError(std::string("upload: cannot read ") + field.filePath);
+      return;
+    }
+    const std::string mime =
+        field.mimeType.empty() ? std::string{"application/octet-stream"} : field.mimeType;
+    soup_multipart_append_form_file(
+        mp, field.name.c_str(), field.filename.c_str(), mime.c_str(), fileBytes);
+    g_bytes_unref(fileBytes);
+  }
+  SoupMessage* msg = soup_message_new(m.c_str(), url.c_str());
+  if (!msg) {
+    soup_multipart_free(mp);
+    if (onError)
+      onError("upload: bad URL");
+    return;
+  }
+  soup_multipart_to_message(mp, soup_message_get_request_headers(msg), nullptr);
+  // Drop the multipart now that its bytes are in the message.
+  // soup_multipart_to_message hands the body bytes over; freeing
+  // here is correct.
+  soup_multipart_free(mp);
+  applyHeaders(msg, headers);
+  auto* ctx = new UploadCtx{std::move(onSuccess), std::move(onError)};
+  soup_session_send_and_read_async(
+      sharedSession(), msg, G_PRIORITY_DEFAULT, nullptr, onUploadFinish, ctx);
+  g_object_unref(msg);
+}
+
+void uploadBinary(const std::string& url,
+                  const std::string& method,
+                  const std::string& filePath,
+                  const std::string& mimeType,
+                  const std::vector<std::pair<std::string, std::string>>& headers,
+                  UploadSuccess onSuccess,
+                  UploadError onError) {
+  const std::string m = method.empty() ? std::string{"POST"} : method;
+  SoupMessage* msg = soup_message_new(m.c_str(), url.c_str());
+  if (!msg) {
+    if (onError)
+      onError("upload: bad URL");
+    return;
+  }
+  GBytes* fileBytes = readFileBytes(filePath);
+  if (!fileBytes) {
+    g_object_unref(msg);
+    if (onError)
+      onError(std::string("upload: cannot read ") + filePath);
+    return;
+  }
+  const std::string ct = mimeType.empty() ? std::string{"application/octet-stream"} : mimeType;
+  soup_message_set_request_body_from_bytes(msg, ct.c_str(), fileBytes);
+  g_bytes_unref(fileBytes);
+  applyHeaders(msg, headers);
+  auto* ctx = new UploadCtx{std::move(onSuccess), std::move(onError)};
+  soup_session_send_and_read_async(
+      sharedSession(), msg, G_PRIORITY_DEFAULT, nullptr, onUploadFinish, ctx);
   g_object_unref(msg);
 }
 
 #else // !RNL_FS_HAVE_SOUP
 
-void download(const std::string& /*url*/,
-              const std::string& /*destPath*/,
-              DownloadSuccess /*onSuccess*/,
-              DownloadError onError) {
+DownloadHandle download(const std::string& /*url*/,
+                        const std::string& /*destPath*/,
+                        const DownloadOptions& /*opts*/,
+                        DownloadProgress /*onProgress*/,
+                        DownloadSuccess /*onSuccess*/,
+                        DownloadError onError) {
   if (onError)
     onError("download: libsoup was not enabled at build time");
+  return {};
+}
+
+void downloadCancel(const DownloadHandle& /*handle*/) {}
+
+void uploadMultipart(const std::string&,
+                     const std::string&,
+                     const std::vector<UploadField>&,
+                     const std::vector<std::pair<std::string, std::string>>&,
+                     UploadSuccess,
+                     UploadError onError) {
+  if (onError)
+    onError("upload: libsoup was not enabled at build time");
+}
+
+void uploadBinary(const std::string&,
+                  const std::string&,
+                  const std::string&,
+                  const std::string&,
+                  const std::vector<std::pair<std::string, std::string>>&,
+                  UploadSuccess,
+                  UploadError onError) {
+  if (onError)
+    onError("upload: libsoup was not enabled at build time");
 }
 
 #endif

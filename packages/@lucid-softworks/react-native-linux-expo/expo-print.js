@@ -95,6 +95,8 @@ async function _fetchUriToText(uri) {
       rnLinux.fsDownload(
         uri,
         dest,
+        {},
+        null,
         () => resolve(),
         msg => reject(new Error(msg)),
       );

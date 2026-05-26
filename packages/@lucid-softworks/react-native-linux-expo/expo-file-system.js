@@ -100,50 +100,183 @@ async function downloadAsync(url, fileUri, _options) {
     rnLinux.fsDownload(
       url,
       dest,
+      {},
+      null,
       result => resolve(result),
       msg => reject(new Error(msg)),
     );
   });
 }
 
-// expo-file-system also exposes a DownloadResumable / UploadTask
-// pair backed by Android-only NSURLSession-style resumable IO.
-// Implementing those needs HTTP Range support in libsoup (it has
-// it) plus durable state (the savable resume token). Out of scope
-// for the first cut; we expose the class shape so type imports
-// don't crash, and `resumeAsync` falls through to a full download.
+// expo-file-system's DownloadResumable: pause/resume backed by HTTP
+// Range. The savable() snapshot includes the bytes already on disk
+// so a fresh DownloadResumable instance constructed from that
+// snapshot can resume across process restarts.
 class DownloadResumable {
-  constructor(url, fileUri, options) {
+  constructor(url, fileUri, options, callback, resumeData) {
     this._url = url;
     this._fileUri = fileUri;
-    this._options = options;
+    this._options = options || {};
+    this._callback = typeof callback === 'function' ? callback : null;
+    this._resumeData = resumeData || null;
+    this._handle = null;
+    this._cancelled = false;
   }
+
   async downloadAsync() {
-    return downloadAsync(this._url, this._fileUri, this._options);
+    if (!_hasNative) throw new Error('expo-file-system: native bindings not bound');
+    const dest = _toPath(this._fileUri);
+    // resumeFromBytes priority: explicit resumeData > what's
+    // already on disk at dest (so a fresh DownloadResumable can
+    // re-attach to a previously-paused write without the caller
+    // having to remember the byte count).
+    let resumeFromBytes = 0;
+    if (this._resumeData && typeof this._resumeData.bytesWritten === 'number') {
+      resumeFromBytes = this._resumeData.bytesWritten;
+    } else if (typeof rnLinux.fsGetInfo === 'function') {
+      try {
+        const info = rnLinux.fsGetInfo(dest, false);
+        if (info && info.exists && !info.isDirectory) resumeFromBytes = info.size | 0;
+      } catch (_) {}
+    }
+    this._cancelled = false;
+    return new Promise((resolve, reject) => {
+      this._handle = rnLinux.fsDownload(
+        this._url,
+        dest,
+        {resumeFromBytes},
+        this._callback
+          ? (written, total) => {
+              // expo's callback shape: {totalBytesWritten, totalBytesExpectedToWrite}
+              this._callback({
+                totalBytesWritten: written,
+                totalBytesExpectedToWrite: total,
+              });
+            }
+          : null,
+        result => {
+          this._handle = null;
+          // Track progress so a subsequent resume picks up from
+          // here. expo's contract: the resolved object is
+          // {uri, status, headers, mimeType, ...}; mimeType / headers
+          // aren't surfaced by our binding yet.
+          this._resumeData = {bytesWritten: resumeFromBytes + result.size};
+          resolve(result);
+        },
+        msg => {
+          this._handle = null;
+          if (this._cancelled && msg === 'cancelled') {
+            // Snapshot the bytes already on disk for resume.
+            try {
+              const info = rnLinux.fsGetInfo(dest, false);
+              if (info && info.exists) this._resumeData = {bytesWritten: info.size | 0};
+            } catch (_) {}
+            // Pause: resolve with undefined so callers can call
+            // resumeAsync() / savable() afterwards. Mirrors the
+            // upstream behavior.
+            resolve(undefined);
+            return;
+          }
+          reject(new Error(msg));
+        },
+      );
+    });
   }
+
   async pauseAsync() {
-    throw new Error('expo-file-system: DownloadResumable.pauseAsync not implemented on Linux');
+    if (!this._handle) return this.savable();
+    this._cancelled = true;
+    rnLinux.fsDownloadCancel(this._handle);
+    this._handle = null;
+    return this.savable();
   }
+
   async resumeAsync() {
-    return downloadAsync(this._url, this._fileUri, this._options);
+    return this.downloadAsync();
   }
+
   async cancelAsync() {
-    throw new Error('expo-file-system: DownloadResumable.cancelAsync not implemented on Linux');
+    if (this._handle) {
+      this._cancelled = true;
+      rnLinux.fsDownloadCancel(this._handle);
+      this._handle = null;
+    }
+    // expo's contract: delete the partial file too.
+    if (typeof rnLinux.fsDelete === 'function') {
+      try {
+        rnLinux.fsDelete(_toPath(this._fileUri), true);
+      } catch (_) {}
+    }
+    this._resumeData = null;
   }
+
   savable() {
-    return {url: this._url, fileUri: this._fileUri, options: this._options};
+    return {
+      url: this._url,
+      fileUri: this._fileUri,
+      options: this._options,
+      resumeData: this._resumeData ? {...this._resumeData} : null,
+    };
   }
 }
 
-function createDownloadResumable(url, fileUri, options, _callback, _resumeData) {
-  return new DownloadResumable(url, fileUri, options);
+function createDownloadResumable(url, fileUri, options, callback, resumeData) {
+  return new DownloadResumable(url, fileUri, options, callback, resumeData);
 }
 
-// Upload (multipart / binary) — same story as resumable downloads.
-// Expose the function so consumers don't fail at import time, throw
-// from the actual call.
-async function uploadAsync(_url, _fileUri, _options) {
-  throw new Error('expo-file-system: uploadAsync not implemented on Linux');
+// Upload — multipart and binary body variants. Method defaults
+// match expo's defaults (POST for multipart, POST for binary).
+// uploadType: FileSystemUploadType.MULTIPART | BINARY_CONTENT.
+async function uploadAsync(url, fileUri, options) {
+  if (!_hasNative) throw new Error('expo-file-system: native bindings not bound');
+  if (typeof url !== 'string') throw new TypeError('uploadAsync: url must be a string');
+  const filePath = _toPath(fileUri);
+  const method = (options && options.httpMethod) || 'POST';
+  const headers =
+    options && options.headers && typeof options.headers === 'object'
+      ? Object.entries(options.headers).map(([k, v]) => [String(k), String(v)])
+      : [];
+  const uploadType = options && options.uploadType;
+  if (uploadType === FileSystemUploadType.MULTIPART) {
+    const fieldName = (options && options.fieldName) || 'file';
+    const mimeType = (options && options.mimeType) || 'application/octet-stream';
+    const filename =
+      (options && options.parameters && options.parameters._filename) ||
+      filePath.split('/').pop() ||
+      fieldName;
+    const fields = [
+      {name: fieldName, isFile: true, filePath, filename, mimeType},
+      // expo's `parameters` map → multipart text fields. Strip the
+      // _filename convention key (used above) before forwarding.
+      ...Object.entries(options.parameters || {})
+        .filter(([k]) => k !== '_filename')
+        .map(([name, textValue]) => ({name, isFile: false, textValue: String(textValue)})),
+    ];
+    return new Promise((resolve, reject) => {
+      rnLinux.fsUploadMultipart(
+        url,
+        method,
+        fields,
+        headers,
+        result => resolve(result),
+        msg => reject(new Error(msg)),
+      );
+    });
+  }
+  // BINARY_CONTENT (the default). Sends the file bytes as the
+  // request body verbatim, with mimeType as content-type.
+  const mimeType = (options && options.mimeType) || 'application/octet-stream';
+  return new Promise((resolve, reject) => {
+    rnLinux.fsUploadBinary(
+      url,
+      method,
+      filePath,
+      mimeType,
+      headers,
+      result => resolve(result),
+      msg => reject(new Error(msg)),
+    );
+  });
 }
 
 // SAF (Storage Access Framework) — Android-only. Map the most
