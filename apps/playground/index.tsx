@@ -248,7 +248,7 @@ function RouterScreen(): JSX.Element {
 function TurboModuleDemo() {
   let line = '—';
   try {
-    const mod = TurboModuleRegistry.getEnforcing('PlatformConstants');
+    const mod: any = TurboModuleRegistry.getEnforcing('PlatformConstants');
     const c = mod.getConstants();
     line = `OS=${c.OS} dist=${c.distribution} kernel=${c.osVersion}`;
   } catch (e) {

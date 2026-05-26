@@ -1,9 +1,21 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "./lib",
-    "noEmit": true
+    "noEmit": true,
+    // React-native's types and lib.dom.d.ts both declare URLSearchParams /
+    // RequestInfo / XMLHttpRequestResponseType; the duplicate triggers
+    // TS2300 even with skipLibCheck on (the conflict happens between
+    // two lib references, not inside our own .d.ts). Narrow the lib
+    // list to drop DOM — RN provides the browser-shaped globals it
+    // needs without dragging the full DOM types in.
+    "lib": ["ES2022"],
+    // Drop the implicit @types/* auto-discovery — RN's own d.ts files
+    // redeclare URL / URLSearchParams / AbortController, which clashes
+    // with @types/node (transitively present via @types/react-native or
+    // a sibling workspace's devDeps).
+    "types": []
   },
   "include": ["index.d.ts", "Libraries/**/*"]
 }

@@ -7,7 +7,7 @@
 // an iOS or Android Expo app does. The only knowledge of "Linux" in
 // this file is `Platform.OS === 'linux'` for the header text.
 
-import {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   StyleSheet,
   View,
@@ -15,7 +15,7 @@ import {
   Text,
   TextInput,
   Pressable,
-  Button,
+  Button as RNButton,
   FlatList,
   Modal,
   ScrollView,
@@ -23,6 +23,12 @@ import {
   Easing,
   Platform,
 } from 'react-native';
+
+// Our playground Button shim (runtime/components.js) accepts width +
+// backgroundColor on top of the stock RN Button props. Cast through
+// `any` so the JSX in this file doesn't have to either guard every
+// occurrence or pull in module-augmentation plumbing.
+const Button = RNButton as unknown as React.ComponentType<any>;
 import {StatusBar} from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {FpsOverlay} from './FpsOverlay';
@@ -157,8 +163,18 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, {toValue: 1, duration: 1100, easing: Easing.inOut}),
-        Animated.timing(pulse, {toValue: 0, duration: 1100, easing: Easing.inOut}),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1100,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
       ]),
     );
     anim.start();
@@ -323,11 +339,7 @@ export default function App(): JSX.Element {
           <Text style={styles.modalText}>
             counter is {count}; ticker is {tick}; name is {name || '(empty)'}.
           </Text>
-          <Button
-            title="dismiss"
-            onPress={() => setModalOpen(false)}
-            backgroundColor={palette.green}
-          />
+          <Button title="dismiss" onPress={() => setModalOpen(false)} color={palette.green} />
         </View>
       </Modal>
 

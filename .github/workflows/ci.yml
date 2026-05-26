@@ -54,7 +54,11 @@ jobs:
         run: |
           # Same find expression as `pnpm lint:cpp`. Keep them in sync —
           # if either drifts we'll lint different files in CI vs. locally.
-          find vnext template/linux -name '*.cpp' -o -name '*.h' \
+          # `-path '*/build/*' -prune` skips the CMake FetchContent _deps
+          # tree (Hermes / Folly / Boost source) so we only lint our own
+          # code.
+          find vnext template/linux -path '*/build/*' -prune -o -type f \
+              \( -name '*.cpp' -o -name '*.h' \) -print \
             | xargs clang-format --dry-run --Werror
 
   autolink-drift:

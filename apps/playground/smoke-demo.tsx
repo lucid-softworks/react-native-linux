@@ -193,9 +193,9 @@ function DeviceInfoDemo() {
         ['isWiredHeadphonesConnected (mobile-only)', DeviceInfo.isWiredHeadphonesConnected],
         ['isBluetoothHeadphonesConnected (mobile-only)', DeviceInfo.isBluetoothHeadphonesConnected],
         // ── ABIs ──────────────────────────────────────────────────
-        ['getSupportedAbis', DeviceInfo.getSupportedAbis],
-        ['getSupported32BitAbis (Android-only)', DeviceInfo.getSupported32BitAbis],
-        ['getSupported64BitAbis', DeviceInfo.getSupported64BitAbis],
+        ['supportedAbis', DeviceInfo.supportedAbis],
+        ['supported32BitAbis (Android-only)', DeviceInfo.supported32BitAbis],
+        ['supported64BitAbis', DeviceInfo.supported64BitAbis],
         // ── misc ──────────────────────────────────────────────────
         ['getFontScale', DeviceInfo.getFontScale],
         ['getAvailableLocationProviders', DeviceInfo.getAvailableLocationProviders],
@@ -287,12 +287,16 @@ function SmokeDemo() {
         return `brand=${brand} model=${model} sys=${sys}`;
       }),
       tryProbe('react-native-safe-area-context', async function safeAreaProbe() {
-        const haveProvider = typeof SafeAreaContext.SafeAreaProvider === 'function';
+        // forwardRef components are objects (not functions) — check for
+        // truthy + react $$typeof tag rather than typeof === 'function'.
+        const haveProvider = !!SafeAreaContext.SafeAreaProvider;
+        const haveView = !!SafeAreaContext.SafeAreaView;
         const haveHook = typeof SafeAreaContext.useSafeAreaInsets === 'function';
-        if (!haveProvider || !haveHook) {
-          throw new Error(`missing exports: provider=${haveProvider} hook=${haveHook}`);
+        if (!haveProvider || !haveHook || !haveView) {
+          throw new Error(`missing: provider=${haveProvider} view=${haveView} hook=${haveHook}`);
         }
-        return 'symbols present';
+        const m = SafeAreaContext.initialWindowMetrics;
+        return `insets=${JSON.stringify(m?.insets)} frame=${JSON.stringify(m?.frame)}`;
       }),
       tryProbe('expo-camera', async function cameraProbe() {
         const cam = require('expo-camera');
