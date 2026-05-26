@@ -879,31 +879,51 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           if (gtk_widget_get_opacity(w) != v) {
             gtk_widget_set_opacity(w, v);
           }
-        } else if (prop == "translateX" || prop == "translateY") {
+        } else if (prop == "translateX" || prop == "translateY" || prop == "scale" ||
+                   prop == "scaleX" || prop == "scaleY") {
           // Use gtk_fixed_set_child_transform (paint-only) instead of
           // gtk_fixed_move (which queues a relayout cascade up the entire
           // ancestor chain — that's death for an Animated.loop running at
           // 60 Hz). The transform composes on top of Yoga's layout origin
           // and only dirties the rendered region.
+          //
+          // Paper's TextInput.Outlined floating label rides three
+          // separate Animated values (translateX, translateY, scale)
+          // off the same `labeled` driver — each fires setNativeProp
+          // independently, so we have to preserve the OTHER components
+          // when one updates. Read the existing GskTransform as an
+          // affine 2D matrix (xx · sx, yy · sy, dx, dy), patch the
+          // requested field, then rebuild scale · translate.
           GtkWidget* parent = gtk_widget_get_parent(w);
           if (parent && GTK_IS_FIXED(parent)) {
-            // Read the current transform so we preserve the other axis.
             GskTransform* cur = gtk_fixed_get_child_transform(GTK_FIXED(parent), w);
-            float curX = 0, curY = 0;
+            float xx = 1, yx = 0, xy = 0, yy = 1, dx = 0, dy = 0;
             if (cur) {
-              // GskTransform of category 2D_TRANSLATE has a simple offset
-              // we can read; fall through to 0 for anything else (we never
-              // generate non-translate transforms from here).
-              gsk_transform_to_translate(cur, &curX, &curY);
+              gsk_transform_to_2d(cur, &xx, &yx, &xy, &yy, &dx, &dy);
             }
-            graphene_point_t pt = (prop == "translateX")
-                                      ? graphene_point_t{static_cast<float>(v), curY}
-                                      : graphene_point_t{curX, static_cast<float>(v)};
-            // gsk_transform_translate consumes the existing transform (it
-            // takes ownership of `next`) and returns a fresh ref-counted
-            // GskTransform. Passing nullptr means "translate from
-            // identity". set_child_transform takes ownership too.
+            float sx = xx;
+            float sy = yy;
+            const float vf = static_cast<float>(v);
+            if (prop == "translateX")
+              dx = vf;
+            else if (prop == "translateY")
+              dy = vf;
+            else if (prop == "scale") {
+              sx = vf;
+              sy = vf;
+            } else if (prop == "scaleX")
+              sx = vf;
+            else if (prop == "scaleY")
+              sy = vf;
+            // Compose translate(dx, dy) · scale(sx, sy). For a local
+            // point p the final position is (sx·px + dx, sy·py + dy)
+            // — origin-at-(0,0) scaling, which is what Paper assumes
+            // for its label (no transform-origin set on the animated
+            // host so the default `[0,0]` we use here matches RN's
+            // native-driver path on iOS/Android).
+            graphene_point_t pt = {dx, dy};
             GskTransform* next = gsk_transform_translate(nullptr, &pt);
+            next = gsk_transform_scale(next, sx, sy);
             gtk_fixed_set_child_transform(GTK_FIXED(parent), w, next);
             gsk_transform_unref(next);
           }

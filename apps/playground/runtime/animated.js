@@ -99,10 +99,18 @@ function InterpolatedValue(source, config) {
   this._extrapolate = config.extrapolate || 'extend';
   this._listeners = new Map();
   const self = this;
-  this._sourceSub = source.addListener(function () {
+  // The forwarder has to be marked `_native` so it keeps firing while
+  // the SOURCE AnimatedValue is being driven natively (useNativeDriver
+  // suppresses non-native listeners on the source — without this flag
+  // every InterpolatedValue derived from a native-driven source goes
+  // silent for the duration of the animation, and any consumer
+  // listening on the interpolation never sees a tick).
+  const forwarder = function () {
     const cbs = self._listeners.values();
     for (const cb of cbs) cb({value: self.__getValue()});
-  });
+  };
+  forwarder._native = true;
+  this._sourceSub = source.addListener(forwarder);
 }
 
 InterpolatedValue.prototype.__getValue = function () {
@@ -317,7 +325,13 @@ function isAnimated(x) {
 // translates. Anything else falls back to the slow path (forceUpdate +
 // reconcile + commit + mount).
 const NATIVE_DRIVEABLE_TOP_LEVEL = new Set(['opacity']);
-const NATIVE_DRIVEABLE_TRANSFORM = new Set(['translateX', 'translateY']);
+const NATIVE_DRIVEABLE_TRANSFORM = new Set([
+  'translateX',
+  'translateY',
+  'scale',
+  'scaleX',
+  'scaleY',
+]);
 
 function resolveStyle(style) {
   if (style == null || style === false) return style;
