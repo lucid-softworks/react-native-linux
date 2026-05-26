@@ -169,7 +169,8 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-location` (GeoClue2 via DBus + auto-spawn demo agent),
 `expo-notifications` (libnotify → freedesktop notification daemon),
 `expo-file-system` (POSIX direct + libsoup downloads; XDG paths),
-`expo-clipboard` (GdkClipboard set/get; cross-app reads and image/HTML round-trip still on the gap list).
+`expo-clipboard` (GdkClipboard set/get; cross-app reads and image/HTML round-trip still on the gap list),
+`expo-secure-store` (libsecret → gnome-keyring/kwallet/KeePassXC; session-collection fallback on headless).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -178,7 +179,7 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [ ] **`expo-haptics`** — GTK doesn't have haptics. Closest analog: `gtk_widget_error_bell()` for the buzz APIs; or stub-with-bell for the rest. Either way: real action, not a no-op. ~50 LOC.
 - [ ] **`expo-keep-awake`** — `org.freedesktop.ScreenSaver.Inhibit` over the session bus (or `org.freedesktop.PowerManagement.Inhibit` fallback). C++ DBus binding mirroring the GeoClue pattern. `activateKeepAwakeAsync(tag)` / `deactivateKeepAwake(tag)` with an inhibit cookie map.
 - [x] **`expo-file-system`** — DONE 2026-05-26. See `docs/realworld-expo-file-system.md`. Gaps: resumable downloads, uploads, statvfs-backed disk-space helpers.
-- [ ] **`expo-secure-store`** — `libsecret` over the session bus, schema `org.freedesktop.Secret.Service`. C++ binding: `setItemAsync(key, value, opts)` / `getItemAsync(key, opts)` / `deleteItemAsync(key, opts)`. The user's keyring (gnome-keyring / kwallet) handles the actual storage. `apt install libsecret-1-dev`.
+- [x] **`expo-secure-store`** — DONE 2026-05-26. See `docs/realworld-expo-secure-store.md`. Gaps: auto-create login collection on first use, biometric prompts (KWallet PAM), per-app keychainService isolation.
 - [ ] **`expo-network`** — NetworkManager over DBus (`org.freedesktop.NetworkManager`). `getNetworkStateAsync` (online + connectionType), `getIpAddressAsync` (reuse device-info path), `getMacAddressAsync`. Subscription to NM's `StateChanged` signal for the listener API. Fallback when NM isn't running: parse `/sys/class/net/*/operstate`.
 - [ ] **`expo-image`** — drop-in replacement for RN `Image`. Already mostly possible: reuse the libsoup loader from our ImageComponentView, add `transition` / `placeholder` / `cachePolicy` support. New Fabric component `ExpoImage` backed by GtkPicture with our own GdkPaintable subclass for cross-fade transitions.
 - [ ] **`expo-document-picker`** — `GtkFileChooserDialog` (or the newer `GtkFileDialog` from GTK 4.10). C++ binding takes `multiple`, `type[]` MIME filters, returns selected paths as `{assets: [{uri, name, size, mimeType}]}`. ~150 LOC + dialog plumbing on the main GTK thread.

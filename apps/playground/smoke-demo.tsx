@@ -401,6 +401,63 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-secure-store ───────────────────────────
+// libsecret round-trip. Writes a fresh token into the secret
+// service, reads it back, lists what's stored under our schema,
+// then deletes. Real values live in the user's keyring
+// (gnome-keyring / kwallet / KeePassXC) — same place Firefox,
+// Chrome, and the rest of the desktop hold credentials.
+function ExpoSecureStoreDemo() {
+  const SecureStore = require('expo-secure-store');
+  const [state, setState] = useState<string>('(idle)');
+  const [err, setErr] = useState<string>('');
+
+  async function go() {
+    setErr('');
+    setState('working…');
+    try {
+      const available = await SecureStore.isAvailableAsync();
+      if (!available) {
+        setState('keyring daemon not running');
+        return;
+      }
+      const key = 'rnl-demo-token';
+      const value = `secret-${Math.random().toString(36).slice(2, 10)}`;
+      await SecureStore.setItemAsync(key, value);
+      const got = await SecureStore.getItemAsync(key);
+      await SecureStore.deleteItemAsync(key);
+      const after = await SecureStore.getItemAsync(key);
+      setState(
+        `set+get matched (${got === value ? 'yes' : 'no'}), after-delete=${after === null ? 'null' : after}`,
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    go();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        libsecret over the session bus → the user's keyring (gnome-keyring / kwallet / KeePassXC).
+        Default ("login") collection is used when available; falls back to the in-memory session
+        collection on headless / VM sessions.
+      </Text>
+      <Text style={styles.demoLine}>{state}</Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={go}>
+          <Text style={styles.btnText}>re-run round-trip</Text>
+        </Pressable>
+      </View>
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-clipboard ───────────────────────────
 // GdkClipboard round-trip. The "copy timestamp" button writes a
 // fresh tag; the "paste" button reads back whatever's on the
@@ -664,8 +721,15 @@ function SmokeDemo() {
       }),
       tryProbe('expo-secure-store', async function p() {
         const m = require('expo-secure-store');
-        await m.getItemAsync('rnl-smoke');
-        return 'read-ok';
+        const available = await m.isAvailableAsync();
+        if (!available) return 'service unavailable (no keyring daemon)';
+        const key = 'rnl-smoke-secret';
+        const value = `rnl-${Date.now()}`;
+        await m.setItemAsync(key, value);
+        const got = await m.getItemAsync(key);
+        await m.deleteItemAsync(key);
+        if (got !== value) throw new Error(`roundtrip: wrote ${value}, read ${got}`);
+        return `roundtripped ${value.length} chars via keyring`;
       }),
       tryProbe('expo-network', async function p() {
         const m = require('expo-network');
@@ -764,6 +828,11 @@ function SmokeDemo() {
           <ExpoClipboardDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-secure-store')} />
+          <ExpoSecureStoreDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -779,7 +848,6 @@ function SmokeDemo() {
           'expo-localization',
           'expo-haptics',
           'expo-keep-awake',
-          'expo-secure-store',
           'expo-network',
           'expo-image',
           'expo-document-picker',

@@ -59,6 +59,12 @@ pkg_check_modules(Gst REQUIRED IMPORTED_TARGET
 # session bus. The daemon (gnome-shell / xfce4-notifyd / dunst / …)
 # is the user's concern, not ours.
 pkg_check_modules(Notify REQUIRED IMPORTED_TARGET libnotify)
+
+# libsecret — talks to org.freedesktop.secrets (gnome-keyring,
+# kwallet, KeePassXC, …) for `expo-secure-store`. The daemon and
+# default-collection setup are the user's responsibility; we fall
+# back to the in-memory session collection when none exists.
+pkg_check_modules(Secret REQUIRED IMPORTED_TARGET libsecret-1)
 include(ReactNativeHeaders)  # locate node_modules/react-native
 include(FetchHermes)      # Hermes runtime
 include(FetchFolly)       # Folly (subset)
@@ -127,6 +133,7 @@ set(RNL_SOURCES
   src/views/CameraComponentView.cpp
   src/notifications/Notifications.cpp
   src/filesystem/FileSystem.cpp
+  src/securestore/SecureStore.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -300,6 +307,7 @@ target_link_libraries(react_native_linux
   PRIVATE
     PkgConfig::Gst
     PkgConfig::Notify
+    PkgConfig::Secret
     Threads::Threads
     Hermes::Hermes
     Folly::folly

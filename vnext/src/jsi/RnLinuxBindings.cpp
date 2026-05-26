@@ -5,6 +5,7 @@
 #include "../filesystem/FileSystem.h"
 #include "../location/Location.h"
 #include "../notifications/Notifications.h"
+#include "../securestore/SecureStore.h"
 #include "react-native-linux/Logging.h"
 
 #include <array>
@@ -1776,6 +1777,70 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                s.locationOnError.reset();
                return jsi::Value::undefined();
              });
+
+  // ─── Secure store (expo-secure-store) ────────────────────────────
+  // Direct libsecret wrappers; all three ops synchronous and the JS
+  // shim wraps in Promise.resolve. Throw on hard failure so the
+  // shim rejects.
+
+  bindMethod(rt,
+             rnLinux,
+             "secureStoreIsAvailable",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               return jsi::Value(rnlinux::securestore::isAvailable());
+             });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "secureStoreSetItem",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        try {
+          rnlinux::securestore::setItem(args[0].asString(rt).utf8(rt),
+                                        args[1].asString(rt).utf8(rt));
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "secureStoreGetItem",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::null();
+        try {
+          auto v = rnlinux::securestore::getItem(args[0].asString(rt).utf8(rt));
+          if (!v)
+            return jsi::Value::null();
+          return jsi::String::createFromUtf8(rt, *v);
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "secureStoreDeleteItem",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        try {
+          rnlinux::securestore::deleteItem(args[0].asString(rt).utf8(rt));
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+        return jsi::Value::undefined();
+      });
 
   // ─── File system (expo-file-system) ──────────────────────────────
   // Most operations are sync — file IO on local disk is fast and
