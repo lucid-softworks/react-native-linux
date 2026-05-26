@@ -126,6 +126,7 @@ set(RNL_SOURCES
   src/components/CameraView.cpp
   src/views/CameraComponentView.cpp
   src/notifications/Notifications.cpp
+  src/filesystem/FileSystem.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )
@@ -328,6 +329,10 @@ target_compile_features(react_native_linux PUBLIC cxx_std_20)
 target_compile_definitions(react_native_linux PRIVATE
   RNL_PLATFORM_LINUX=1
   $<$<BOOL:${REACT_NATIVE_LINUX_ENABLE_INSPECTOR}>:HERMES_ENABLE_DEBUGGER=1>
+  # expo-file-system downloads run through libsoup when present.
+  # Same guard the Image component uses — graceful degradation when
+  # libsoup3 isn't installed (download() returns a clear error).
+  $<$<TARGET_EXISTS:PkgConfig::Soup>:RNL_FS_HAVE_SOUP=1>
 )
 
 # Treat warnings seriously in our own code only. The handful of -Wno-*

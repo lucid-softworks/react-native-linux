@@ -2,6 +2,7 @@
 
 #include "../camera/Camera.h"
 #include "../deviceinfo/DeviceInfo.h"
+#include "../filesystem/FileSystem.h"
 #include "../location/Location.h"
 #include "../notifications/Notifications.h"
 #include "react-native-linux/Logging.h"
@@ -1775,6 +1776,229 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                s.locationOnError.reset();
                return jsi::Value::undefined();
              });
+
+  // ─── File system (expo-file-system) ──────────────────────────────
+  // Most operations are sync — file IO on local disk is fast and
+  // bounded, and the JS shim wraps them in Promise.resolve so the
+  // upstream async signature is preserved. Errors throw on the JSI
+  // side; tryProbe / Promise rejection paths surface them to JS.
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsConstants",
+      0,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+        const auto& c = rnlinux::filesystem::constants("rn-linux-playground");
+        jsi::Object o(rt);
+        o.setProperty(
+            rt, "documentDirectory", jsi::String::createFromUtf8(rt, c.documentDirectory));
+        o.setProperty(rt, "cacheDirectory", jsi::String::createFromUtf8(rt, c.cacheDirectory));
+        o.setProperty(rt, "bundleDirectory", jsi::String::createFromUtf8(rt, c.bundleDirectory));
+        return o;
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsReadString",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::null();
+        const auto path = args[0].asString(rt).utf8(rt);
+        const auto enc =
+            (count >= 2 && args[1].isString() && args[1].asString(rt).utf8(rt) == "base64")
+                ? rnlinux::filesystem::Encoding::Base64
+                : rnlinux::filesystem::Encoding::UTF8;
+        try {
+          return jsi::String::createFromUtf8(rt, rnlinux::filesystem::readString(path, enc));
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsWriteString",
+      3,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        const auto path = args[0].asString(rt).utf8(rt);
+        const auto contents = args[1].asString(rt).utf8(rt);
+        const auto enc =
+            (count >= 3 && args[2].isString() && args[2].asString(rt).utf8(rt) == "base64")
+                ? rnlinux::filesystem::Encoding::Base64
+                : rnlinux::filesystem::Encoding::UTF8;
+        try {
+          rnlinux::filesystem::writeString(path, contents, enc);
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsGetInfo",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::null();
+        const auto path = args[0].asString(rt).utf8(rt);
+        const bool wantMd5 = count >= 2 && args[1].isBool() && args[1].getBool();
+        const auto info = rnlinux::filesystem::getInfo(path, wantMd5);
+        jsi::Object o(rt);
+        o.setProperty(rt, "exists", jsi::Value(info.exists));
+        o.setProperty(rt, "uri", jsi::String::createFromUtf8(rt, info.uri));
+        if (info.exists) {
+          o.setProperty(rt, "isDirectory", jsi::Value(info.isDirectory));
+          o.setProperty(rt, "size", jsi::Value(static_cast<double>(info.size)));
+          o.setProperty(rt,
+                        "modificationTime",
+                        jsi::Value(static_cast<double>(info.modificationTime) / 1000.0));
+          if (!info.md5.empty()) {
+            o.setProperty(rt, "md5", jsi::String::createFromUtf8(rt, info.md5));
+          }
+        }
+        return o;
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsDelete",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value(false);
+        const auto path = args[0].asString(rt).utf8(rt);
+        const bool idempotent = count >= 2 && args[1].isBool() && args[1].getBool();
+        try {
+          return jsi::Value(rnlinux::filesystem::deleteFile(path, idempotent));
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsMakeDirectory",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        const auto path = args[0].asString(rt).utf8(rt);
+        const bool intermediates = count >= 2 && args[1].isBool() && args[1].getBool();
+        try {
+          rnlinux::filesystem::makeDirectory(path, intermediates);
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsReadDirectory",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Array(rt, 0);
+        try {
+          const auto entries = rnlinux::filesystem::readDirectory(args[0].asString(rt).utf8(rt));
+          jsi::Array arr(rt, entries.size());
+          for (size_t i = 0; i < entries.size(); ++i) {
+            arr.setValueAtIndex(rt, i, jsi::String::createFromUtf8(rt, entries[i]));
+          }
+          return arr;
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsCopy",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        try {
+          rnlinux::filesystem::copy(args[0].asString(rt).utf8(rt), args[1].asString(rt).utf8(rt));
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsMove",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        try {
+          rnlinux::filesystem::move(args[0].asString(rt).utf8(rt), args[1].asString(rt).utf8(rt));
+        } catch (const std::exception& e) {
+          throw jsi::JSError(rt, e.what());
+        }
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fsDownload",
+      4,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 4)
+          return jsi::Value::undefined();
+        const auto url = args[0].asString(rt).utf8(rt);
+        const auto dest = args[1].asString(rt).utf8(rt);
+        auto okCb = std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt));
+        auto errCb = std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt));
+        rnlinux::filesystem::download(
+            url,
+            dest,
+            [okCb](const std::string& path, int status, int64_t bytes) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                jsi::Object o(jrt);
+                o.setProperty(jrt, "uri", jsi::String::createFromUtf8(jrt, "file://" + path));
+                o.setProperty(jrt, "status", jsi::Value(status));
+                o.setProperty(jrt, "size", jsi::Value(static_cast<double>(bytes)));
+                okCb->call(jrt, o);
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "download ok handler threw: " << e.what();
+              }
+            },
+            [errCb](const std::string& msg) {
+              auto& s = state();
+              if (!s.runtime)
+                return;
+              jsi::Runtime& jrt = *s.runtime;
+              try {
+                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.fs") << "download err handler threw: " << e.what();
+              }
+            });
+        return jsi::Value::undefined();
+      });
 
   // ─── Notifications (expo-notifications) ─────────────────────────
   // Single response listener; replaces on each call. C++ stores the

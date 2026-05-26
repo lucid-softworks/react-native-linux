@@ -401,6 +401,55 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-file-system ───────────────────────────
+// Real POSIX file IO. On mount: write a tagged file under
+// documentDirectory, read it back, list the dir, surface the
+// round-trip. Proves the C++ ↔ JS path including the file:// URI
+// stripping handled by the shim.
+function ExpoFileSystemDemo() {
+  const FS = require('expo-file-system');
+  const [report, setReport] = useState<string>('');
+  const [err, setErr] = useState<string>('');
+
+  useEffect(() => {
+    async function go() {
+      try {
+        const dir = FS.documentDirectory;
+        const filename = `rnl-fs-smoke-${Date.now()}.txt`;
+        const uri = dir + filename;
+        const payload = `hello from rn-linux at ${new Date().toISOString()}`;
+        await FS.writeAsStringAsync(uri, payload);
+        await FS.readAsStringAsync(uri); // round-trip
+        const info = await FS.getInfoAsync(uri);
+        const list = await FS.readDirectoryAsync(dir);
+        const recent = list.filter((n: string) => n.startsWith('rnl-fs-smoke-')).slice(-3);
+        setReport(
+          `wrote+read ${payload.length} bytes  size=${info.size}  ` +
+            `${recent.length}/${list.length} entries match prefix`,
+        );
+        // Clean up the file we wrote so the dir doesn't grow
+        // unbounded across smoke runs.
+        await FS.deleteAsync(uri, {idempotent: true});
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
+      }
+    }
+    go();
+  }, [FS]);
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        POSIX read/write/getInfo/readDir round-trip into{' '}
+        {FS.documentDirectory ?? '(no documentDirectory)'}. Files use the {'file://'} scheme; the
+        shim strips it before reaching C++.
+      </Text>
+      {report ? <Text style={styles.demoLine}>{report}</Text> : null}
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-notifications ───────────────────────────
 // Real libnotify-backed local notifications. "Present" fires
 // immediately; "Schedule 3s" wires through g_timeout_add. The
@@ -531,6 +580,81 @@ function SmokeDemo() {
         const perms = await n.requestPermissionsAsync();
         return `perms=${perms?.status ?? 'n/a'}`;
       }),
+
+      // ─── Backlog probes (stub shims; see TODO.md). Each fires a
+      // representative method on the import — the Proxy throws with a
+      // clean "not yet implemented" message that surfaces here.
+      tryProbe('expo-clipboard', async function p() {
+        const m = require('expo-clipboard');
+        await m.getStringAsync();
+        return 'wired';
+      }),
+      tryProbe('expo-localization', async function p() {
+        const m = require('expo-localization');
+        return `locale=${m.locale}`;
+      }),
+      tryProbe('expo-haptics', async function p() {
+        const m = require('expo-haptics');
+        await m.impactAsync();
+        return 'tapped';
+      }),
+      tryProbe('expo-keep-awake', async function p() {
+        const m = require('expo-keep-awake');
+        await m.activateKeepAwakeAsync('rnl-smoke');
+        return 'inhibit-on';
+      }),
+      tryProbe('expo-file-system', async function p() {
+        const m = require('expo-file-system');
+        if (!m.documentDirectory) throw new Error('documentDirectory missing');
+        const info = await m.getInfoAsync(m.documentDirectory);
+        return `documentDirectory=${m.documentDirectory} exists=${info.exists}`;
+      }),
+      tryProbe('expo-secure-store', async function p() {
+        const m = require('expo-secure-store');
+        await m.getItemAsync('rnl-smoke');
+        return 'read-ok';
+      }),
+      tryProbe('expo-network', async function p() {
+        const m = require('expo-network');
+        const s = await m.getNetworkStateAsync();
+        return `state=${JSON.stringify(s)}`;
+      }),
+      tryProbe('expo-image', async function p() {
+        const m = require('expo-image');
+        if (!m.Image) throw new Error('Image export missing');
+        return 'has-Image';
+      }),
+      tryProbe('expo-document-picker', async function p() {
+        const m = require('expo-document-picker');
+        if (typeof m.getDocumentAsync !== 'function') throw new Error('getDocumentAsync missing');
+        return 'wired';
+      }),
+      tryProbe('expo-image-picker', async function p() {
+        const m = require('expo-image-picker');
+        if (typeof m.launchImageLibraryAsync !== 'function')
+          throw new Error('launchImageLibraryAsync missing');
+        return 'wired';
+      }),
+      tryProbe('expo-sharing', async function p() {
+        const m = require('expo-sharing');
+        const ok = await m.isAvailableAsync();
+        return `available=${ok}`;
+      }),
+      tryProbe('expo-battery', async function p() {
+        const m = require('expo-battery');
+        const lvl = await m.getBatteryLevelAsync();
+        return `level=${lvl}`;
+      }),
+      tryProbe('expo-print', async function p() {
+        const m = require('expo-print');
+        if (typeof m.printAsync !== 'function') throw new Error('printAsync missing');
+        return 'wired';
+      }),
+      tryProbe('expo-screen-capture', async function p() {
+        const m = require('expo-screen-capture');
+        await m.preventScreenCaptureAsync();
+        return 'wired';
+      }),
     ];
     Promise.all(runs).then(setProbes);
   }, []);
@@ -576,6 +700,42 @@ function SmokeDemo() {
           <ProbeRow probe={pending('expo-notifications')} />
           <ExpoNotificationsDemo />
         </View>
+
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-file-system')} />
+          <ExpoFileSystemDemo />
+        </View>
+
+        {/* Backlog rows — each is a stub shim awaiting a real
+            Linux backend. The probe's ✗ surfaces what's pending; see
+            docs/realworld-*.md and TODO.md as each one lands. */}
+        <View style={styles.section}>
+          <Text style={styles.title}>Backlog</Text>
+          <Text style={styles.hint}>
+            Stub shims wired through metro/esbuild — `require()` returns a Proxy that throws on
+            access so apps don't crash at load time. Each row below is a planned full Linux
+            implementation; see TODO.md "Expo module backlog" for the backend per module.
+          </Text>
+        </View>
+        {[
+          'expo-clipboard',
+          'expo-localization',
+          'expo-haptics',
+          'expo-keep-awake',
+          'expo-secure-store',
+          'expo-network',
+          'expo-image',
+          'expo-document-picker',
+          'expo-image-picker',
+          'expo-sharing',
+          'expo-battery',
+          'expo-print',
+          'expo-screen-capture',
+        ].map(name => (
+          <View key={name} style={styles.section}>
+            <ProbeRow probe={pending(name)} />
+          </View>
+        ))}
       </ScrollView>
     </SafeAreaView>
   );

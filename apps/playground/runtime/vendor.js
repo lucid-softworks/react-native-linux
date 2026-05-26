@@ -56,6 +56,24 @@ const expoCameraMod = require('@lucid-softworks/react-native-linux-expo/expo-cam
 const expoLinkingMod = require('@lucid-softworks/react-native-linux-expo/expo-linking');
 const expoLocationMod = require('@lucid-softworks/react-native-linux-expo/expo-location');
 const expoNotificationsMod = require('@lucid-softworks/react-native-linux-expo/expo-notifications');
+// Stub shims for modules in the TODO.md "Expo module backlog". Each
+// import returns a Proxy that throws "not yet implemented" on any
+// property access — so apps that conditionally import them won't
+// crash at load time, but the smoke test surfaces them as ✗.
+const expoBatteryMod = require('@lucid-softworks/react-native-linux-expo/expo-battery');
+const expoClipboardMod = require('@lucid-softworks/react-native-linux-expo/expo-clipboard');
+const expoDocumentPickerMod = require('@lucid-softworks/react-native-linux-expo/expo-document-picker');
+const expoFileSystemMod = require('@lucid-softworks/react-native-linux-expo/expo-file-system');
+const expoHapticsMod = require('@lucid-softworks/react-native-linux-expo/expo-haptics');
+const expoImageMod = require('@lucid-softworks/react-native-linux-expo/expo-image');
+const expoImagePickerMod = require('@lucid-softworks/react-native-linux-expo/expo-image-picker');
+const expoKeepAwakeMod = require('@lucid-softworks/react-native-linux-expo/expo-keep-awake');
+const expoLocalizationMod = require('@lucid-softworks/react-native-linux-expo/expo-localization');
+const expoNetworkMod = require('@lucid-softworks/react-native-linux-expo/expo-network');
+const expoPrintMod = require('@lucid-softworks/react-native-linux-expo/expo-print');
+const expoScreenCaptureMod = require('@lucid-softworks/react-native-linux-expo/expo-screen-capture');
+const expoSecureStoreMod = require('@lucid-softworks/react-native-linux-expo/expo-secure-store');
+const expoSharingMod = require('@lucid-softworks/react-native-linux-expo/expo-sharing');
 const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-native-safe-area-context');
 const screensMod = require('@lucid-softworks/react-native-linux-expo/react-native-screens');
 const reanimatedMod = require('@lucid-softworks/react-native-linux-expo/react-native-reanimated');
@@ -86,6 +104,20 @@ globalThis.__rnv = {
   expoLinking: expoLinkingMod,
   expoLocation: expoLocationMod,
   expoNotifications: expoNotificationsMod,
+  expoBattery: expoBatteryMod,
+  expoClipboard: expoClipboardMod,
+  expoDocumentPicker: expoDocumentPickerMod,
+  expoFileSystem: expoFileSystemMod,
+  expoHaptics: expoHapticsMod,
+  expoImage: expoImageMod,
+  expoImagePicker: expoImagePickerMod,
+  expoKeepAwake: expoKeepAwakeMod,
+  expoLocalization: expoLocalizationMod,
+  expoNetwork: expoNetworkMod,
+  expoPrint: expoPrintMod,
+  expoScreenCapture: expoScreenCaptureMod,
+  expoSecureStore: expoSecureStoreMod,
+  expoSharing: expoSharingMod,
   safeAreaContext: safeAreaCtxMod,
   screens: screensMod,
   reanimated: reanimatedMod,

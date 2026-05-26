@@ -221,11 +221,25 @@ const appOpts = {
     'expo-splash-screen',
     'expo-web-browser',
     'expo-symbols',
+    'expo-battery',
     'expo-camera',
+    'expo-clipboard',
     'expo-constants',
+    'expo-document-picker',
+    'expo-file-system',
+    'expo-haptics',
+    'expo-image',
+    'expo-image-picker',
+    'expo-keep-awake',
     'expo-linking',
+    'expo-localization',
     'expo-location',
+    'expo-network',
     'expo-notifications',
+    'expo-print',
+    'expo-screen-capture',
+    'expo-secure-store',
+    'expo-sharing',
     'react-native-safe-area-context',
     'react-native-screens',
     'react-native-reanimated',
@@ -252,10 +266,24 @@ const appOpts = {
       '  if (id === "expo-web-browser") return rnv.expoWebBrowser;\n' +
       '  if (id === "expo-symbols") return rnv.expoSymbols;\n' +
       '  if (id === "expo-constants") return rnv.expoConstants;\n' +
+      '  if (id === "expo-battery") return rnv.expoBattery;\n' +
       '  if (id === "expo-camera") return rnv.expoCamera;\n' +
+      '  if (id === "expo-clipboard") return rnv.expoClipboard;\n' +
+      '  if (id === "expo-document-picker") return rnv.expoDocumentPicker;\n' +
+      '  if (id === "expo-file-system") return rnv.expoFileSystem;\n' +
+      '  if (id === "expo-haptics") return rnv.expoHaptics;\n' +
+      '  if (id === "expo-image") return rnv.expoImage;\n' +
+      '  if (id === "expo-image-picker") return rnv.expoImagePicker;\n' +
+      '  if (id === "expo-keep-awake") return rnv.expoKeepAwake;\n' +
       '  if (id === "expo-linking") return rnv.expoLinking;\n' +
+      '  if (id === "expo-localization") return rnv.expoLocalization;\n' +
       '  if (id === "expo-location") return rnv.expoLocation;\n' +
+      '  if (id === "expo-network") return rnv.expoNetwork;\n' +
       '  if (id === "expo-notifications") return rnv.expoNotifications;\n' +
+      '  if (id === "expo-print") return rnv.expoPrint;\n' +
+      '  if (id === "expo-screen-capture") return rnv.expoScreenCapture;\n' +
+      '  if (id === "expo-secure-store") return rnv.expoSecureStore;\n' +
+      '  if (id === "expo-sharing") return rnv.expoSharing;\n' +
       '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +
       '  if (id === "react-native-screens") return rnv.screens;\n' +
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
