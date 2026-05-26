@@ -69,6 +69,16 @@ void LinuxComponentView::updateLayoutMetrics(facebook::react::LayoutMetrics cons
       gtk_fixed_move(GTK_FIXED(parent), widget_, newX, newY);
     }
   }
+  // Stash the layout origin on the widget so setNativeProp (in
+  // RnLinuxBindings) can compose animation translates ON TOP of the
+  // layout position instead of overwriting it. Without this, the first
+  // setNativeProp("translateY", 0) on a non-origin-anchored widget
+  // (Paper wraps its Animated.Text label backgrounds in absolutely
+  // positioned containers at top:8 etc.) writes translate(0, 0) over
+  // gtk_fixed_move's translate(layoutX, layoutY) and the widget jumps
+  // to the parent's top-left.
+  g_object_set_data(G_OBJECT(widget_), "rnl-layout-x", GINT_TO_POINTER(static_cast<int>(newX)));
+  g_object_set_data(G_OBJECT(widget_), "rnl-layout-y", GINT_TO_POINTER(static_cast<int>(newY)));
 
   layoutX_ = newX;
   layoutY_ = newY;

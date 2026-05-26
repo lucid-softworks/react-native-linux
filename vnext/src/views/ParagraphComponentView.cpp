@@ -1,14 +1,18 @@
 #include "ParagraphComponentView.h"
 
+#include "../jsi/RnLinuxBindings.h"
 #include "../text/PangoMarkup.h"
 #include "react-native-linux/Logging.h"
 
+#include <cstdio>
 #include <gtk/gtk.h>
 #include <react/renderer/attributedstring/AttributedString.h>
 #include <react/renderer/attributedstring/TextAttributes.h>
 #include <react/renderer/components/text/ParagraphProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/core/ConcreteState.h>
+#include <react/renderer/core/LayoutMetrics.h>
+#include <string>
 
 namespace rnlinux {
 
@@ -19,12 +23,67 @@ ParagraphComponentView::ParagraphComponentView(Tag tag)
   gtk_label_set_wrap(GTK_LABEL(widget_), TRUE);
   gtk_label_set_xalign(GTK_LABEL(widget_), 0.0f);
   gtk_label_set_yalign(GTK_LABEL(widget_), 0.0f);
+  // Per-instance CSS provider so each label can carry its own padding
+  // rule (Yoga-computed contentInsets pushed into the GtkLabel below).
+  std::string cssName = "rnl-label-" + std::to_string(tag);
+  gtk_widget_set_name(widget_, cssName.c_str());
+  auto* provider = gtk_css_provider_new();
+  cssProvider_ = provider;
+  gtk_style_context_add_provider_for_display(gtk_widget_get_display(widget_),
+                                             GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
+ParagraphComponentView::~ParagraphComponentView() {
+  if (!lastNativeId_.empty())
+    unregisterAnimWidget(lastNativeId_);
+  if (cssProvider_)
+    g_object_unref(static_cast<GtkCssProvider*>(cssProvider_));
+}
+
+void ParagraphComponentView::updateLayoutMetrics(facebook::react::LayoutMetrics const& metrics) {
+  LinuxComponentView::updateLayoutMetrics(metrics);
+  // Push Yoga's contentInsets (border + padding) into the GtkLabel as
+  // CSS padding. Without this, paddingHorizontal on a <Text> style
+  // inflates the Yoga frame by 2×padding but the text inside still
+  // hugs the widget's left edge — and Paper's outlined-input label
+  // (which rides an Animated.View translateX of ~-14) renders past
+  // the left edge of its overflow:hidden wrapper.
+  const auto& ci = metrics.contentInsets;
+  char buf[160];
+  std::snprintf(buf,
+                sizeof(buf),
+                "#%s { padding: %.2fpx %.2fpx %.2fpx %.2fpx; }",
+                gtk_widget_get_name(widget_),
+                ci.top,
+                ci.right,
+                ci.bottom,
+                ci.left);
+  std::string css = buf;
+  if (css != lastCss_) {
+    gtk_css_provider_load_from_string(static_cast<GtkCssProvider*>(cssProvider_), css.c_str());
+    lastCss_ = std::move(css);
+  }
 }
 
 void ParagraphComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
                                          facebook::react::Props const& newProps) {
   const auto& paragraphProps = static_cast<const facebook::react::ParagraphProps&>(newProps);
   const auto& attrs = paragraphProps.paragraphAttributes;
+
+  // Sync nativeID into the global Animated lookup so setNativeProp can
+  // address this label by its Animated host's id. Paper wraps its
+  // floating-label text in Animated.Text and rides translateY / scale
+  // off the same `labeled` driver as the outer Animated.View — without
+  // this the text stays at its initial scale/position and only the
+  // outer wrapper's translateX takes effect.
+  if (paragraphProps.nativeId != lastNativeId_) {
+    if (!lastNativeId_.empty())
+      unregisterAnimWidget(lastNativeId_);
+    if (!paragraphProps.nativeId.empty())
+      registerAnimWidget(paragraphProps.nativeId, widget_);
+    lastNativeId_ = paragraphProps.nativeId;
+  }
 
   // RN's `numberOfLines` lands here as `maximumNumberOfLines`. 0 means
   // "no limit" in the data model; GtkLabel uses -1 for that. We always

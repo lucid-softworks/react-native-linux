@@ -896,18 +896,38 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           // requested field, then rebuild scale · translate.
           GtkWidget* parent = gtk_widget_get_parent(w);
           if (parent && GTK_IS_FIXED(parent)) {
+            // Layout origin is stamped onto the widget by
+            // LinuxComponentView::updateLayoutMetrics. We anchor the
+            // animation translate against it instead of overwriting the
+            // GtkFixed transform wholesale — gtk_fixed_move's translate
+            // and gsk_transform_translate share the same slot, so a
+            // bare write would lose the layout position.
+            const float layoutX =
+                static_cast<float>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "rnl-layout-x")));
+            const float layoutY =
+                static_cast<float>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "rnl-layout-y")));
             GskTransform* cur = gtk_fixed_get_child_transform(GTK_FIXED(parent), w);
-            float xx = 1, yx = 0, xy = 0, yy = 1, dx = 0, dy = 0;
-            if (cur) {
+            GskTransformCategory cat =
+                cur ? gsk_transform_get_category(cur) : GSK_TRANSFORM_CATEGORY_IDENTITY;
+            const bool is2d = cat >= GSK_TRANSFORM_CATEGORY_2D;
+            // Start from the layout origin (no scale) — if the existing
+            // transform is 2D-decomposable we replace these with its
+            // values, otherwise we use the layout origin as the
+            // sibling-component baseline. Falling back to (0,0,1,1)
+            // here strips layoutX/Y the first time a setNativeProp
+            // races a Fabric updateProps that left the transform with
+            // category UNKNOWN (gsk_transform_to_2d won't read those).
+            float xx = 1, yx = 0, xy = 0, yy = 1, dx = layoutX, dy = layoutY;
+            if (cur && is2d) {
               gsk_transform_to_2d(cur, &xx, &yx, &xy, &yy, &dx, &dy);
             }
             float sx = xx;
             float sy = yy;
             const float vf = static_cast<float>(v);
             if (prop == "translateX")
-              dx = vf;
+              dx = layoutX + vf;
             else if (prop == "translateY")
-              dy = vf;
+              dy = layoutY + vf;
             else if (prop == "scale") {
               sx = vf;
               sy = vf;
