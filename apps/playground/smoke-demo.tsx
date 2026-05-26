@@ -401,6 +401,65 @@ function ExpoCameraDemo() {
   );
 }
 
+// ─────────────────────────── expo-battery / expo-sharing ─────────────
+// Both are JS-only — battery reuses the existing device-info
+// power state path, sharing routes through rnLinux.openURL
+// (g_app_info_launch_default_for_uri).
+function ExpoBatteryDemo() {
+  const Battery = require('expo-battery');
+  const [ps, setPs] = useState<any>(null);
+  useEffect(() => {
+    Battery.getPowerStateAsync().then(setPs);
+  }, [Battery]);
+  if (!ps) return null;
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Power state via /sys/class/power_supply/* (reused from device-info). Lima VMs report -1 /
+        UNKNOWN because there's no battery; real laptops surface live values.
+      </Text>
+      <Text style={styles.demoLine}>
+        level={ps.batteryLevel} state={ps.batteryState} lowPower={String(ps.lowPowerMode)}
+      </Text>
+    </View>
+  );
+}
+
+function ExpoSharingDemo() {
+  const Sharing = require('expo-sharing');
+  const FS = require('expo-file-system');
+  const [last, setLast] = useState<string>('(idle)');
+  const [err, setErr] = useState<string>('');
+
+  async function share() {
+    setErr('');
+    try {
+      const uri = FS.documentDirectory + 'share-demo.txt';
+      await FS.writeAsStringAsync(uri, `Hello from rn-linux at ${new Date().toISOString()}`);
+      await Sharing.shareAsync(uri);
+      setLast(`asked default app to open ${uri}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Hands a file:// URI to GIO's launch_default_for_uri — the user's xdg-mime handler for
+        text/plain opens it. Real share-sheet UI (xdg-desktop-portal OpenURI) is a follow-up.
+      </Text>
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={share}>
+          <Text style={styles.btnText}>share a tagged file</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.demoLine}>{last}</Text>
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+    </View>
+  );
+}
+
 // ─────────────────────────── expo-network ───────────────────────────
 function ExpoNetworkDemo() {
   const Network = require('expo-network');
@@ -916,8 +975,8 @@ function SmokeDemo() {
       }),
       tryProbe('expo-battery', async function p() {
         const m = require('expo-battery');
-        const lvl = await m.getBatteryLevelAsync();
-        return `level=${lvl}`;
+        const ps = await m.getPowerStateAsync();
+        return `level=${ps.batteryLevel} state=${ps.batteryState} lowPower=${ps.lowPowerMode}`;
       }),
       tryProbe('expo-print', async function p() {
         const m = require('expo-print');
@@ -1010,6 +1069,16 @@ function SmokeDemo() {
           <ExpoNetworkDemo />
         </View>
 
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-battery')} />
+          <ExpoBatteryDemo />
+        </View>
+
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-sharing')} />
+          <ExpoSharingDemo />
+        </View>
+
         {/* Backlog rows — each is a stub shim awaiting a real
             Linux backend. The probe's ✗ surfaces what's pending; see
             docs/realworld-*.md and TODO.md as each one lands. */}
@@ -1025,8 +1094,6 @@ function SmokeDemo() {
           'expo-image',
           'expo-document-picker',
           'expo-image-picker',
-          'expo-sharing',
-          'expo-battery',
           'expo-print',
           'expo-screen-capture',
         ].map(name => (

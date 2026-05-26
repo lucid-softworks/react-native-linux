@@ -174,7 +174,9 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-localization` (LC\_\*/LANG parsing + nl_langinfo + /etc/timezone + CLDR-equivalent region heuristics),
 `expo-haptics` (gdk_display_beep on every kind — silent in VM, real on hardware where the WM/sound theme acts on it),
 `expo-keep-awake` (systemd-logind Manager.Inhibit("idle:sleep") on the system bus; tag-keyed; auto-released on bundle reload),
-`expo-network` (GNetworkMonitor for up/internet + /sys/class/net for interface type + IP + MAC; NM-or-netlink-fallback).
+`expo-network` (GNetworkMonitor for up/internet + /sys/class/net for interface type + IP + MAC; NM-or-netlink-fallback),
+`expo-battery` (reuses /sys/class/power_supply path from device-info; UNKNOWN on machines without a battery),
+`expo-sharing` (routes shareAsync through rnLinux.openURL → xdg-mime default handler).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -188,9 +190,9 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [ ] **`expo-image`** — drop-in replacement for RN `Image`. Already mostly possible: reuse the libsoup loader from our ImageComponentView, add `transition` / `placeholder` / `cachePolicy` support. New Fabric component `ExpoImage` backed by GtkPicture with our own GdkPaintable subclass for cross-fade transitions.
 - [ ] **`expo-document-picker`** — `GtkFileChooserDialog` (or the newer `GtkFileDialog` from GTK 4.10). C++ binding takes `multiple`, `type[]` MIME filters, returns selected paths as `{assets: [{uri, name, size, mimeType}]}`. ~150 LOC + dialog plumbing on the main GTK thread.
 - [ ] **`expo-image-picker`** — same `GtkFileChooser` backend as document-picker but with image-MIME pre-filter. Share most of the code. Real "from camera" path could chain into our existing GStreamer snap. `launchImageLibraryAsync` / `launchCameraAsync`.
-- [ ] **`expo-sharing`** — `org.freedesktop.portal.OpenURI` (Flatpak portal, also works outside Flatpak via xdg-desktop-portal) OR `g_app_info_launch_default_for_uri` fallback. `shareAsync(url, options)` → opens the portal share sheet. xdg-mime types drive the per-app target list.
+- [x] **`expo-sharing`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Currently uses `g_app_info_launch_default_for_uri` (single default app per MIME); real picker via xdg-desktop-portal OpenURI is the planned follow-up for sandboxed apps.
 - [ ] **`expo-sensors`** — accelerometer / gyro / magnetometer don't exist on most desktops. iio-sensor-proxy can surface laptop accelerometers on some devices, but coverage is poor. **Skip until there's user demand**, then implement against iio-sensor-proxy over DBus with a clean "no sensors available" error path.
-- [ ] **`expo-battery`** — already covered by `react-native-device-info`'s power state, but a dedicated `expo-battery` shim that maps to the same source would let upstream-typed code work unchanged. ~40 LOC, pure JS shim over the existing C++.
+- [x] **`expo-battery`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Reuses the DeviceInfo /sys/class/power_supply path; live UPower subscription is a follow-up.
 - [ ] **`expo-print`** — `org.freedesktop.portal.Print` (or GtkPrintOperation directly when not in a sandbox). Real print preview dialog. Smaller than it sounds — the portal handles all the UI.
 - [ ] **`expo-screen-capture`** — `gnome-screenshot` via DBus, or the portal `org.freedesktop.portal.ScreenCast`. `requestPermissionsAsync` + `captureAsync` returning a PNG path. Permissions are real on Linux (portal asks).
 - [ ] **`expo-cellular`** / **`expo-sms`** — no telephony on desktop. Return realistic "no SIM" / "not available" responses (not stubs that lie about success).
