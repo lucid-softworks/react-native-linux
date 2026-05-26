@@ -1,6 +1,7 @@
 #include "ScrollViewComponentView.h"
 
 #include "../jsi/RnLinuxBindings.h"
+#include "SurfaceClamp.h"
 #include "react-native-linux/Logging.h"
 
 #include <gtk/gtk.h>
@@ -14,26 +15,35 @@ namespace rnlinux {
 
 ScrollViewComponentView::ScrollViewComponentView(Tag tag)
     : LinuxComponentView(tag) {
-  widget_ = gtk_scrolled_window_new();
-  takeWidgetRef();
+  scrolledWindow_ = gtk_scrolled_window_new();
   gtk_scrolled_window_set_policy(
-      GTK_SCROLLED_WINDOW(widget_), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+      GTK_SCROLLED_WINDOW(scrolledWindow_), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   // Force visible scrollbars (no overlay fade) — helpful in VNC
   // sessions where the GTK overlay-scrollbar fade animation makes
   // bars invisible until hover, and makes the demo unambiguous.
-  gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(widget_), FALSE);
+  gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(scrolledWindow_), FALSE);
   // Inner viewport holding children. Yoga lays out absolutely-frame'd
   // children, so a GtkFixed is the right container — it lets us
   // gtk_fixed_put each at its (x,y) and let GTK request scrollbars
   // when our requested size exceeds the viewport.
   innerFixed_ = gtk_fixed_new();
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(widget_), innerFixed_);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolledWindow_), innerFixed_);
+
+  // Wrap the scrolled window in a SurfaceClamp. widget_ (what parent
+  // GtkFixed attaches to) is the clamp; the clamp's measure returns
+  // our set_size_request rather than the scrolled window's content-
+  // derived natural. Without that, GtkFixedLayout allocates us to the
+  // scrolled window's full content height (e.g. 4 200 px for a
+  // FlatList of 80 items × 50 px), the viewport equals the content,
+  // and nothing scrolls.
+  widget_ = rnl_surface_clamp_new(scrolledWindow_);
+  takeWidgetRef();
 
   // Per-instance CSS name so styling rules (set later by updateProps —
   // backgroundColor etc.) can target this scrollview without leaking
   // to siblings.
   const std::string cssName = "rnl-scroll-" + std::to_string(tag);
-  gtk_widget_set_name(widget_, cssName.c_str());
+  gtk_widget_set_name(scrolledWindow_, cssName.c_str());
 
   // Forward GtkAdjustment value-changed to the JS-side scroll handler
   // (registered via rnLinux.fabricOnScroll(tag, fn)). This is what
@@ -42,17 +52,17 @@ ScrollViewComponentView::ScrollViewComponentView(Tag tag)
   auto onAdj = [](GtkAdjustment* /*adj*/, gpointer ud) {
     static_cast<ScrollViewComponentView*>(ud)->emitScroll();
   };
-  GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(widget_));
-  GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(widget_));
+  GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolledWindow_));
+  GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scrolledWindow_));
   g_signal_connect(vadj, "value-changed", G_CALLBACK(+onAdj), this);
   g_signal_connect(hadj, "value-changed", G_CALLBACK(+onAdj), this);
 }
 
 void ScrollViewComponentView::emitScroll() {
-  if (!widget_)
+  if (!scrolledWindow_)
     return;
-  GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(widget_));
-  GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(widget_));
+  GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolledWindow_));
+  GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scrolledWindow_));
   const double offsetX = hadj ? gtk_adjustment_get_value(hadj) : 0.0;
   const double offsetY = vadj ? gtk_adjustment_get_value(vadj) : 0.0;
   // upper - lower is the full content extent in adjustment units.
@@ -81,7 +91,7 @@ void ScrollViewComponentView::updateProps(facebook::react::Props const& /*oldPro
   const auto& sp = static_cast<const facebook::react::ScrollViewProps&>(newProps);
   // showsHorizontalScrollIndicator / showsVerticalScrollIndicator can
   // hint the policy to NEVER for that axis. AUTOMATIC otherwise.
-  auto* sw = GTK_SCROLLED_WINDOW(widget_);
+  auto* sw = GTK_SCROLLED_WINDOW(scrolledWindow_);
   GtkPolicyType h = sp.showsHorizontalScrollIndicator ? GTK_POLICY_AUTOMATIC : GTK_POLICY_NEVER;
   GtkPolicyType v = sp.showsVerticalScrollIndicator ? GTK_POLICY_AUTOMATIC : GTK_POLICY_NEVER;
   // horizontal? Most apps want vertical-only — if `horizontal` is set
@@ -94,10 +104,12 @@ void ScrollViewComponentView::updateProps(facebook::react::Props const& /*oldPro
 }
 
 void ScrollViewComponentView::updateLayoutMetrics(facebook::react::LayoutMetrics const& metrics) {
-  // The OUTER widget (the GtkScrolledWindow) gets the viewport size +
-  // position. Base class handles that. The INNER GtkFixed sizes
-  // itself from the children's bounding box in postLayoutPass() —
-  // children may not have their frames set at the time this fires.
+  // Base class set_size_requests widget_ (the SurfaceClamp wrapper)
+  // to Yoga's frame. The clamp's measure returns that as its natural,
+  // so the parent GtkFixed allocates us to exactly Yoga's frame.
+  // The clamp then allocates the inner GtkScrolledWindow to its full
+  // allocation, so the scrolled window's viewport matches the Yoga
+  // frame and the inner content can actually overflow / scroll.
   LinuxComponentView::updateLayoutMetrics(metrics);
 }
 

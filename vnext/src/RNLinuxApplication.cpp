@@ -5,6 +5,7 @@
 #include "react-native-linux/CrashHandler.h"
 #include "react-native-linux/Logging.h"
 #include "react-native-linux/TurboModuleRegistry.h"
+#include "views/SurfaceClamp.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -217,31 +218,33 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
   // Clip the React tree to rootView's allocation so a transient overflow
   // during the resize → Yoga-relayout window doesn't bleed into the
   // window background. (rootView's natural is the React root's frame,
-  // which RNLinuxHost pins to max(viewport, design size) — so rootView
-  // is never smaller than the viewport, and we never want hexpand/
-  // vexpand: GTK would stretch the child to the viewport and defeat
-  // GtkScrolledWindow's scrolling.)
+  // which RNLinuxHost pins to the viewport — so in steady state the
+  // outer GtkScrolledWindow has nothing to scroll. We still don't want
+  // hexpand/vexpand on rootView: a transient mid-resize size mismatch
+  // would otherwise let GTK stretch rootView to the viewport and
+  // defeat the per-frame layout.)
   gtk_widget_set_overflow(impl->rootView, GTK_OVERFLOW_HIDDEN);
 
-  // GtkScrolledWindow as the window's child:
-  //   * propagate-natural-*=FALSE + min-content-*=0 → its natural is 0
-  //     in both dimensions, so the window doesn't grow to fit content
-  //     (the bug that pushed us to ~5446 px tall before).
-  //   * policy=AUTOMATIC → scrollbars appear iff the child's natural
-  //     exceeds the viewport, giving us app-level scrollbars when an
-  //     app's React tree is taller than the window.
-  impl->viewport = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(
-      GTK_SCROLLED_WINDOW(impl->viewport), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-  // GTK4 defaults to overlay scrolling (bars fade out when not hovered).
-  // We want them always visible when present — they're a stronger
-  // signal that there's more content off-screen than the fade-in idiom.
-  gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(impl->viewport), FALSE);
-  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(impl->viewport), FALSE);
-  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(impl->viewport), FALSE);
-  gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(impl->viewport), 0);
-  gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(impl->viewport), 0);
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(impl->viewport), impl->rootView);
+  // Custom wrapper around rootView whose measure() reports (0, 0).
+  // That single change fixes a whole pile of layout misery: without
+  // it, GtkFixed (our rootView) reports natural = max child extent,
+  // and any nested GtkLabel or GtkFixed inside the React tree
+  // happily reports a natural larger than its Yoga-allocated frame
+  // (GtkLabel = full text width, etc.). That natural walks up
+  // through every ancestor until it hits the GtkApplicationWindow,
+  // which then either auto-grows past the monitor or — if you wrap
+  // rootView in a GtkScrolledWindow to absorb it — scrolls the
+  // entire React tree (tab bar included) on every wheel tick.
+  //
+  // SurfaceClamp's measure says "I prefer 0×0, you decide", so the
+  // window honours its default/user size and allocates the clamp to
+  // its content area; the clamp then allocates rootView to its own
+  // allocation; the React tree renders into exactly the viewport.
+  // Nested <ScrollView>s remain genuinely scrollable because they
+  // are separate GtkScrolledWindow widgets further down the chain.
+  impl->viewport = rnl_surface_clamp_new(impl->rootView);
+  gtk_widget_set_hexpand(impl->viewport, TRUE);
+  gtk_widget_set_vexpand(impl->viewport, TRUE);
   gtk_window_set_child(GTK_WINDOW(impl->window), impl->viewport);
 
   // Pre-Fabric placeholder disabled while we debug the Fabric mount
@@ -342,6 +345,16 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
         impl->lastHeight = height;
         impl->pendingWidth = width;
         impl->pendingHeight = height;
+        // Pin rootView's size_request to the viewport so its natural
+        // size can't be inflated by child widgets that report a larger
+        // natural than Yoga gave them (FlatList items, big GtkLabels,
+        // inner GtkScrolledWindows, ...). Without this cap, those
+        // naturals bubble up through every GtkFixed ancestor as a
+        // "preferred size" and the outer GtkScrolledWindow ends up
+        // scrolling the entire app — including the tab bar — to fit
+        // them. Combined with overflow:hidden, this keeps rootView
+        // exactly the size of the visible area.
+        gtk_widget_set_size_request(impl->rootView, width, height);
         // Coalesce: at most one Yoga commit per ~33 ms even if the WM
         // hands us a configure-event every frame.
         if (impl->pendingResizeSource == 0) {

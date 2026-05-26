@@ -55,6 +55,13 @@ class ScrollViewComponentView final : public LinuxComponentView {
   // views get gtk_fixed_put into it, and Yoga's content rect drives
   // its requested size.
   GtkWidget* innerFixed_ = nullptr;
+  // The actual GtkScrolledWindow. widget_ (owned by the base class) is
+  // an RnlSurfaceClamp wrapping this — the clamp's measure returns our
+  // set_size_request as natural, so the parent GtkFixed allocates us
+  // to Yoga's frame instead of the scrolled window's content-derived
+  // natural (which would be the full FlatList content height and
+  // collapse scrolling).
+  GtkWidget* scrolledWindow_ = nullptr;
 };
 
 } // namespace rnlinux
