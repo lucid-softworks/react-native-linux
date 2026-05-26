@@ -107,6 +107,7 @@ set(RNL_SOURCES
   src/components/ActivityIndicator.cpp
   src/storage/AsyncStorage.cpp
   src/deviceinfo/DeviceInfo.cpp
+  src/location/Location.cpp
   src/modules/PlatformConstants.cpp
   src/devtools/MetroReloadClient.cpp
 )

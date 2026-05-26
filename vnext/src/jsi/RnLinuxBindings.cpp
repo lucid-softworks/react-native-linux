@@ -1,6 +1,7 @@
 #include "RnLinuxBindings.h"
 
 #include "../deviceinfo/DeviceInfo.h"
+#include "../location/Location.h"
 #include "react-native-linux/Logging.h"
 
 #include <array>
@@ -113,6 +114,13 @@ struct State {
   // `nativeID` prop; consumed by rnLinux.setNativeProp(stringId, …).
   std::unordered_map<std::string, GtkWidget*> animWidgets;
 
+  // GeoClue2 location client. Lazily created on first
+  // rnLinux.locationStartWatch; reset on JS reload so a fresh
+  // bundle doesn't inherit the old client + dangling JS callbacks.
+  std::unique_ptr<rnlinux::location::LocationClient> location;
+  std::shared_ptr<jsi::Function> locationOnFix;
+  std::shared_ptr<jsi::Function> locationOnError;
+
   int registerWidget(GtkWidget* w) {
     int id = nextId.fetch_add(1);
     nodes[id] = w;
@@ -175,6 +183,16 @@ void resetRnLinuxBindings() {
   state().fabricLayoutLast.clear();
   state().fabricFocusHandlers.clear();
   state().fabricBlurHandlers.clear();
+  // Tear down the GeoClue client BEFORE the runtime goes away — its
+  // signal callback dereferences state().runtime when a fix arrives,
+  // and an in-flight reload could otherwise fire onLocationSignal
+  // against a freed Hermes instance.
+  if (state().location) {
+    state().location->stopWatch();
+    state().location.reset();
+  }
+  state().locationOnFix.reset();
+  state().locationOnError.reset();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -1646,6 +1664,108 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                  o.setProperty(rt, "supportedAbis", arr);
                }
                return o;
+             });
+
+  // ─── GeoClue2 location (expo-location backing) ────────────────────
+  // Single-watcher native model: locationStartWatch installs the JS
+  // fix/error callbacks and spins up a GeoClue2 client. JS layers
+  // multi-subscriber semantics on top via the shim's reference
+  // counting. locationGetCurrent is also expressed in JS by chaining
+  // start → first fix → stop.
+
+  bindMethod(rt,
+             rnLinux,
+             "locationIsAvailable",
+             0,
+             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               auto& s = state();
+               if (!s.location) {
+                 s.location =
+                     std::make_unique<rnlinux::location::LocationClient>("rn-linux-playground");
+               }
+               return jsi::Value(s.location->isAvailable());
+             });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "locationStartWatch",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
+          return jsi::Value(false);
+        }
+        auto& s = state();
+        if (!s.location) {
+          s.location = std::make_unique<rnlinux::location::LocationClient>("rn-linux-playground");
+        }
+        s.locationOnFix = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        if (args[1].isObject() && args[1].asObject(rt).isFunction(rt)) {
+          s.locationOnError = std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        } else {
+          s.locationOnError.reset();
+        }
+
+        const bool ok = s.location->startWatch(
+            // onFix — fires on every LocationUpdated from GeoClue. The
+            // signal callback runs on the GTK main loop thread, which
+            // is the same thread that owns the runtime, so calling
+            // into JS inline is safe.
+            [](const rnlinux::location::LocationFix& fix) {
+              auto& st = state();
+              if (!st.runtime || !st.locationOnFix)
+                return;
+              jsi::Runtime& jrt = *st.runtime;
+              try {
+                jsi::Object obj(jrt);
+                obj.setProperty(jrt, "latitude", jsi::Value(fix.latitude));
+                obj.setProperty(jrt, "longitude", jsi::Value(fix.longitude));
+                obj.setProperty(jrt, "accuracy", jsi::Value(fix.accuracy));
+                obj.setProperty(jrt, "altitude", jsi::Value(fix.altitude));
+                obj.setProperty(jrt, "speed", jsi::Value(fix.speed));
+                obj.setProperty(jrt, "heading", jsi::Value(fix.heading));
+                obj.setProperty(jrt, "timestamp", jsi::Value(static_cast<double>(fix.timestampMs)));
+                st.locationOnFix->call(jrt, obj);
+                jrt.drainMicrotasks();
+              } catch (const jsi::JSError& e) {
+                RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.getMessage();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.what();
+              }
+            },
+            // onError — fires once if start sequence fails or the
+            // bus/agent isn't reachable.
+            [](const std::string& msg) {
+              auto& st = state();
+              if (!st.runtime || !st.locationOnError)
+                return;
+              jsi::Runtime& jrt = *st.runtime;
+              try {
+                st.locationOnError->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                jrt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.location") << "err handler threw: " << e.what();
+              }
+            });
+        if (!ok) {
+          s.locationOnFix.reset();
+          s.locationOnError.reset();
+        }
+        return jsi::Value(ok);
+      });
+
+  bindMethod(rt,
+             rnLinux,
+             "locationStopWatch",
+             0,
+             [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               auto& s = state();
+               if (s.location) {
+                 s.location->stopWatch();
+               }
+               s.locationOnFix.reset();
+               s.locationOnError.reset();
+               return jsi::Value::undefined();
              });
 
   bindMethod(rt,

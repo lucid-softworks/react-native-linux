@@ -269,6 +269,79 @@ function SafeAreaDemo() {
   );
 }
 
+// ─────────────────────────── expo-location ───────────────────────────
+// Real GeoClue2-backed location via the rnLinux.location* JSI
+// bindings. Coordinates come from whatever sources GeoClue can find
+// (static-source file under /etc/geolocation, network NMEA, modem
+// GPS, etc.). On a fresh dev VM we expect 0/0 until /etc/geolocation
+// is populated or a real source is wired.
+function ExpoLocationDemo() {
+  const ExpoLocation = require('expo-location');
+  const [status, setStatus] = useState<'loading' | 'ok' | 'err'>('loading');
+  const [coords, setCoords] = useState<null | {
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+    altitude: number;
+  }>(null);
+  const [err, setErr] = useState<string>('');
+  const [tick, setTick] = useState(0);
+
+  async function fetchOnce() {
+    setStatus('loading');
+    setErr('');
+    try {
+      const loc = await ExpoLocation.getCurrentPositionAsync({});
+      setCoords({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        accuracy: loc.coords.accuracy,
+        altitude: loc.coords.altitude,
+      });
+      setStatus('ok');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setStatus('err');
+    }
+  }
+
+  useEffect(() => {
+    fetchOnce();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
+
+  return (
+    <View style={styles.demo}>
+      <Text style={styles.demoCaption}>
+        Real GeoClue2 client via DBus. First fix usually arrives within ~200ms once the daemon's
+        agent is registered. Coordinates depend on whichever GeoClue source is active (static file,
+        NMEA, modem GPS).
+      </Text>
+      {status === 'loading' ? (
+        <Text style={styles.demoLine}>fetching fix from GeoClue…</Text>
+      ) : null}
+      {coords ? (
+        <>
+          <Text style={styles.demoLine}>
+            lat={coords.latitude.toFixed(4)} lon={coords.longitude.toFixed(4)}
+          </Text>
+          <Text style={styles.demoLine}>
+            accuracy={coords.accuracy != null ? `${coords.accuracy.toFixed(0)}m` : 'unknown'}{' '}
+            altitude=
+            {coords.altitude.toFixed(1)}m
+          </Text>
+        </>
+      ) : null}
+      {err ? <Text style={[styles.demoLine, styles.fail]}>{err}</Text> : null}
+      <View style={styles.row}>
+        <Pressable style={styles.btn} onPress={() => setTick(t => t + 1)}>
+          <Text style={styles.btnText}>refresh</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 // ─────────────────────────── Expo modules placeholder ───────────────────────────
 function ExpoModulePlaceholder({lib, hint}: {lib: string; hint: string}) {
   return (
@@ -334,7 +407,8 @@ function SmokeDemo() {
           );
         }
         const perms = await loc.requestForegroundPermissionsAsync();
-        return `perms=${perms?.status ?? 'n/a'}`;
+        const services = await loc.hasServicesEnabledAsync();
+        return `perms=${perms?.status ?? 'n/a'} services=${services ? 'on' : 'off'}`;
       }),
     ];
     Promise.all(runs).then(setProbes);
@@ -377,10 +451,7 @@ function SmokeDemo() {
 
         <View style={styles.section}>
           <ProbeRow probe={pending('expo-location')} />
-          <ExpoModulePlaceholder
-            lib="expo-location"
-            hint="Would request foreground permissions then call getCurrentPositionAsync()."
-          />
+          <ExpoLocationDemo />
         </View>
       </ScrollView>
     </SafeAreaView>

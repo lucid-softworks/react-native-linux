@@ -223,6 +223,7 @@ const appOpts = {
     'expo-symbols',
     'expo-constants',
     'expo-linking',
+    'expo-location',
     'react-native-safe-area-context',
     'react-native-screens',
     'react-native-reanimated',
@@ -250,6 +251,7 @@ const appOpts = {
       '  if (id === "expo-symbols") return rnv.expoSymbols;\n' +
       '  if (id === "expo-constants") return rnv.expoConstants;\n' +
       '  if (id === "expo-linking") return rnv.expoLinking;\n' +
+      '  if (id === "expo-location") return rnv.expoLocation;\n' +
       '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +
       '  if (id === "react-native-screens") return rnv.screens;\n' +
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
