@@ -287,12 +287,15 @@ facebook::react::SurfaceHandler& RNLinuxHost::createSurface(std::string moduleNa
   impl_->rootSurface =
       std::make_unique<facebook::react::SurfaceHandler>(moduleName, /*surfaceId=*/1);
   impl_->rootSurface->setProps(folly::dynamic::object());
-  // Pin to max(viewport, initial design size) in both dims, with
-  // min == max so flex:1 fills exactly. When the window grows past the
-  // design size the layout grows with it (responsive). When the window
-  // is smaller, the layout stays at the design size and the
-  // GtkScrolledWindow wrapper exposes scrollbars instead of clipping or
-  // reflowing the content.
+  // Layout tracks the viewport exactly (min == max so flex:1 fills
+  // precisely). The initial layout uses the design size as an estimate
+  // because the GtkWidget hasn't been allocated yet; the first tick
+  // from RNLinuxApplication's resize tick-callback corrects it to the
+  // real GtkScrolledWindow allocation. We intentionally do NOT floor
+  // at the design size — flooring made the outer GtkScrolledWindow
+  // scroll on any window whose content area was shorter than the
+  // default (e.g. once CSD eats ~40px), which dragged the tab bar at
+  // the bottom of any flex-column layout off the visible region.
   const auto W = static_cast<facebook::react::Float>(config_.initialWidth);
   const auto H = static_cast<facebook::react::Float>(config_.initialHeight);
   impl_->rootSurface->constraintLayout(
@@ -306,15 +309,11 @@ void RNLinuxHost::resizeRootSurface(int w, int h) {
     return;
   if (w <= 0 || h <= 0)
     return;
-  // Floor the layout at the initial design size — see createSurface()
-  // for the rationale. Below it, the GtkScrolledWindow scrolls the
-  // (design-sized) layout. Above it, the layout grows to fit.
-  const int effW = std::max(w, config_.initialWidth);
-  const int effH = std::max(h, config_.initialHeight);
-  RNL_LOGI("RNLinuxHost") << "resize → viewport " << w << "x" << h << " (layout " << effW << "x"
-                          << effH << ")";
-  const auto W = static_cast<facebook::react::Float>(effW);
-  const auto H = static_cast<facebook::react::Float>(effH);
+  // Track the viewport one-for-one. See createSurface() for why the
+  // old `max(viewport, design)` floor is gone.
+  RNL_LOGI("RNLinuxHost") << "resize → layout " << w << "x" << h;
+  const auto W = static_cast<facebook::react::Float>(w);
+  const auto H = static_cast<facebook::react::Float>(h);
   impl_->rootSurface->constraintLayout(
       {{W, H}, {W, H}, facebook::react::LayoutDirection::LeftToRight},
       {.pointScaleFactor = static_cast<facebook::react::Float>(config_.pointScaleFactor)});
