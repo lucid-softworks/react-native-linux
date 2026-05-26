@@ -258,6 +258,74 @@ function RefreshControl(_props) {
   return null;
 }
 
+// NativeModules — legacy bridge surface. Real RN code (Platform,
+// PlatformColor, AppearanceModule, …) still does `NativeModules.X`
+// rather than going through TurboModuleRegistry. Back it with a
+// Proxy that lazy-defers to TurboModuleRegistry, returning a
+// reasonable empty object so destructuring like
+// `const {PlatformConstants} = NativeModules` works without
+// crashing. Anything we haven't implemented just behaves as "module
+// present but methods missing", which most defensive RN code handles.
+// NativeModules — every key returns either a real TurboModule (if
+// registered) or a defensive stub that won't crash destructures or
+// `.getConstants()` probes. Real libraries (Paper, etc.) blanket-call
+// methods on NativeModules.X without checking if X is wired, so a
+// hard "undefined" or empty-object stub makes them die at the first
+// method call. Returning a Proxy-of-noop-methods keeps them limping.
+const _platformConstants = {OS: 'linux'};
+const _stubModule = name =>
+  new Proxy(
+    {
+      getConstants: () => (name === 'PlatformConstants' ? _platformConstants : {}),
+    },
+    {
+      get(target, key) {
+        if (key in target) return target[key];
+        // Anything not declared: return a noop function. Most RN
+        // libraries call NativeModules.X.method(...) without checking;
+        // a noop is far less harmful than a TypeError.
+        return () => undefined;
+      },
+    },
+  );
+const NativeModules = new Proxy(
+  {},
+  {
+    get(_target, name) {
+      if (typeof name !== 'string') return undefined;
+      try {
+        const mod = TurboModuleRegistry.get(name);
+        if (mod) return mod;
+      } catch {}
+      return _stubModule(name);
+    },
+  },
+);
+
+// I18nManager — many RN libraries read isRTL to mirror layouts.
+// Desktop GTK has no LTR/RTL toggle exposed to JS yet; report LTR.
+const I18nManager = {
+  isRTL: false,
+  doLeftAndRightSwapInRTL: true,
+  allowRTL: () => {},
+  forceRTL: () => {},
+  swapLeftAndRightInRTL: () => {},
+  getConstants: () => ({isRTL: false, doLeftAndRightSwapInRTL: true, localeIdentifier: 'en_US'}),
+};
+
+// PixelRatio — most libraries use the (no-op on desktop) members.
+const PixelRatio = {
+  get: () => 1,
+  getFontScale: () => 1,
+  getPixelSizeForLayoutSize: size => Math.round(size),
+  roundToNearestPixel: size => Math.round(size),
+};
+
+// processColor — Paper passes string colors through this before
+// handing them to native shadow/tint code paths. Return the input
+// unchanged (our fabricHostConfig.js normalizeColor handles strings).
+const processColor = c => c;
+
 module.exports = {
   // Components
   View,
@@ -289,4 +357,8 @@ module.exports = {
   Alert,
   AppRegistry,
   TurboModuleRegistry,
+  NativeModules,
+  I18nManager,
+  PixelRatio,
+  processColor,
 };

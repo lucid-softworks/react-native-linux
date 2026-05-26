@@ -20,6 +20,7 @@ import {mkdirSync, readFileSync, writeFileSync, readFile, existsSync} from 'node
 import {createConnection} from 'node:net';
 import {spawnSync} from 'node:child_process';
 import {transform as swcTransform} from '@swc/core';
+import flowRemoveTypes from 'flow-remove-types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, 'linux/build/assets');
@@ -42,12 +43,47 @@ const refreshTransformPlugin = {
   name: 'react-refresh-swc',
   setup(b) {
     b.onLoad({filter: /\.(jsx?|tsx?)$/}, async (args) => {
-      if (args.path.includes('/node_modules/')) return null;
-      if (!args.path.includes('/apps/playground/')) return null;
-      if (args.path.includes('/apps/playground/runtime/')) return null;
-      const source = readFileSync(args.path, 'utf8');
+      const inUserCode =
+        args.path.includes('/apps/playground/') &&
+        !args.path.includes('/apps/playground/runtime/');
+      // RN's codegen generates Native* spec files in .js extensions
+      // that contain TypeScript / Flow syntax (`import type {...}`,
+      // `interface Spec extends TurboModule { ... }`, `(expr: ?Type)`
+      // casts). esbuild can't parse them as JSX.
+      const isNativeSpec =
+        args.path.includes('/node_modules/') &&
+        /\/Native[A-Z][A-Za-z0-9]*\.js$/.test(args.path);
+      // Read once so we can both Flow-detect and class-detect without
+      // hitting disk twice. Cheap: file fits in cache, swc handles
+      // hundreds of files per second.
+      let source = null;
+      const lazySource = () => {
+        if (source === null) source = readFileSync(args.path, 'utf8');
+        return source;
+      };
+      // Hermes 0.12 chokes on `var X = class extends MemberExpression
+      // {...}` — the wrapping shape esbuild emits when CJS-converting
+      // `class X extends React.Component {}`. We hand-rolled a
+      // function-constructor for our own ErrorBoundary; third-party
+      // libraries (react-native-paper, react-navigation, …) can't be
+      // touched. Lower classes via swc target=es5 for any node_modules
+      // file that exports a class component. The regex is cheap and
+      // skips the bulk of plain-data files.
+      const isHermesIncompatibleClass =
+        args.path.includes('/node_modules/') &&
+        /\bextends\s+(?:React|R[a-zA-Z]*\.|[A-Z][A-Za-z]*\.)/m.test(lazySource());
+      if (!inUserCode && !isNativeSpec && !isHermesIncompatibleClass) return null;
+
+      // RN's Native* spec files are usually Flow-flavoured (// @flow,
+      // `interface Spec extends TurboModule`, `(expr: ?Type)` casts).
+      // Strip Flow first so swc's TS parser doesn't choke. all=true
+      // means "process even without a @flow pragma" since some files
+      // forget it.
+      if (isNativeSpec || /^\s*(\/\/|\/\*)\s*@flow/.test(lazySource())) {
+        source = flowRemoveTypes(lazySource(), {all: true}).toString();
+      }
       const isTs = args.path.endsWith('.ts') || args.path.endsWith('.tsx');
-      const result = await swcTransform(source, {
+      const result = await swcTransform(lazySource(), {
         filename: args.path,
         sourceMaps: 'inline',
         jsc: {
@@ -57,13 +93,15 @@ const refreshTransformPlugin = {
           transform: {
             react: {
               runtime: 'automatic',
-              // refresh is gated on development=true — swc only emits
-              // $RefreshReg$/$RefreshSig$ calls when in dev mode.
               development: true,
-              refresh: true,
+              refresh: inUserCode,
             },
           },
-          target: 'es2020',
+          // es5 for node_modules with class components so swc lowers
+          // them to function constructors Hermes can compile; es2020
+          // for our own code (Hermes handles those classes fine since
+          // they're not in the same CJS-wrap pattern).
+          target: isHermesIncompatibleClass && !inUserCode ? 'es5' : 'es2020',
         },
       });
       return {contents: result.code, loader: 'js'};
@@ -94,12 +132,41 @@ const baseOpts = {
     '$RefreshReg$': 'globalThis.$RefreshReg$',
     '$RefreshSig$': 'globalThis.$RefreshSig$',
   },
-  loader: {'.js': 'jsx', '.jsx': 'jsx'},
+  loader: {
+    '.js': 'jsx',
+    '.jsx': 'jsx',
+    // RN's codegen Native* spec files (e.g. react-native/Libraries/.../
+    // NativeXxx.js, react-native-vector-icons/lib/NativeRNVectorIcons.js)
+    // are TypeScript dialect in a .js extension. Apply swc transform via
+    // the plugin below instead of relying on a single loader for all
+    // .js files. Assets get inlined as base64 data URLs so the bundle
+    // is self-contained — fine for small icon PNGs the way paper /
+    // navigation use them; switch to 'file' + an output asset manifest
+    // for big binary blobs.
+    '.png': 'dataurl',
+    '.jpg': 'dataurl',
+    '.jpeg': 'dataurl',
+    '.gif': 'dataurl',
+    '.webp': 'dataurl',
+    '.ttf': 'dataurl',
+    '.otf': 'dataurl',
+  },
   jsx: 'automatic',
   jsxImportSource: 'react',
   sourcemap: 'inline',
   legalComments: 'none',
   logLevel: 'info',
+  // platform:'neutral' is the right choice (we're not browser, not
+  // node) but it leaves mainFields unset, which means esbuild ignores
+  // every package's "main" / "module" / "browser" / "react-native"
+  // field. Most npm packages — including react-native-paper, react-
+  // navigation, anything from the RN ecosystem — only export those
+  // fields, so resolving any of them fails with "main field ignored
+  // when using neutral platform". Set the RN-flavoured chain
+  // explicitly: react-native > browser > module > main, matching
+  // what Metro does.
+  mainFields: ['react-native', 'browser', 'module', 'main'],
+  conditions: ['react-native', 'browser', 'module', 'import', 'require', 'default'],
 };
 
 const vendorOpts = {
