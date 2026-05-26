@@ -135,6 +135,15 @@ function buildFabricProps(type, props) {
     if (k === 'onChangeText') continue;
     if (k === 'onScroll') continue;
     if (k === 'onSubmitEditing' || k === 'onKeyPress') continue;
+    // Skip undefined values so the C++ prop converter falls back to
+    // its declared default instead of seeing a present-but-undefined
+    // entry. (E.g. FlatList destructures `horizontal` out of its
+    // props as undefined when callers don't pass it; if we forward
+    // {horizontal: undefined} to the ScrollView shadow node, the
+    // ScrollViewProps converter treats it as truthy somewhere along
+    // the line and we end up with a horizontal scrolled window
+    // policy where the caller wanted vertical.)
+    if (props[k] === undefined) continue;
     out[k] = props[k];
   }
   // Style merges in after direct props so it wins (RN precedence).
