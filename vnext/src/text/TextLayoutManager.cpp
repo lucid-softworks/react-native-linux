@@ -13,10 +13,9 @@
 
 #include "PangoMarkup.h"
 
-#include <react/renderer/textlayoutmanager/TextLayoutManager.h>
-
-#include <pango/pangocairo.h>
 #include <cairo/cairo.h>
+#include <pango/pangocairo.h>
+#include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 
 namespace facebook::react {
 
@@ -24,11 +23,10 @@ void* TextLayoutManager::getNativeTextLayoutManager() const {
   return (void*)this;
 }
 
-TextMeasurement TextLayoutManager::measure(
-    const AttributedStringBox& attributedStringBox,
-    const ParagraphAttributes& paragraphAttributes,
-    const TextLayoutContext& /*layoutContext*/,
-    const LayoutConstraints& layoutConstraints) const {
+TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributedStringBox,
+                                           const ParagraphAttributes& paragraphAttributes,
+                                           const TextLayoutContext& /*layoutContext*/,
+                                           const LayoutConstraints& layoutConstraints) const {
   const auto& attributedString = attributedStringBox.getValue();
 
   TextMeasurement::Attachments attachments;
@@ -39,8 +37,7 @@ TextMeasurement TextLayoutManager::measure(
       // child. Without measurement infrastructure for attachments
       // yet, emit zero-sized placeholders so the loop counts still
       // match.
-      attachments.push_back(
-          TextMeasurement::Attachment{{{0, 0}, {0, 0}}, false});
+      attachments.push_back(TextMeasurement::Attachment{{{0, 0}, {0, 0}}, false});
     }
   }
 
@@ -76,18 +73,21 @@ TextMeasurement TextLayoutManager::measure(
   // Honour numberOfLines — when set, Pango clips and (if requested)
   // ellipsizes at the tail.
   if (paragraphAttributes.maximumNumberOfLines > 0) {
-    pango_layout_set_height(
-        layout, -paragraphAttributes.maximumNumberOfLines);
+    pango_layout_set_height(layout, -paragraphAttributes.maximumNumberOfLines);
     switch (paragraphAttributes.ellipsizeMode) {
-      case EllipsizeMode::Head:
-        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_START); break;
-      case EllipsizeMode::Middle:
-        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_MIDDLE); break;
-      case EllipsizeMode::Tail:
-        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END); break;
-      case EllipsizeMode::Clip:
-      default:
-        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE); break;
+    case EllipsizeMode::Head:
+      pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_START);
+      break;
+    case EllipsizeMode::Middle:
+      pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_MIDDLE);
+      break;
+    case EllipsizeMode::Tail:
+      pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+      break;
+    case EllipsizeMode::Clip:
+    default:
+      pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
+      break;
     }
   }
 
@@ -123,20 +123,19 @@ TextMeasurement TextLayoutManager::measureCachedSpannableById(
   return {};
 }
 
-LinesMeasurements TextLayoutManager::measureLines(
-    const AttributedStringBox& /*attributedStringBox*/,
-    const ParagraphAttributes& /*paragraphAttributes*/,
-    const Size& /*size*/) const {
+LinesMeasurements
+TextLayoutManager::measureLines(const AttributedStringBox& /*attributedStringBox*/,
+                                const ParagraphAttributes& /*paragraphAttributes*/,
+                                const Size& /*size*/) const {
   // Per-line metrics — used by accessibility / inline animations.
   // Stub for now; revisit when those features arrive.
   return {};
 }
 
-Float TextLayoutManager::baseline(
-    const AttributedStringBox& /*attributedStringBox*/,
-    const ParagraphAttributes& /*paragraphAttributes*/,
-    const Size& /*size*/) const {
+Float TextLayoutManager::baseline(const AttributedStringBox& /*attributedStringBox*/,
+                                  const ParagraphAttributes& /*paragraphAttributes*/,
+                                  const Size& /*size*/) const {
   return 0;
 }
 
-}  // namespace facebook::react
+} // namespace facebook::react

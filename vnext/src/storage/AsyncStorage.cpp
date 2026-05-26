@@ -12,10 +12,9 @@
 
 #include "react-native-linux/Logging.h"
 
-#include <glib.h>
-
 #include <cstdlib>
 #include <fstream>
+#include <glib.h>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -58,22 +57,36 @@ std::string escape(const std::string& s) {
   out.reserve(s.size() + 8);
   for (char c : s) {
     switch (c) {
-      case '"':  out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\b': out += "\\b";  break;
-      case '\f': out += "\\f";  break;
-      case '\n': out += "\\n";  break;
-      case '\r': out += "\\r";  break;
-      case '\t': out += "\\t";  break;
-      default:
-        if (static_cast<unsigned char>(c) < 0x20) {
-          char buf[8];
-          std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-          out += buf;
-        } else {
-          out += c;
-        }
-        break;
+    case '"':
+      out += "\\\"";
+      break;
+    case '\\':
+      out += "\\\\";
+      break;
+    case '\b':
+      out += "\\b";
+      break;
+    case '\f':
+      out += "\\f";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    case '\r':
+      out += "\\r";
+      break;
+    case '\t':
+      out += "\\t";
+      break;
+    default:
+      if (static_cast<unsigned char>(c) < 0x20) {
+        char buf[8];
+        std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+        out += buf;
+      } else {
+        out += c;
+      }
+      break;
     }
   }
   return out;
@@ -84,25 +97,42 @@ std::string escape(const std::string& s) {
 // decoded contents.
 std::string parseString(const std::string& src, size_t& i) {
   std::string out;
-  ++i;  // skip opening "
+  ++i; // skip opening "
   while (i < src.size()) {
     char c = src[i++];
-    if (c == '"') return out;
+    if (c == '"')
+      return out;
     if (c == '\\' && i < src.size()) {
       char e = src[i++];
       switch (e) {
-        case '"':  out += '"';  break;
-        case '\\': out += '\\'; break;
-        case 'n':  out += '\n'; break;
-        case 'r':  out += '\r'; break;
-        case 't':  out += '\t'; break;
-        case 'b':  out += '\b'; break;
-        case 'f':  out += '\f'; break;
-        case 'u':
-          // 4 hex digits → take as-is; we don't decode to UTF-8.
-          i += 4;
-          break;
-        default:   out += e; break;
+      case '"':
+        out += '"';
+        break;
+      case '\\':
+        out += '\\';
+        break;
+      case 'n':
+        out += '\n';
+        break;
+      case 'r':
+        out += '\r';
+        break;
+      case 't':
+        out += '\t';
+        break;
+      case 'b':
+        out += '\b';
+        break;
+      case 'f':
+        out += '\f';
+        break;
+      case 'u':
+        // 4 hex digits → take as-is; we don't decode to UTF-8.
+        i += 4;
+        break;
+      default:
+        out += e;
+        break;
       }
     } else {
       out += c;
@@ -114,25 +144,34 @@ std::string parseString(const std::string& src, size_t& i) {
 void load() {
   storageMap().clear();
   std::ifstream f{storagePath()};
-  if (!f.good()) return;
+  if (!f.good())
+    return;
   std::stringstream ss;
   ss << f.rdbuf();
   const std::string src = ss.str();
   size_t i = 0;
   // Skip whitespace + leading '{'
-  while (i < src.size() && std::isspace(static_cast<unsigned char>(src[i]))) ++i;
-  if (i >= src.size() || src[i] != '{') return;
+  while (i < src.size() && std::isspace(static_cast<unsigned char>(src[i])))
+    ++i;
+  if (i >= src.size() || src[i] != '{')
+    return;
   ++i;
   while (i < src.size()) {
-    while (i < src.size() && std::isspace(static_cast<unsigned char>(src[i]))) ++i;
-    if (i >= src.size() || src[i] == '}') return;
-    if (src[i] != '"') break;
+    while (i < src.size() && std::isspace(static_cast<unsigned char>(src[i])))
+      ++i;
+    if (i >= src.size() || src[i] == '}')
+      return;
+    if (src[i] != '"')
+      break;
     auto key = parseString(src, i);
-    while (i < src.size() && (src[i] == ':' || std::isspace(static_cast<unsigned char>(src[i])))) ++i;
-    if (i >= src.size() || src[i] != '"') break;
+    while (i < src.size() && (src[i] == ':' || std::isspace(static_cast<unsigned char>(src[i]))))
+      ++i;
+    if (i >= src.size() || src[i] != '"')
+      break;
     auto value = parseString(src, i);
     storageMap()[key] = std::move(value);
-    while (i < src.size() && (src[i] == ',' || std::isspace(static_cast<unsigned char>(src[i])))) ++i;
+    while (i < src.size() && (src[i] == ',' || std::isspace(static_cast<unsigned char>(src[i]))))
+      ++i;
   }
 }
 
@@ -147,7 +186,8 @@ void save() {
   f << "{";
   bool first = true;
   for (const auto& [k, v] : storageMap()) {
-    if (!first) f << ",";
+    if (!first)
+      f << ",";
     first = false;
     f << "\"" << escape(k) << "\":\"" << escape(v) << "\"";
   }
@@ -165,7 +205,7 @@ void ensureLoaded() {
   }
 }
 
-}  // namespace
+} // namespace
 
 // External entry points used by RnLinuxBindings.cpp's
 // `extern std::string asyncStorageRead(...)` declarations. They're
@@ -205,4 +245,4 @@ std::vector<std::string> asyncStorageKeys() {
   return out;
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux

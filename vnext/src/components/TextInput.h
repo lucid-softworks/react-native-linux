@@ -23,10 +23,9 @@ namespace rnlinux {
 extern const char TextInputComponentName[];
 
 class TextInputShadowNode final
-    : public facebook::react::ConcreteViewShadowNode<
-          TextInputComponentName,
-          facebook::react::BaseTextInputProps,
-          facebook::react::ViewEventEmitter> {
+    : public facebook::react::ConcreteViewShadowNode<TextInputComponentName,
+                                                     facebook::react::BaseTextInputProps,
+                                                     facebook::react::ViewEventEmitter> {
  public:
   using ConcreteViewShadowNode::ConcreteViewShadowNode;
 
@@ -40,4 +39,4 @@ class TextInputShadowNode final
 using TextInputComponentDescriptor =
     facebook::react::ConcreteComponentDescriptor<TextInputShadowNode>;
 
-}  // namespace rnlinux
+} // namespace rnlinux

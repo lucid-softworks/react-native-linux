@@ -1,15 +1,15 @@
 #pragma once
 
-#include <string>
-
 #include "LinuxComponentViewRegistry.h"
+
+#include <string>
 
 typedef struct _GtkWidget GtkWidget;
 
 namespace facebook::react {
 struct MountingTransaction;
 struct ShadowView;
-}  // namespace facebook::react
+} // namespace facebook::react
 
 namespace rnlinux {
 
@@ -22,8 +22,7 @@ class LinuxMountingManager {
   ~LinuxMountingManager();
 
   // Apply one mounting transaction. Must be called on the GTK main thread.
-  void performTransaction(
-      const facebook::react::MountingTransaction& transaction);
+  void performTransaction(const facebook::react::MountingTransaction& transaction);
 
   GtkWidget* rootView() const { return rootView_; }
   LinuxComponentViewRegistry& registry() { return registry_; }
@@ -41,4 +40,4 @@ class LinuxMountingManager {
   LinuxComponentViewRegistry registry_;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

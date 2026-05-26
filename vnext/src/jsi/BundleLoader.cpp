@@ -1,4 +1,5 @@
 #include "BundleLoader.h"
+
 #include "react-native-linux/Logging.h"
 
 #include <filesystem>
@@ -27,8 +28,7 @@ BundleLoadResult loadFile(std::string url) {
     r.error = "failed to open " + path;
     return r;
   }
-  r.bytes.assign(std::istreambuf_iterator<char>(f),
-                 std::istreambuf_iterator<char>());
+  r.bytes.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
   r.ok = true;
   return r;
 }
@@ -39,16 +39,14 @@ BundleLoadResult loadHttp(std::string url) {
   // clear error.
   BundleLoadResult r;
   r.sourceUrl = url;
-  r.error =
-      "HTTP bundle loading not yet implemented. Either bundle to disk with "
-      "`react-native bundle-linux` or wire libcurl into BundleLoader.cpp.";
+  r.error = "HTTP bundle loading not yet implemented. Either bundle to disk with "
+            "`react-native bundle-linux` or wire libcurl into BundleLoader.cpp.";
   return r;
 }
 
-}  // namespace
+} // namespace
 
-void loadBundle(std::string url,
-                std::function<void(BundleLoadResult)> callback) {
+void loadBundle(std::string url, std::function<void(BundleLoadResult)> callback) {
   std::thread([url = std::move(url), cb = std::move(callback)]() mutable {
     BundleLoadResult result;
     if (startsWith(url, "file://")) {
@@ -65,4 +63,4 @@ void loadBundle(std::string url,
   }).detach();
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux

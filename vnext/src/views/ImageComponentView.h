@@ -23,4 +23,4 @@ class ImageComponentView final : public LinuxComponentView {
   std::string currentUri_;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

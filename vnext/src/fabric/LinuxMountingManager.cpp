@@ -80,9 +80,8 @@ void LinuxMountingManager::performTransaction(const facebook::react::MountingTra
   // Roll up every 60 transactions (~1 s of busy state). Logging on
   // every txn would itself slow us down.
   if (prof.count >= 60) {
-    RNL_LOGI("MountingManager.prof")
-        << "n=" << prof.count << " avg=" << (prof.totalUs / prof.count) << "us"
-        << " max=" << prof.maxUs << "us";
+    RNL_LOGI("MountingManager.prof") << "n=" << prof.count << " avg=" << (prof.totalUs / prof.count)
+                                     << "us" << " max=" << prof.maxUs << "us";
     prof = {};
   }
 }

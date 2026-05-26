@@ -20,8 +20,7 @@ class HermesRuntimeHolder {
   // Evaluate a JS source buffer (e.g. the Metro bundle). Returns false if
   // evaluation threw. The runtime stays alive after a throw; only the
   // half-evaluated state is discarded.
-  virtual bool evaluate(const std::string& source,
-                        const std::string& sourceUrl) = 0;
+  virtual bool evaluate(const std::string& source, const std::string& sourceUrl) = 0;
 
   // Accessor for callers that need direct JSI access (Fabric scheduler,
   // TurboModule bindings, dev tools). Lifetime is tied to the holder.
@@ -30,4 +29,4 @@ class HermesRuntimeHolder {
 
 std::unique_ptr<HermesRuntimeHolder> makeHermesRuntimeHolder();
 
-}  // namespace rnlinux
+} // namespace rnlinux

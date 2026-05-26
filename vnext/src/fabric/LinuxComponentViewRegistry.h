@@ -1,11 +1,11 @@
 #pragma once
 
+#include "LinuxComponentView.h"
+
 #include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
-
-#include "LinuxComponentView.h"
 
 namespace rnlinux {
 
@@ -22,8 +22,7 @@ class LinuxComponentViewRegistry {
 
   // Construct a view for `componentName` with the given tag. Returns nullptr
   // if the component is unknown (the caller should log + skip).
-  std::unique_ptr<LinuxComponentView> create(const std::string& componentName,
-                                             Tag tag);
+  std::unique_ptr<LinuxComponentView> create(const std::string& componentName, Tag tag);
 
   LinuxComponentView* lookup(Tag tag) const;
   void insert(std::unique_ptr<LinuxComponentView> view);
@@ -31,12 +30,13 @@ class LinuxComponentViewRegistry {
 
   // Iteration helper used by the mounting manager to fire the
   // postLayoutPass hook on every registered view at end-of-transaction.
-  const std::unordered_map<Tag, std::unique_ptr<LinuxComponentView>>&
-      views() const { return views_; }
+  const std::unordered_map<Tag, std::unique_ptr<LinuxComponentView>>& views() const {
+    return views_;
+  }
 
  private:
   std::unordered_map<std::string, Factory> factories_;
   std::unordered_map<Tag, std::unique_ptr<LinuxComponentView>> views_;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

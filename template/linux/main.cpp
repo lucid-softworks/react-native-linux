@@ -1,10 +1,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
-#include <string>
-
 #include <react-native-linux/RNLinuxApplication.h>
 #include <react-native-linux/RNLinuxHost.h>
+#include <string>
 
 namespace {
 
@@ -24,7 +23,7 @@ std::string resolveBundleUrl() {
   return "http://" + host + ":" + port + "/index.bundle?platform=linux&dev=true&minify=false";
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   rnlinux::RNLinuxHost::Config cfg;

@@ -4,10 +4,10 @@
 // views. Once we have a way to mock GtkWidget*, expand coverage to the
 // concrete *ComponentView subclasses.
 
-#include <gtest/gtest.h>
-
 #include "fabric/LinuxComponentView.h"
 #include "fabric/LinuxComponentViewRegistry.h"
+
+#include <gtest/gtest.h>
 
 namespace rnlinux::tests {
 
@@ -15,12 +15,12 @@ namespace {
 
 class StubComponentView final : public LinuxComponentView {
  public:
-  explicit StubComponentView(Tag tag) : LinuxComponentView(tag) {}
-  void updateProps(facebook::react::Props const&,
-                   facebook::react::Props const&) override {}
+  explicit StubComponentView(Tag tag)
+      : LinuxComponentView(tag) {}
+  void updateProps(facebook::react::Props const&, facebook::react::Props const&) override {}
 };
 
-}  // namespace
+} // namespace
 
 TEST(LinuxComponentViewRegistry, ReturnsNullptrForUnknownComponent) {
   LinuxComponentViewRegistry registry;
@@ -29,9 +29,8 @@ TEST(LinuxComponentViewRegistry, ReturnsNullptrForUnknownComponent) {
 
 TEST(LinuxComponentViewRegistry, RegistersAndLooksUpByTag) {
   LinuxComponentViewRegistry registry;
-  registry.registerComponent("Stub", [](Tag t) {
-    return std::unique_ptr<LinuxComponentView>(new StubComponentView{t});
-  });
+  registry.registerComponent(
+      "Stub", [](Tag t) { return std::unique_ptr<LinuxComponentView>(new StubComponentView{t}); });
 
   auto view = registry.create("Stub", 7);
   ASSERT_NE(view, nullptr);
@@ -54,4 +53,4 @@ TEST(LinuxComponentViewRegistry, RawTextFactoryYieldsNullViewByDesign) {
   EXPECT_EQ(registry.create("RawText", 1), nullptr);
 }
 
-}  // namespace rnlinux::tests
+} // namespace rnlinux::tests

@@ -19,10 +19,9 @@
 namespace rnlinux {
 
 void startMetroReloadClient(const std::string& metroHost, int metroPort) {
-  RNL_LOGI("MetroReload")
-      << "would connect to ws://" << metroHost << ":" << metroPort
-      << "/message?role=client (stub)";
+  RNL_LOGI("MetroReload") << "would connect to ws://" << metroHost << ":" << metroPort
+                          << "/message?role=client (stub)";
   // TODO: spin up libsoup3 WebSocket connection on background thread.
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux

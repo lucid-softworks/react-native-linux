@@ -14,4 +14,4 @@ namespace rnlinux {
 // early in main(), before any other rn-linux runtime work.
 void installCrashHandler();
 
-}  // namespace rnlinux
+} // namespace rnlinux

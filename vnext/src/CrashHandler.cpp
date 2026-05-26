@@ -1,4 +1,5 @@
 #include "react-native-linux/CrashHandler.h"
+
 #include "react-native-linux/Logging.h"
 
 #include <atomic>
@@ -35,7 +36,7 @@ void writeBacktrace(const char* tag) {
   backtrace_symbols_fd(frames, n, STDERR_FILENO);
   ::write(STDERR_FILENO, "--- end backtrace ---\n", 22);
 
-  (void)tag;  // tag is consumed by the post-handler logger call below.
+  (void)tag; // tag is consumed by the post-handler logger call below.
 }
 
 void signalHandler(int sig, siginfo_t* info, void* /*ctx*/) {
@@ -45,9 +46,11 @@ void signalHandler(int sig, siginfo_t* info, void* /*ctx*/) {
   // dump (subject to ulimit -c). We can't safely use std::cerr here, so
   // emit a tiny terminator message via write(2) first.
   char msg[64];
-  const int len = std::snprintf(msg, sizeof(msg),
+  const int len = std::snprintf(msg,
+                                sizeof(msg),
                                 "[crash] signal=%d code=%d addr=%p\n",
-                                sig, info ? info->si_code : 0,
+                                sig,
+                                info ? info->si_code : 0,
                                 info ? info->si_addr : nullptr);
   if (len > 0) {
     ::write(STDERR_FILENO, msg, static_cast<size_t>(len));
@@ -70,7 +73,7 @@ void signalHandler(int sig, siginfo_t* info, void* /*ctx*/) {
   std::abort();
 }
 
-}  // namespace
+} // namespace
 
 void installCrashHandler() {
   bool expected = false;
@@ -85,9 +88,8 @@ void installCrashHandler() {
 
   for (int sig : {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS}) {
     if (sigaction(sig, &sa, nullptr) != 0) {
-      RNL_LOGW("CrashHandler")
-          << "sigaction failed for signal " << sig
-          << " (errno=" << errno << ")";
+      RNL_LOGW("CrashHandler") << "sigaction failed for signal " << sig << " (errno=" << errno
+                               << ")";
     }
   }
 
@@ -95,4 +97,4 @@ void installCrashHandler() {
   RNL_LOGI("CrashHandler") << "installed";
 }
 
-}  // namespace rnlinux
+} // namespace rnlinux

@@ -10,10 +10,9 @@
 // When TurboModules + real JSI/bridge plumbing arrive (Phase 5.6), this
 // file gets replaced by linking the real cxxreact .cpps.
 
+#include <chrono>
 #include <cxxreact/JSExecutor.h>
 #include <react/timing/primitives.h>
-
-#include <chrono>
 
 namespace facebook::react {
 
@@ -21,4 +20,4 @@ double JSExecutor::performanceNow() {
   return chronoToDOMHighResTimeStamp(std::chrono::steady_clock::now());
 }
 
-}  // namespace facebook::react
+} // namespace facebook::react

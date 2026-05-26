@@ -19,7 +19,6 @@ struct BundleLoadResult {
 // MVP implementation should at least support:
 //   - file://...    open + read into a vector
 //   - http://...    libcurl GET
-void loadBundle(std::string url,
-                std::function<void(BundleLoadResult)> callback);
+void loadBundle(std::string url, std::function<void(BundleLoadResult)> callback);
 
-}  // namespace rnlinux
+} // namespace rnlinux

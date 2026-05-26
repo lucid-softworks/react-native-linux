@@ -20,7 +20,6 @@ namespace rnlinux {
 std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry>
 makeLinuxComponentDescriptorRegistry();
 
-void registerCoreDescriptors(
-    facebook::react::ComponentDescriptorProviderRegistry& registry);
+void registerCoreDescriptors(facebook::react::ComponentDescriptorProviderRegistry& registry);
 
-}  // namespace rnlinux
+} // namespace rnlinux

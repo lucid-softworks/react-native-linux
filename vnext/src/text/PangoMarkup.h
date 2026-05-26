@@ -5,7 +5,7 @@
 namespace facebook::react {
 class AttributedString;
 class TextAttributes;
-}  // namespace facebook::react
+} // namespace facebook::react
 
 namespace rnlinux::text {
 
@@ -26,4 +26,4 @@ std::string spanAttrsFor(const facebook::react::TextAttributes& ta);
 // and the TextLayoutManager (measurement).
 std::string buildMarkup(const facebook::react::AttributedString& s);
 
-}  // namespace rnlinux::text
+} // namespace rnlinux::text

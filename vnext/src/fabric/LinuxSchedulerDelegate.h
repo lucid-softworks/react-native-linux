@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-
 #include <react/renderer/scheduler/SchedulerDelegate.h>
 
 namespace rnlinux {
@@ -26,20 +25,17 @@ class LinuxSchedulerDelegate final : public facebook::react::SchedulerDelegate {
       const facebook::react::MountingCoordinator::Shared& coordinator) override;
   void schedulerDidRequestPreliminaryViewAllocation(
       const facebook::react::ShadowNode& shadowNode) override;
-  void schedulerDidDispatchCommand(
-      const facebook::react::ShadowView& shadowView,
-      const std::string& commandName,
-      const folly::dynamic& args) override;
-  void schedulerDidSendAccessibilityEvent(
-      const facebook::react::ShadowView& shadowView,
-      const std::string& eventType) override;
-  void schedulerDidSetIsJSResponder(
-      const facebook::react::ShadowView& shadowView,
-      bool isJSResponder,
-      bool blockNativeResponder) override;
+  void schedulerDidDispatchCommand(const facebook::react::ShadowView& shadowView,
+                                   const std::string& commandName,
+                                   const folly::dynamic& args) override;
+  void schedulerDidSendAccessibilityEvent(const facebook::react::ShadowView& shadowView,
+                                          const std::string& eventType) override;
+  void schedulerDidSetIsJSResponder(const facebook::react::ShadowView& shadowView,
+                                    bool isJSResponder,
+                                    bool blockNativeResponder) override;
 
  private:
   std::shared_ptr<LinuxMountingManager> mountingManager_;
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux

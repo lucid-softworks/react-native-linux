@@ -1,8 +1,8 @@
 #pragma once
 
-#include <memory>
-
 #include "RNLinuxHost.h"
+
+#include <memory>
 
 typedef struct _GtkApplication GtkApplication;
 typedef struct _GtkApplicationWindow GtkApplicationWindow;
@@ -40,4 +40,4 @@ class RNLinuxApplication {
   static void onShutdown(GtkApplication* app, void* userData);
 };
 
-}  // namespace rnlinux
+} // namespace rnlinux
