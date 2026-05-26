@@ -1138,7 +1138,8 @@ function SmokeDemo() {
       tryProbe('expo-screen-capture', async function p() {
         const m = require('expo-screen-capture');
         await m.preventScreenCaptureAsync();
-        return 'wired';
+        await m.allowScreenCaptureAsync();
+        return 'API wired (prevention is a Linux no-op — see docs)';
       }),
     ];
     Promise.all(runs).then(setProbes);
@@ -1257,7 +1258,19 @@ function SmokeDemo() {
             implementation; see TODO.md "Expo module backlog" for the backend per module.
           </Text>
         </View>
-        {['expo-image', 'expo-screen-capture'].map(name => (
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-screen-capture')} />
+          <View style={styles.demo}>
+            <Text style={styles.demoCaption}>
+              Honest no-op on Linux. preventScreenCaptureAsync / allowScreenCaptureAsync run
+              successfully but don't actually stop screen capture — there's no portable "secure
+              window" hint across X11 / Wayland compositors, and no DBus signal to hook for
+              screenshot detection. See docs/realworld-expo-screen-capture.md.
+            </Text>
+          </View>
+        </View>
+
+        {['expo-image'].map(name => (
           <View key={name} style={styles.section}>
             <ProbeRow probe={pending(name)} />
           </View>

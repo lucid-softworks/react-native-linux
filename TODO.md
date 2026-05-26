@@ -178,7 +178,8 @@ Already real-implemented and demoable in `apps/playground/smoke-demo.tsx`:
 `expo-battery` (reuses /sys/class/power_supply path from device-info; UNKNOWN on machines without a battery),
 `expo-sharing` (routes shareAsync through rnLinux.openURL → xdg-mime default handler),
 `expo-document-picker` + `expo-image-picker` (shared GtkFileDialog backend; image-picker chains launchCameraAsync into the existing cameraSnap),
-`expo-print` (GtkPrintOperation dialog + cairo-PDF surface; HTML→plaintext stripping pending a WebKitGTK render path).
+`expo-print` (GtkPrintOperation dialog + cairo-PDF surface; HTML→plaintext stripping pending a WebKitGTK render path),
+`expo-screen-capture` (honest Linux no-op — no portable "secure window" hint exists across X11/Wayland compositors).
 
 Next-up real implementations, ordered by effort × ecosystem demand. Each is its own `feat(expo-…)` PR with a `docs/realworld-expo-…md` matching the existing pattern. **No JS-only stubs** — full Linux backends.
 
@@ -196,7 +197,7 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [ ] **`expo-sensors`** — accelerometer / gyro / magnetometer don't exist on most desktops. iio-sensor-proxy can surface laptop accelerometers on some devices, but coverage is poor. **Skip until there's user demand**, then implement against iio-sensor-proxy over DBus with a clean "no sensors available" error path.
 - [x] **`expo-battery`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Reuses the DeviceInfo /sys/class/power_supply path; live UPower subscription is a follow-up.
 - [x] **`expo-print`** — DONE 2026-05-26. See `docs/realworld-expo-print.md`. GtkPrintOperation + cairo PDF; HTML→plaintext stripping (WebKitGTK HTML render path is the planned follow-up).
-- [ ] **`expo-screen-capture`** — `gnome-screenshot` via DBus, or the portal `org.freedesktop.portal.ScreenCast`. `requestPermissionsAsync` + `captureAsync` returning a PNG path. Permissions are real on Linux (portal asks).
+- [x] **`expo-screen-capture`** — DONE 2026-05-26 as an honest no-op. See `docs/realworld-expo-screen-capture.md`. Upstream API is about PREVENTING capture, not doing it; no portable Linux mechanism exists. Future improvements: xdg-desktop-portal opt-out for sandboxed apps, wp-security-context-v1 on supporting Wayland compositors.
 - [ ] **`expo-cellular`** / **`expo-sms`** — no telephony on desktop. Return realistic "no SIM" / "not available" responses (not stubs that lie about success).
 
 ## Phase 10 — Stretch / nice-to-haves
