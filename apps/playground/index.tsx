@@ -8,7 +8,7 @@
 // shim package, resolved by the esbuild alias (vendor) or Metro's
 // resolveRequest (template). End-user apps see the same surface.
 
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useReducer, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -287,14 +287,21 @@ function ClipboardDemo() {
   );
 }
 
-// Module-level flag so a one-shot crash doesn't survive an
-// unmount/remount cycle through the LogBox dismiss path. Each
-// successful re-render that gets past the throw flips it back to
-// false, so a second click re-arms the demo.
-let _crashOnce = false;
+// Module-level flag so the render throw is one-shot. The render path
+// resets it BEFORE throwing, so any re-mount of CrashDemo (Dismiss
+// re-mounts children; Reload re-evaluates the bundle entirely) sees
+// the flag back at false. NB: useState would NOT work for this — the
+// boundary's fallback-swap re-mount preserves hook state, and a
+// setState(false) issued inside render is overridden by the throw
+// that interrupts the same render pass.
+let _crashOnNextRender = false;
 function CrashDemo() {
-  if (_crashOnce) {
-    _crashOnce = false;
+  // A throwaway counter just to force a re-render from the click
+  // handler. We never read it — its only job is to push React into
+  // calling our function body again so the flag check above fires.
+  const [, forceRender] = useReducer((x: number) => x + 1, 0);
+  if (_crashOnNextRender) {
+    _crashOnNextRender = false;
     throw new Error(
       'Demo crash: the ErrorBoundary wraps the app at the runtime layer (runtime/errorOverlay.js) so JS exceptions during render land here instead of a blank window.',
     );
@@ -305,16 +312,12 @@ function CrashDemo() {
       <Pressable
         style={[styles.linkBtn, {backgroundColor: '#dc2626'}]}
         onPress={() => {
-          // Set the module flag then force a re-render via a noop
-          // setState elsewhere — actually simplest: throw directly
-          // here. The boundary catches event-handler errors via
-          // ErrorUtils (our wrapper) the same way it catches render
-          // errors. Module flag keeps the throw one-shot so Dismiss
-          // actually recovers.
-          _crashOnce = true;
-          throw new Error(
-            'Demo crash: the ErrorBoundary wraps the app at the runtime layer (runtime/errorOverlay.js) so JS exceptions during render land here instead of a blank window.',
-          );
+          // Flip the flag and schedule a re-render — the next render
+          // pass throws from CrashDemo's body, so the boundary's
+          // getDerivedStateFromError catches it (true "render error"
+          // path, distinct from the async/handler path below).
+          _crashOnNextRender = true;
+          forceRender();
         }}>
         <Text style={styles.linkBtnText}>Throw render error</Text>
       </Pressable>
@@ -327,7 +330,7 @@ function CrashDemo() {
         }>
         <Text style={styles.linkBtnText}>Throw async error</Text>
       </Pressable>
-      <Text style={styles.rowVal}>Reload (Ctrl+R) recovers</Text>
+      <Text style={styles.rowVal}>Dismiss or Reload (Ctrl+R) recovers</Text>
     </View>
   );
 }

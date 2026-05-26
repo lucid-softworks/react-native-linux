@@ -18,6 +18,7 @@ import {
   Button,
   FlatList,
   Modal,
+  ScrollView,
   Animated,
   Easing,
   Platform,
@@ -206,8 +207,12 @@ export default function App(): JSX.Element {
       </View>
 
       <View style={styles.body}>
-        {/* Left column — counter, buttons, modal trigger */}
-        <View style={styles.column}>
+        {/* Left column — counter, buttons, modal trigger. Wrapped in
+            a ScrollView so the cards scroll within this column when
+            the column's content exceeds its allocated height (e.g.
+            when the window is shorter than the design size). The
+            FlatList in the right column has its own scrolling. */}
+        <ScrollView style={{flex: 1}} contentContainerStyle={styles.column}>
           <View style={styles.card}>
             <Text style={styles.cardLabel}>counter</Text>
             <Text style={styles.cardValue}>{count}</Text>
@@ -273,11 +278,16 @@ export default function App(): JSX.Element {
               />
             </View>
           </View>
-        </View>
+        </ScrollView>
 
-        {/* Right column — FlatList */}
+        {/* Right column — FlatList. style={flex:1} on the FlatList so
+            its inner ScrollView is bounded by listPanel's height
+            instead of intrinsic-sizing to all 80 items × 50 px (which
+            would push the ScrollView to ~4000 px tall and make it
+            "scroll" the entire column off-screen instead of internally). */}
         <View style={styles.listPanel}>
           <FlatList
+            style={{flex: 1}}
             data={data}
             keyExtractor={item => item.id}
             ListHeaderComponent={
