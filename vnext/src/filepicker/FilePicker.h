@@ -27,6 +27,11 @@ struct PickedFile {
   // unsupported formats.
   int32_t width = 0;
   int32_t height = 0;
+  // Video-only — populated via GstDiscoverer, which parses the
+  // container/codec metadata without decoding frames. Duration is
+  // in milliseconds; width/height come from the first video
+  // stream. Zero for non-videos or formats GStreamer can't parse.
+  int64_t durationMs = 0;
 };
 
 struct PickOptions {

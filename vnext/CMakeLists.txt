@@ -47,13 +47,17 @@ pkg_check_modules(Pango REQUIRED IMPORTED_TARGET pangocairo)
 pkg_check_modules(Soup IMPORTED_TARGET libsoup-3.0)
 
 # GStreamer — backs CameraView's live preview + the one-shot snap
-# pipeline (vnext/src/camera/). gstreamer-1.0 carries core types,
-# gstreamer-app-1.0 brings appsink (frames → GdkMemoryTexture), and
-# gstreamer-video-1.0 has GstVideoInfo for caps parsing.
+# pipeline (vnext/src/camera/) and the video discoverer used by
+# expo-image-picker/expo-document-picker to surface
+# duration/dimensions on picked videos. gstreamer-1.0 carries core
+# types, gstreamer-app-1.0 brings appsink (frames →
+# GdkMemoryTexture), gstreamer-video-1.0 has GstVideoInfo for caps
+# parsing, and gstreamer-pbutils-1.0 has GstDiscoverer.
 pkg_check_modules(Gst REQUIRED IMPORTED_TARGET
   gstreamer-1.0
   gstreamer-app-1.0
-  gstreamer-video-1.0)
+  gstreamer-video-1.0
+  gstreamer-pbutils-1.0)
 
 # libnotify — desktop notifications via the freedesktop spec on the
 # session bus. The daemon (gnome-shell / xfce4-notifyd / dunst / …)

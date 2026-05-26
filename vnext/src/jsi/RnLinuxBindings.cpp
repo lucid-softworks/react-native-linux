@@ -3508,10 +3508,15 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                   o.setProperty(jrt, "size", jsi::Value(static_cast<double>(picked[i].size)));
                   o.setProperty(
                       jrt, "mimeType", jsi::String::createFromUtf8(jrt, picked[i].mimeType));
-                  // width / height are 0 for non-image picks; the
-                  // JS shims map 0 → null so expo's contract holds.
+                  // width / height come from gdk-pixbuf (images) or
+                  // GstDiscoverer (videos); durationMs from
+                  // GstDiscoverer (videos). The JS shims map 0 →
+                  // null so expo's contract holds for non-media
+                  // picks.
                   o.setProperty(jrt, "width", jsi::Value(picked[i].width));
                   o.setProperty(jrt, "height", jsi::Value(picked[i].height));
+                  o.setProperty(
+                      jrt, "durationMs", jsi::Value(static_cast<double>(picked[i].durationMs)));
                   arr.setValueAtIndex(jrt, i, o);
                 }
                 jsi::Object result(jrt);

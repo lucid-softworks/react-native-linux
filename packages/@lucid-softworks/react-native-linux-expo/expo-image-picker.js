@@ -71,21 +71,48 @@ function _mimeFiltersFor(mediaTypes) {
   }
 }
 
-function _toAsset(file) {
+// Copy a picked file into the app's cache so the consumer can
+// rely on the URI not changing or vanishing. Used for the typical
+// expo-image-picker flow where the picked file gets re-read /
+// uploaded later.
+function _copyToCache(srcPath, filename) {
+  const c = rnLinux.fsConstants();
+  const cacheDir = (c && c.cacheDirectory ? c.cacheDirectory : 'file:///tmp/').replace(
+    'file://',
+    '',
+  );
+  const subdir = `${cacheDir}ImagePicker/`;
+  rnLinux.fsMakeDirectory(subdir, true);
+  const safe = (filename || 'file').replace(/[^A-Za-z0-9._-]/g, '_');
+  const dest = `${subdir}${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
+  rnLinux.fsCopy(srcPath, dest);
+  return dest;
+}
+
+function _toAsset(file, copyToCache) {
   // gdk_pixbuf_get_file_info filled in width/height for images on
-  // the native side; 0 is "unknown" (non-image pick, or a format
-  // gdk-pixbuf doesn't recognize). Upstream uses null for unknown.
+  // the native side; GstDiscoverer filled in width/height/duration
+  // for videos. 0 is "unknown" (format we can't parse); upstream
+  // uses null for unknown.
+  let path = file.path;
+  if (copyToCache) {
+    try {
+      path = _copyToCache(file.path, file.name);
+    } catch (_) {}
+  }
   const w = typeof file.width === 'number' && file.width > 0 ? file.width : null;
   const h = typeof file.height === 'number' && file.height > 0 ? file.height : null;
+  const duration =
+    typeof file.durationMs === 'number' && file.durationMs > 0 ? file.durationMs / 1000 : null;
   return {
-    uri: 'file://' + file.path,
+    uri: 'file://' + path,
     fileName: file.name,
     fileSize: file.size,
     mimeType: file.mimeType || null,
     type: file.mimeType && file.mimeType.startsWith('video/') ? 'video' : 'image',
     width: w,
     height: h,
-    duration: null,
+    duration,
   };
 }
 
@@ -93,6 +120,12 @@ async function launchImageLibraryAsync(options) {
   if (!_hasNative) {
     throw new Error('expo-image-picker: native rnLinux.pickFiles not bound');
   }
+  // expo-image-picker doesn't expose copyToCacheDirectory the way
+  // expo-document-picker does, but the same isolation matters —
+  // picked images often live in dirs the user might move/delete.
+  // Always copy unless the caller explicitly opts out via the
+  // Linux-only `_copyToCache: false` extension option.
+  const copyToCache = options?._copyToCache !== false;
   return new Promise((resolve, reject) => {
     rnLinux.pickFiles(
       {
@@ -105,7 +138,7 @@ async function launchImageLibraryAsync(options) {
           resolve({canceled: true, assets: null});
           return;
         }
-        resolve({canceled: false, assets: result.assets.map(_toAsset)});
+        resolve({canceled: false, assets: result.assets.map(f => _toAsset(f, copyToCache))});
       },
       msg => reject(new Error(msg)),
     );

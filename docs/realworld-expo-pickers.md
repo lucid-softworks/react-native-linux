@@ -62,12 +62,12 @@ Two demos in the smoke test:
 
 ### expo-document-picker
 
-| API                                  | Behavior on Linux                                                                                                            |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `getDocumentAsync({type, multiple})` | Real — GtkFileDialog with the given MIME filter                                                                              |
-| `result.canceled`                    | `true` on user dismissal (GTK_DIALOG_ERROR_DISMISSED)                                                                        |
-| `result.assets[]`                    | `{uri (file://), name, size, mimeType, width?, height?}` (width/height present for image picks via gdk_pixbuf_get_file_info) |
-| `options.copyToCacheDirectory`       | Accepted, discarded — original path is returned                                                                              |
+| API                                  | Behavior on Linux                                                                                                                                                    |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getDocumentAsync({type, multiple})` | Real — GtkFileDialog with the given MIME filter                                                                                                                      |
+| `result.canceled`                    | `true` on user dismissal (GTK_DIALOG_ERROR_DISMISSED)                                                                                                                |
+| `result.assets[]`                    | `{uri (file://), name, size, mimeType, width?, height?, duration?}` — width/height for images (gdk-pixbuf) and videos (GstDiscoverer); duration (seconds) for videos |
+| `options.copyToCacheDirectory`       | Real — defaults `true`; picked file copies to `cacheDirectory/DocumentPicker/` and the returned URI points at the copy                                               |
 
 ### expo-image-picker
 
@@ -93,17 +93,22 @@ Two demos in the smoke test:
   dimensions. Both expo-image-picker and expo-document-picker
   surface `width` / `height` on returned assets. Non-image picks
   (and formats gdk-pixbuf can't recognize) still report `null`.
-- **No video duration / dimension extraction.** Would need a
-  GStreamer `discoverer` pass per file. Asset `duration` stays
-  `null` for video picks; video dimensions stay `null` as well
-  (gdk-pixbuf doesn't read video containers).
+- **Video duration / dimension extraction** — **DONE.** Picked
+  video files run through `GstDiscoverer` (5s timeout), which
+  parses container + codec metadata without decoding frames.
+  Duration comes back as `durationMs` from the native side and
+  the JS shim divides by 1000 to land at expo's `duration`
+  (seconds, float). Width/height come from the first video stream.
+  Files GStreamer can't parse leave the fields at 0 / null.
 - **`launchCameraAsync` is one-shot photo only.** Video capture
   (`mediaTypes: Videos`) isn't wired through to a video-recording
   pipeline. The existing cameraSnap produces a single PNG; full
   video would need an x264enc / mp4mux pipeline (see the
   expo-camera doc's "Video recording" gap).
-- **No `copyToCacheDirectory` honoring.** Upstream copies the
-  selected file to the app's cache so the original can't be
-  modified out from under you. We return the original path; the
-  caller can use `expo-file-system.copyAsync` if they need the
-  same isolation.
+- **`copyToCacheDirectory` honoring** — **DONE.** Default-true
+  per upstream contract. expo-document-picker copies picks into
+  `cacheDirectory/DocumentPicker/<ts>-<rand>-<safe-name>` and
+  returns the copy's URI; expo-image-picker does the same under
+  `ImagePicker/`. Filenames are sanitized to `[A-Za-z0-9._-]`.
+  A copy failure falls back to the original path so a permission
+  glitch on the source doesn't break the whole pick.

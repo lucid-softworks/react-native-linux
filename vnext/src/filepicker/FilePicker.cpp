@@ -3,7 +3,10 @@
 #include "react-native-linux/Logging.h"
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
+#include <gst/gst.h>
+#include <gst/pbutils/gstdiscoverer.h>
 #include <gtk/gtk.h>
+#include <mutex>
 #include <sys/stat.h>
 
 namespace rnlinux::filepicker {
@@ -66,6 +69,48 @@ PickedFile gfileToPickedFile(GFile* gfile) {
       pf.width = static_cast<int32_t>(w);
       pf.height = static_cast<int32_t>(h);
     }
+  }
+  // GstDiscoverer for video: container/codec metadata only, no
+  // frame decode. ~10ms per file on a typical mp4 — runs sync
+  // because file-picker callbacks already fire off the main loop's
+  // dialog hop, and the discoverer's own sync path keeps the
+  // implementation tight. Five-second timeout protects against
+  // corrupt files that would hang.
+  if (!pf.path.empty() && pf.mimeType.rfind("video/", 0) == 0) {
+    static std::once_flag gstOnce;
+    std::call_once(gstOnce, []() { gst_init(nullptr, nullptr); });
+    GError* discErr = nullptr;
+    GstDiscoverer* disc = gst_discoverer_new(5 * GST_SECOND, &discErr);
+    if (disc) {
+      const std::string uri = "file://" + pf.path;
+      GError* infoErr = nullptr;
+      GstDiscovererInfo* info = gst_discoverer_discover_uri(disc, uri.c_str(), &infoErr);
+      if (info) {
+        const GstClockTime durationNs = gst_discoverer_info_get_duration(info);
+        // GST_CLOCK_TIME_NONE (~uint64 max) means "unknown"; only
+        // forward real values.
+        if (durationNs != GST_CLOCK_TIME_NONE) {
+          pf.durationMs = static_cast<int64_t>(durationNs / GST_MSECOND);
+        }
+        // Take dimensions from the first video stream the demuxer
+        // surfaces. Files with multiple video tracks are rare in
+        // the expo-image-picker use case; consumers wanting full
+        // track lists would need a richer API.
+        GList* vstreams = gst_discoverer_info_get_video_streams(info);
+        if (vstreams) {
+          auto* vinfo = static_cast<GstDiscovererVideoInfo*>(vstreams->data);
+          pf.width = static_cast<int32_t>(gst_discoverer_video_info_get_width(vinfo));
+          pf.height = static_cast<int32_t>(gst_discoverer_video_info_get_height(vinfo));
+          gst_discoverer_stream_info_list_free(vstreams);
+        }
+        gst_discoverer_info_unref(info);
+      }
+      if (infoErr)
+        g_error_free(infoErr);
+      g_object_unref(disc);
+    }
+    if (discErr)
+      g_error_free(discErr);
   }
   return pf;
 }
