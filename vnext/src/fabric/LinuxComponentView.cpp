@@ -1,5 +1,6 @@
 #include "LinuxComponentView.h"
 
+#include "../jsi/RnLinuxBindings.h"
 #include "react-native-linux/Logging.h"
 
 #include <gtk/gtk.h>
@@ -73,6 +74,13 @@ void LinuxComponentView::updateLayoutMetrics(facebook::react::LayoutMetrics cons
   layoutY_ = newY;
   layoutWidth_ = newW;
   layoutHeight_ = newH;
+
+  // Fire onLayout to JS. Cheap no-op unless this tag has a registered
+  // handler. Real RN libraries (Paper's TextInput container measure,
+  // FlatList's viewport tracking, every "size yourself to children"
+  // wrapper) depend on this; without it inputContainerLayout-style
+  // state defaults stay stuck forever.
+  dispatchFabricLayout(tag_, newX, newY, newW, newH);
 }
 
 void LinuxComponentView::mountChild(LinuxComponentView& child, int /*index*/) {

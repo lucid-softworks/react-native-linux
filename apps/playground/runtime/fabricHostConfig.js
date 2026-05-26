@@ -187,6 +187,17 @@ function syncScrollHandler(tag, props) {
   rnLinux.fabricOnScroll(tag, handler);
 }
 
+// onLayout lives on every host element type — register / unregister
+// per-tag so dispatchFabricLayout (called from
+// LinuxComponentView::updateLayoutMetrics) knows which tags need a
+// callback. Function identity changes across renders, so we re-bind
+// on every commit; the C++ side keeps a single shared_ptr<jsi::Function>
+// alive per tag.
+function syncLayoutHandler(tag, props) {
+  const handler = props && typeof props.onLayout === 'function' ? props.onLayout : null;
+  rnLinux.fabricOnLayout(tag, handler);
+}
+
 function syncSwitchHandler(tag, props) {
   const handler = props && typeof props.onValueChange === 'function' ? props.onValueChange : null;
   rnLinux.fabricOnSwitchChange(tag, handler);
@@ -329,6 +340,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncClickHandler(tag, props);
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'View', type);
     }
 
@@ -342,6 +354,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncScrollHandler(tag, props);
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'ScrollView', type);
     }
 
@@ -354,6 +367,7 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'Image', type);
     }
 
@@ -369,6 +383,7 @@ const hostConfig = {
       syncChangeTextHandler(tag, props);
       syncSubmitEditingHandler(tag, props);
       syncKeyPressHandler(tag, props);
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'TextInput', type);
     }
 
@@ -382,6 +397,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncSwitchHandler(tag, props);
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'Switch', type);
     }
 
@@ -394,6 +410,7 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'ActivityIndicator', type);
     }
 
@@ -409,6 +426,7 @@ const hostConfig = {
         buildFabricProps('text', props),
         internalInstanceHandle,
       );
+      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'Paragraph', type);
     }
 
@@ -488,6 +506,9 @@ const hostConfig = {
     }
     if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
     if (type === 'switch') syncSwitchHandler(currentInstance.tag, newProps);
+    // onLayout lives on every host type; rebind on every commit so the
+    // freshest callback is in the registry.
+    syncLayoutHandler(currentInstance.tag, newProps);
     return makeInstance(currentInstance.tag, fabricNode, currentInstance.componentName, type);
   },
 

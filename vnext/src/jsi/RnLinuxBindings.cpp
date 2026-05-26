@@ -2,6 +2,7 @@
 
 #include "react-native-linux/Logging.h"
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <gtk/gtk.h>
@@ -66,6 +67,21 @@ struct State {
 
   // TextInput per-keystroke (onKeyPress) handlers.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricKeyPressHandlers;
+
+  // onLayout handlers — fired from LinuxComponentView::updateLayoutMetrics
+  // whenever a view's frame changes. Keyed by Fabric tag; payload mirrors
+  // RN's {nativeEvent: {layout: {x, y, width, height}}} shape so apps can
+  // copy-paste handlers across platforms. RN libraries (Paper's TextInput
+  // container width measurement, FlatList's onLayout-driven viewport
+  // tracking, every wrapper that reacts to its rendered size) depend on
+  // this — without it inputContainerLayout stays at the default {width:65}
+  // and floating labels render in a 65-px box.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricLayoutHandlers;
+  // Last-dispatched layout per tag — skip redundant calls when the
+  // metrics didn't actually move/resize. updateLayoutMetrics can fire
+  // multiple times per commit (mounting transaction → state update →
+  // re-layout); JS handlers shouldn't see identical events back-to-back.
+  std::unordered_map<int, std::array<float, 4>> fabricLayoutLast;
 
   // Active intervals/timers. `handlerId → (sourceId, fn)`. We keep the
   // jsi::Function alive here so the GTK source can call back into JS
@@ -147,6 +163,8 @@ void resetRnLinuxBindings() {
   state().fabricSubmitEditingHandlers.clear();
   state().fabricKeyPressHandlers.clear();
   state().fabricScrollHandlers.clear();
+  state().fabricLayoutHandlers.clear();
+  state().fabricLayoutLast.clear();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -319,6 +337,44 @@ void dispatchFabricScroll(int tag,
     RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.getMessage();
   } catch (const std::exception& e) {
     RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.what();
+  }
+}
+
+void dispatchFabricLayout(int tag, float x, float y, float w, float h) {
+  auto& s = state();
+  if (!s.runtime)
+    return;
+  auto it = s.fabricLayoutHandlers.find(tag);
+  if (it == s.fabricLayoutHandlers.end())
+    return;
+  // Skip if this view's layout hasn't actually changed since the last
+  // dispatch — a single React commit can fire updateLayoutMetrics
+  // multiple times (Yoga relayout passes, state-driven re-runs), and
+  // RN apps loop forever if onLayout keeps re-firing for the same
+  // metrics (handler calls setState → re-render → re-layout → re-fire).
+  std::array<float, 4> next{x, y, w, h};
+  auto& last = s.fabricLayoutLast[tag];
+  if (last == next)
+    return;
+  last = next;
+  jsi::Runtime& rt = *s.runtime;
+  try {
+    jsi::Object layout(rt);
+    layout.setProperty(rt, "x", static_cast<double>(x));
+    layout.setProperty(rt, "y", static_cast<double>(y));
+    layout.setProperty(rt, "width", static_cast<double>(w));
+    layout.setProperty(rt, "height", static_cast<double>(h));
+    jsi::Object nativeEvent(rt);
+    nativeEvent.setProperty(rt, "layout", layout);
+    nativeEvent.setProperty(rt, "target", tag);
+    jsi::Object event(rt);
+    event.setProperty(rt, "nativeEvent", nativeEvent);
+    event.setProperty(rt, "target", tag);
+    it->second->call(rt, event);
+  } catch (const jsi::JSError& e) {
+    RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.getMessage();
+  } catch (const std::exception& e) {
+    RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.what();
   }
 }
 
@@ -1008,6 +1064,31 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           return jsi::Value::undefined();
         }
         state().fabricScrollHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // onLayout handler registry — dispatched from
+  // LinuxComponentView::updateLayoutMetrics whenever any view's frame
+  // changes. JS apps register via `rnLinux.fabricOnLayout(tag, fn)`.
+  // Paper's TextInput container width measurement, Reanimated's
+  // measurement hooks, FlatList's viewport tracking, and many wrapper
+  // libraries depend on this.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnLayout",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricLayoutHandlers.erase(tag);
+          state().fabricLayoutLast.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricLayoutHandlers[tag] =
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });

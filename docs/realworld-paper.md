@@ -27,7 +27,8 @@ limactl shell --workdir /workspaces/react-native-linux rn-linux \
 | Paper components actually render                                                  | ✅ — Card, TextInput, Switch, Snackbar all mount                   |
 | Buttons visually render                                                           | ✅ — contained / outlined / text variants all show their labels    |
 | `transform` style (scale / rotate / translate / matrix / origin)                  | ✅ — composed via Transform::FromTransformOperation + GskTransform |
-| TextInput.Outlined floating label                                                 | ⚠️ — transforms apply, but label container width still wraps       |
+| `onLayout` event                                                                  | ✅ — dispatched from LinuxComponentView::updateLayoutMetrics       |
+| TextInput.Outlined floating label                                                 | ✅ — renders inline at full input width                            |
 
 ## Gaps fixed in this pass
 
@@ -50,6 +51,10 @@ Each fix below was discovered by trying to bundle / load / render `paper-demo.ts
 ## Pass 3 — function-children Pressable
 
 11. **Pressable's function-children render-prop form was unhandled** — RN's Pressable accepts `children` as either `ReactNode` or `(state) => ReactNode` where state is `{pressed, hovered, focused}`. Paper's `TouchableRipple` (and every theme-aware button library, every react-navigation pressable link) uses the function form so the rendered content can change per-state. Our shim forwarded the function straight through to the host, React saw "Functions are not valid as a React child", and silently bailed the entire subtree under any function-children Pressable. The most visible casualty was every `<Button>` rendering as an empty 0×0 rectangle. Fix in `components.js`: detect a function children at the Pressable shim level and invoke it with a static `{pressed:false, hovered:false, focused:false}` state. Visual feedback per-state needs the GTK gesture controller to plumb `pressed`/`hovered` back into React, which is a smaller follow-up than letting a quarter of the RN ecosystem render blank.
+
+## Pass 5 — onLayout
+
+13. **`onLayout` never fired** — Paper's TextInput captures the input container's width through `onLayout={e => setInputContainerLayout({width: e.nativeEvent.layout.width})}`, defaulting to `{width: 65}` until the callback arrives. With no onLayout dispatch, the floating label's container stayed sized for a 65-px input — `labelWidth = (65 + INPUT_PADDING_HORIZONTAL/2) / labelScale ≈ 97 px` — and "Your name" wrapped to two lines stacked under the input. Fix: special-case `onLayout` like the other handler props (`onClick`, `onChangeText`, …): JS calls `rnLinux.fabricOnLayout(tag, fn)` per commit, C++ keeps a tag → jsi::Function map, and `LinuxComponentView::updateLayoutMetrics` calls `dispatchFabricLayout(tag, x, y, w, h)` whenever metrics change. Dedupe via a `last == next` check per tag so handler-driven setState doesn't loop. Bypasses RN's normal event-emitter machinery (we don't have it wired); the dispatch is synchronous on the GTK thread, same as every other fabricOn\* path.
 
 ## Pass 4 — CSS transform support
 

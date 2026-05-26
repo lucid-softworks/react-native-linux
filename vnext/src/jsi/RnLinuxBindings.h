@@ -104,4 +104,10 @@ void dispatchFabricScroll(int tag,
                           double viewportWidth,
                           double viewportHeight);
 
+// Dispatch an onLayout event for the given tag. Payload mirrors RN's
+// `{nativeEvent: {layout: {x, y, width, height}}}` shape. Called by
+// LinuxComponentView::updateLayoutMetrics; cheap no-op if no JS handler
+// is registered for the tag.
+void dispatchFabricLayout(int tag, float x, float y, float w, float h);
+
 } // namespace rnlinux
