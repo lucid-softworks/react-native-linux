@@ -67,6 +67,23 @@ function PaperDemo() {
             </Card.Content>
           </Card>
 
+          <Card style={styles.card}>
+            <Card.Title
+              title="Transform sanity check"
+              subtitle="raw RN View w/ scale(1.5) + rotate 30°"
+            />
+            <Card.Content style={{height: 160, justifyContent: 'center', alignItems: 'center'}}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  backgroundColor: '#4caf50',
+                  transform: [{scale: 1.5}, {rotate: '30deg'}],
+                }}
+              />
+            </Card.Content>
+          </Card>
+
           <View style={styles.spacer} />
         </ScrollView>
 

@@ -13,20 +13,21 @@ limactl shell --workdir /workspaces/react-native-linux rn-linux \
 
 ## Status
 
-| Stage                                                                             | Status                                                          |
-| --------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Module resolution                                                                 | ✅                                                              |
-| Asset loading (`.png`, `.ttf`)                                                    | ✅                                                              |
-| Flow-syntax `Native*` spec files                                                  | ✅                                                              |
-| Hermes class lowering                                                             | ✅                                                              |
-| `NativeModules.PlatformConstants` / `I18nManager` / `PixelRatio` / `processColor` | ✅                                                              |
-| `useWindowDimensions` / `AccessibilityInfo` / `AppState` / `DeviceEventEmitter`   | ✅                                                              |
-| `Animated.Value.stopAnimation` / `removeAllListeners`                             | ✅                                                              |
-| Function-valued top-level props (Fabric `dynamicFromValue` throws)                | ✅ — stripped in `buildFabricProps`                             |
-| First mount commit                                                                | ✅                                                              |
-| Paper components actually render                                                  | ✅ — Card, TextInput, Switch, Snackbar all mount                |
-| Buttons visually render                                                           | ✅ — contained / outlined / text variants all show their labels |
-| Visual polish                                                                     | ⚠️ — TextInput.Outlined label needs transform support           |
+| Stage                                                                             | Status                                                             |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Module resolution                                                                 | ✅                                                                 |
+| Asset loading (`.png`, `.ttf`)                                                    | ✅                                                                 |
+| Flow-syntax `Native*` spec files                                                  | ✅                                                                 |
+| Hermes class lowering                                                             | ✅                                                                 |
+| `NativeModules.PlatformConstants` / `I18nManager` / `PixelRatio` / `processColor` | ✅                                                                 |
+| `useWindowDimensions` / `AccessibilityInfo` / `AppState` / `DeviceEventEmitter`   | ✅                                                                 |
+| `Animated.Value.stopAnimation` / `removeAllListeners`                             | ✅                                                                 |
+| Function-valued top-level props (Fabric `dynamicFromValue` throws)                | ✅ — stripped in `buildFabricProps`                                |
+| First mount commit                                                                | ✅                                                                 |
+| Paper components actually render                                                  | ✅ — Card, TextInput, Switch, Snackbar all mount                   |
+| Buttons visually render                                                           | ✅ — contained / outlined / text variants all show their labels    |
+| `transform` style (scale / rotate / translate / matrix / origin)                  | ✅ — composed via Transform::FromTransformOperation + GskTransform |
+| TextInput.Outlined floating label                                                 | ⚠️ — transforms apply, but label container width still wraps       |
 
 ## Gaps fixed in this pass
 
@@ -50,9 +51,13 @@ Each fix below was discovered by trying to bundle / load / render `paper-demo.ts
 
 11. **Pressable's function-children render-prop form was unhandled** — RN's Pressable accepts `children` as either `ReactNode` or `(state) => ReactNode` where state is `{pressed, hovered, focused}`. Paper's `TouchableRipple` (and every theme-aware button library, every react-navigation pressable link) uses the function form so the rendered content can change per-state. Our shim forwarded the function straight through to the host, React saw "Functions are not valid as a React child", and silently bailed the entire subtree under any function-children Pressable. The most visible casualty was every `<Button>` rendering as an empty 0×0 rectangle. Fix in `components.js`: detect a function children at the Pressable shim level and invoke it with a static `{pressed:false, hovered:false, focused:false}` state. Visual feedback per-state needs the GTK gesture controller to plumb `pressed`/`hovered` back into React, which is a smaller follow-up than letting a quarter of the RN ecosystem render blank.
 
+## Pass 4 — CSS transform support
+
+12. **`transform` style was a no-op** — RN's `RawProps→Transform` parser pushes operations into `transform.operations` but only fills `transform.matrix` for the literal `[{matrix: [...]}]` form. Every other shape (`[{scale: 2}]`, `[{rotate: '30deg'}]`, `[{translateY: 8}]`) left the matrix as identity, so reading `vp.transform.matrix` always saw I₄. Paper's TextInput.Outlined label, every Animated transform, every `react-native-reanimated` style — all silently identity. Fix in `ViewComponentView`: walk `vp.transform.operations` through `Transform::FromTransformOperation(op, frameSize)` and multiply, mirroring what RN's iOS/Android sides do before handing to the platform. Wrap the result in `translate(origin) · M · translate(-origin)` so scale/rotate happen around the configured origin (defaults to view center, matching CSS `transform-origin: 50% 50%`). Compose with `gtk_fixed_set_child_transform` on the parent's GtkFixed, prefixed by `translate(layoutX, layoutY)` so Yoga's positioning still takes effect (GtkFixed reuses one transform slot for both move and child-transform).
+
 ## Remaining issues
 
-- **TextInput.Outlined floating label**: Paper positions the label via `position: absolute` + `transform: scaleX/scaleY/translateY` to animate it from "inside the input" to "floating above the border". We don't implement CSS transforms yet so the label sits in normal flow, gets a 41-px max-width from the wrong parent constraint, and wraps to 5 lines under the input. Mode `flat` would dodge it; the right fix is implementing the transform property on `ViewProps` → GTK widget allocation offsets.
+- **TextInput.Outlined floating label**: transforms now apply, but Paper's label container width is computed against the unscaled Pango text measurement — when Paper sets `transform: [{scale: 0.75}]` for the floating state, the container is sized for the scaled visible width, but our measure returns the unscaled width, so the label wraps. Likely fix is a measure-time honour of an ancestor `transform.scale` (rare in practice) or a Paper-side `mode="flat"` recommendation; tracking down which.
 - **Paper Button click → Snackbar**: clicking the rendered Button doesn't fire its `onPress`. Our `fabricClick` is registered on every View's gesture controller, but Paper's `TouchableRipple` routes through `accessibilityRole` + custom gesture handling that may swallow the click before our default path sees it. Snackbar / Modal also rely on `Portal` which we haven't validated end-to-end.
 
 ## What this run actually proved

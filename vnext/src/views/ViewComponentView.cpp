@@ -188,6 +188,109 @@ void ViewComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
       registerAnimWidget(vp.nativeId, widget_);
     lastNativeId_ = vp.nativeId;
   }
+
+  // Cache the raw operations + origin; final 4×4 matrix is composed
+  // in applyTransform() once the layout size is known (operations
+  // can reference frame-relative units, and the default transform-
+  // origin is 50% / 50% of the view's frame).
+  transformOps_ = vp.transform.operations;
+  transformOrigin_ = vp.transformOrigin;
+  applyTransform();
+}
+
+void ViewComponentView::updateLayoutMetrics(facebook::react::LayoutMetrics const& metrics) {
+  LinuxComponentView::updateLayoutMetrics(metrics);
+  // updateProps fires during handleCreate when widget_ has no parent
+  // yet; handleInsert runs next. updateLayoutMetrics fires after
+  // insert, which is the first point a transform can actually be
+  // attached. Re-attempt here once per insert lifecycle.
+  if (!transformApplied_) {
+    applyTransform();
+  }
+}
+
+void ViewComponentView::applyTransform() {
+  if (!widget_)
+    return;
+  GtkWidget* parent = gtk_widget_get_parent(widget_);
+  if (!parent || !GTK_IS_FIXED(parent))
+    return;
+
+  // Compose the final 4×4 transform around the view's transform-
+  // origin. RN's RawProps→Transform parser pushes operations into
+  // the list but leaves matrix as identity for everything but the
+  // literal `[{matrix: [...]}]` form, so we walk operations
+  // ourselves through Transform::FromTransformOperation and wrap
+  // the result in translate(origin) · M · translate(-origin) to
+  // match CSS `transform-origin` semantics.
+  facebook::react::Size frameSize{layoutWidth_, layoutHeight_};
+  facebook::react::Transform user = facebook::react::Transform::Identity();
+  for (auto const& op : transformOps_) {
+    user = user * facebook::react::Transform::FromTransformOperation(op, frameSize);
+  }
+  // Default transform-origin is (50%, 50%, 0). Resolve to absolute
+  // pixel offsets from the view's top-left.
+  float originX = layoutWidth_ * 0.5f;
+  float originY = layoutHeight_ * 0.5f;
+  float originZ = transformOrigin_.z;
+  if (transformOrigin_.xy.size() > 0) {
+    const auto& ox = transformOrigin_.xy[0];
+    if (ox.unit == facebook::react::UnitType::Point)
+      originX = ox.value;
+    else if (ox.unit == facebook::react::UnitType::Percent)
+      originX = layoutWidth_ * ox.value / 100.0f;
+  }
+  if (transformOrigin_.xy.size() > 1) {
+    const auto& oy = transformOrigin_.xy[1];
+    if (oy.unit == facebook::react::UnitType::Point)
+      originY = oy.value;
+    else if (oy.unit == facebook::react::UnitType::Percent)
+      originY = layoutHeight_ * oy.value / 100.0f;
+  }
+  auto composed = facebook::react::Transform::Translate(originX, originY, originZ) * user *
+                  facebook::react::Transform::Translate(-originX, -originY, -originZ);
+
+  for (size_t i = 0; i < 16; ++i) {
+    lastTransform_[i] = static_cast<float>(composed.matrix[i]);
+  }
+
+  static constexpr std::array<float, 16> kIdentity{
+      {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
+  const bool isIdentity = (lastTransform_ == kIdentity);
+
+  // GtkFixed stores child positions AS a GskTransform — gtk_fixed_move
+  // and gtk_fixed_set_child_transform write to the same slot, the
+  // latter overwriting the former. If we want both Yoga's layout
+  // position AND a CSS transform applied, we have to compose them
+  // into a single GskTransform here.
+  //
+  // When the matrix is identity, leave the layout position alone —
+  // gtk_fixed_move has already written it via the base class's
+  // updateLayoutMetrics, and we'd just be re-doing the same work.
+  if (isIdentity) {
+    if (transformApplied_) {
+      // Previously had a non-identity transform; restore the bare
+      // translate so we don't keep displaying scaled/rotated content
+      // on top of an updated layout.
+      graphene_point_t pt = {layoutX_, layoutY_};
+      GskTransform* t = gsk_transform_translate(nullptr, &pt);
+      gtk_fixed_set_child_transform(GTK_FIXED(parent), widget_, t);
+      gsk_transform_unref(t);
+    }
+  } else {
+    // translate(layoutX, layoutY) ⊗ rn_matrix. GskTransform composes
+    // on the right: gsk_transform_matrix(t, m) yields t · m, so the
+    // final transform applied to a local point (px, py) is
+    // translate · rn_matrix · point — exactly what RN expects.
+    graphene_point_t pt = {layoutX_, layoutY_};
+    GskTransform* t = gsk_transform_translate(nullptr, &pt);
+    graphene_matrix_t mat;
+    graphene_matrix_init_from_float(&mat, lastTransform_.data());
+    t = gsk_transform_matrix(t, &mat);
+    gtk_fixed_set_child_transform(GTK_FIXED(parent), widget_, t);
+    gsk_transform_unref(t);
+  }
+  transformApplied_ = !isIdentity;
 }
 
 void ViewComponentView::applyBackgroundColor(unsigned int /*argb*/) {
