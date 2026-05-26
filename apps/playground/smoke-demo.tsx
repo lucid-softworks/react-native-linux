@@ -1102,12 +1102,22 @@ function SmokeDemo() {
         });
         await m.setStringAsync(stamp);
         const got = await m.getStringAsync();
-        // Give GTK a tick to deliver the changed signal (it lands on
-        // the next main-loop iteration after the write).
+        // Wire-check the new image/HTML setters — make sure they
+        // don't throw and report the boolean return. Don't await
+        // get-back here: GdkClipboard's local read after a fresh
+        // write can race on some compositors, so we only confirm
+        // the API surface lands cleanly.
+        const htmlSet = await m.setHtmlAsync(`<p>${stamp}</p>`).catch(() => false);
+        const onePx =
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+        const imgSet = await m.setImageAsync(onePx).catch(() => false);
+        // Restore text so the rest of the probes / paste demo
+        // sees the stamp.
+        await m.setStringAsync(stamp);
         await new Promise(r => setTimeout(r, 50));
         sub.remove();
-        if (got !== stamp) throw new Error(`roundtrip: wrote ${stamp}, read ${got}`);
-        return `roundtripped ${stamp.length} chars listener=${listenerFired ? 'fired' : 'silent'}`;
+        if (got !== stamp) throw new Error(`text roundtrip: wrote ${stamp}, read ${got}`);
+        return `text=ok html=${htmlSet ? 'set' : 'no'} img=${imgSet ? 'set' : 'no'} listener=${listenerFired ? 'fired' : 'silent'}`;
       }),
       tryProbe('expo-localization', async function p() {
         const m = require('expo-localization');

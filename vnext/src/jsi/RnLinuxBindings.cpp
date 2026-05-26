@@ -1563,6 +1563,318 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // clipboardSetImage / clipboardGetImageAsync — PNG round-trip
+  // through GdkTexture. Encoded as base64 across the JSI boundary
+  // because Hermes JSI doesn't have a fast path for binary blobs
+  // (ArrayBuffer would copy through a TypedArray anyway, and base64
+  // matches the upstream expo-clipboard API shape).
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardSetImage",
+      1,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString())
+          return jsi::Value(false);
+        const auto base64 = args[0].asString(rt).utf8(rt);
+        gsize decodedLen = 0;
+        guchar* decoded = g_base64_decode(base64.c_str(), &decodedLen);
+        if (!decoded || decodedLen == 0) {
+          if (decoded)
+            g_free(decoded);
+          return jsi::Value(false);
+        }
+        // gdk_texture_new_from_bytes covers PNG/JPEG; the bytes
+        // wrapper takes ownership so the buffer frees with the
+        // texture's lifecycle. The texture itself drops out of
+        // scope after gdk_clipboard_set_texture, which retains its
+        // own ref.
+        GBytes* bytes = g_bytes_new_take(decoded, decodedLen);
+        GError* err = nullptr;
+        GdkTexture* tex = gdk_texture_new_from_bytes(bytes, &err);
+        g_bytes_unref(bytes);
+        if (!tex) {
+          RNL_LOGW("rnLinux.clipboard")
+              << "image decode failed: " << (err && err->message ? err->message : "(unknown)");
+          if (err)
+            g_error_free(err);
+          return jsi::Value(false);
+        }
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb) {
+          g_object_unref(tex);
+          return jsi::Value(false);
+        }
+        gdk_clipboard_set_texture(cb, tex);
+        g_object_unref(tex);
+        return jsi::Value(true);
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardGetImageAsync",
+      2,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt))
+          return jsi::Value::undefined();
+        auto onResult = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        auto onError = count >= 2 && args[1].isObject() && args[1].asObject(rt).isFunction(rt)
+                           ? std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt))
+                           : nullptr;
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb) {
+          auto& s = state();
+          if (s.runtime && onError) {
+            try {
+              onError->call(*s.runtime, jsi::String::createFromUtf8(*s.runtime, "no clipboard"));
+              s.runtime->drainMicrotasks();
+            } catch (...) {
+            }
+          }
+          return jsi::Value::undefined();
+        }
+        struct ImgCtx {
+          std::shared_ptr<jsi::Function> onResult;
+          std::shared_ptr<jsi::Function> onError;
+        };
+        auto* ctx = new ImgCtx{std::move(onResult), std::move(onError)};
+        gdk_clipboard_read_texture_async(
+            cb,
+            nullptr,
+            +[](GObject* src, GAsyncResult* res, gpointer userData) {
+              auto* ctx = static_cast<ImgCtx*>(userData);
+              auto& s = state();
+              GError* err = nullptr;
+              GdkTexture* tex = gdk_clipboard_read_texture_finish(GDK_CLIPBOARD(src), res, &err);
+              if (s.runtime) {
+                jsi::Runtime& jrt = *s.runtime;
+                try {
+                  if (tex) {
+                    // Re-encode as PNG so JS gets a self-describing
+                    // payload. gdk_texture_save_to_png_bytes uses
+                    // the same loader libpixbuf knows about.
+                    GBytes* png = gdk_texture_save_to_png_bytes(tex);
+                    if (png) {
+                      gsize len = 0;
+                      const void* data = g_bytes_get_data(png, &len);
+                      char* enc = g_base64_encode(static_cast<const guchar*>(data), len);
+                      if (ctx->onResult) {
+                        ctx->onResult->call(jrt,
+                                            jsi::String::createFromUtf8(jrt, enc ? enc : ""),
+                                            jsi::String::createFromUtf8(jrt, "image/png"));
+                      }
+                      if (enc)
+                        g_free(enc);
+                      g_bytes_unref(png);
+                    } else if (ctx->onResult) {
+                      // Texture but PNG encode failed — return empty
+                      // payload so consumers can branch on it the
+                      // same way they would for "nothing copied".
+                      ctx->onResult->call(jrt,
+                                          jsi::String::createFromUtf8(jrt, ""),
+                                          jsi::String::createFromUtf8(jrt, ""));
+                    }
+                    g_object_unref(tex);
+                  } else if (err && ctx->onError) {
+                    ctx->onError->call(jrt,
+                                       jsi::String::createFromUtf8(
+                                           jrt, err->message ? err->message : "(read failed)"));
+                  } else if (ctx->onResult) {
+                    // Empty clipboard or no image on it — match the
+                    // text-async contract of "empty string for nothing".
+                    ctx->onResult->call(jrt,
+                                        jsi::String::createFromUtf8(jrt, ""),
+                                        jsi::String::createFromUtf8(jrt, ""));
+                  }
+                  jrt.drainMicrotasks();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.clipboard") << "image read cb threw: " << e.what();
+                }
+              }
+              if (err)
+                g_error_free(err);
+              delete ctx;
+            },
+            ctx);
+        return jsi::Value::undefined();
+      });
+
+  // clipboardSetHtml — publishes a unioned content provider with
+  // both text/html (the rich payload) and text/plain (an extracted
+  // fallback the JS shim supplies). Two providers because a lot of
+  // consumers — terminals, search bars, many GTK apps — only ask
+  // for text/plain and would miss the HTML branch otherwise.
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardSetHtml",
+      2,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString())
+          return jsi::Value(false);
+        const auto html = args[0].asString(rt).utf8(rt);
+        const auto plain = count >= 2 && args[1].isString() ? args[1].asString(rt).utf8(rt) : html;
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb)
+          return jsi::Value(false);
+        GBytes* htmlBytes = g_bytes_new(html.data(), html.size());
+        GBytes* plainBytes = g_bytes_new(plain.data(), plain.size());
+        GdkContentProvider* htmlProvider =
+            gdk_content_provider_new_for_bytes("text/html", htmlBytes);
+        GdkContentProvider* plainProvider =
+            gdk_content_provider_new_for_bytes("text/plain;charset=utf-8", plainBytes);
+        g_bytes_unref(htmlBytes);
+        g_bytes_unref(plainBytes);
+        // `gdk_content_provider_new_union` is transfer-full on the
+        // providers array — it takes over our refs, so we don't
+        // unref the inner providers afterwards (doing so frees them
+        // out from under the union, which segfaults later reads).
+        GdkContentProvider* providers[] = {htmlProvider, plainProvider};
+        GdkContentProvider* unionProvider = gdk_content_provider_new_union(providers, 2);
+        const gboolean ok = gdk_clipboard_set_content(cb, unionProvider);
+        g_object_unref(unionProvider);
+        return jsi::Value(static_cast<bool>(ok));
+      });
+
+  // clipboardGetHtmlAsync — asks the selection holder for text/html
+  // specifically. The async read returns a GInputStream plus the
+  // negotiated MIME; we drain the stream synchronously inside the
+  // callback (HTML payloads are bounded — clipboards aren't a
+  // streaming surface). Returns empty string when nothing on the
+  // clipboard advertises text/html.
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardGetHtmlAsync",
+      2,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt))
+          return jsi::Value::undefined();
+        auto onResult = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        auto onError = count >= 2 && args[1].isObject() && args[1].asObject(rt).isFunction(rt)
+                           ? std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt))
+                           : nullptr;
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb) {
+          auto& s = state();
+          if (s.runtime && onError) {
+            try {
+              onError->call(*s.runtime, jsi::String::createFromUtf8(*s.runtime, "no clipboard"));
+              s.runtime->drainMicrotasks();
+            } catch (...) {
+            }
+          }
+          return jsi::Value::undefined();
+        }
+        struct HtmlCtx {
+          std::shared_ptr<jsi::Function> onResult;
+          std::shared_ptr<jsi::Function> onError;
+        };
+        auto* ctx = new HtmlCtx{std::move(onResult), std::move(onError)};
+        static const char* mimes[] = {"text/html", nullptr};
+        gdk_clipboard_read_async(
+            cb,
+            mimes,
+            G_PRIORITY_DEFAULT,
+            nullptr,
+            +[](GObject* src, GAsyncResult* res, gpointer userData) {
+              auto* ctx = static_cast<HtmlCtx*>(userData);
+              auto& s = state();
+              GError* err = nullptr;
+              const char* outMime = nullptr;
+              GInputStream* stream =
+                  gdk_clipboard_read_finish(GDK_CLIPBOARD(src), res, &outMime, &err);
+              std::string body;
+              if (stream) {
+                // 8 KiB chunks — HTML payloads usually fit in one
+                // iteration; this caps memory use if some misbehaved
+                // app pastes a huge document.
+                char buf[8192];
+                gssize n = 0;
+                while ((n = g_input_stream_read(stream, buf, sizeof(buf), nullptr, nullptr)) > 0) {
+                  body.append(buf, static_cast<size_t>(n));
+                }
+                g_object_unref(stream);
+              }
+              if (s.runtime) {
+                jsi::Runtime& jrt = *s.runtime;
+                try {
+                  if (stream) {
+                    if (ctx->onResult)
+                      ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, body));
+                  } else if (err && ctx->onError) {
+                    ctx->onError->call(jrt,
+                                       jsi::String::createFromUtf8(
+                                           jrt, err->message ? err->message : "(read failed)"));
+                  } else if (ctx->onResult) {
+                    ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, ""));
+                  }
+                  jrt.drainMicrotasks();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.clipboard") << "html read cb threw: " << e.what();
+                }
+              }
+              if (err)
+                g_error_free(err);
+              delete ctx;
+            },
+            ctx);
+        return jsi::Value::undefined();
+      });
+
+  // clipboardSetFiles — publishes a GdkFileList content provider so
+  // file managers can paste the file refs as a real list (not just
+  // text URIs). Accepts a JS array of absolute paths; converts to a
+  // GSList<GFile*> on the way through.
+  bindMethod(
+      rt,
+      rnLinux,
+      "clipboardSetFiles",
+      1,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isArray(rt))
+          return jsi::Value(false);
+        auto arr = args[0].asObject(rt).asArray(rt);
+        const size_t n = arr.size(rt);
+        if (n == 0)
+          return jsi::Value(false);
+        GdkClipboard* cb = gdk_display_get_clipboard(gtk_widget_get_display(rootView));
+        if (!cb)
+          return jsi::Value(false);
+        GSList* list = nullptr;
+        for (size_t i = 0; i < n; ++i) {
+          auto v = arr.getValueAtIndex(rt, i);
+          if (!v.isString())
+            continue;
+          const auto path = v.asString(rt).utf8(rt);
+          // Strip file:// so a JS caller can pass URIs that came out
+          // of file pickers / fsConstants without the C++ side caring.
+          const std::string clean = path.rfind("file://", 0) == 0 ? path.substr(7) : path;
+          GFile* gf = g_file_new_for_path(clean.c_str());
+          if (gf)
+            list = g_slist_prepend(list, gf);
+        }
+        if (!list)
+          return jsi::Value(false);
+        list = g_slist_reverse(list);
+        GdkFileList* fileList = gdk_file_list_new_from_list(list);
+        // gdk_file_list_new_from_list takes its own refs on each
+        // GFile, so we own + free both the slist nodes AND the
+        // initial g_object_unref of each.
+        g_slist_free_full(list, g_object_unref);
+        GdkContentProvider* provider = gdk_content_provider_new_typed(GDK_TYPE_FILE_LIST, fileList);
+        g_boxed_free(GDK_TYPE_FILE_LIST, fileList);
+        const gboolean ok = gdk_clipboard_set_content(cb, provider);
+        g_object_unref(provider);
+        return jsi::Value(static_cast<bool>(ok));
+      });
+
   // clipboardSetChangeListener — fan-out trampoline for
   // GdkClipboard's `changed` signal. The signal fires on every
   // clipboard write from any source (this app or another), so

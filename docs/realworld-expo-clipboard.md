@@ -41,17 +41,18 @@ and displays it inline.
 
 ## API surface
 
-| API                                                  | Behavior on Linux                                                          |
-| ---------------------------------------------------- | -------------------------------------------------------------------------- |
-| `setStringAsync(text)` / `setString`                 | Real — `gdk_clipboard_set_text` on the display                             |
-| `getStringAsync()`                                   | Real for values WE wrote (sync read of `gdk_clipboard_get_content`)        |
-| `hasStringAsync()`                                   | True iff `getStringAsync()` returns a non-empty string                     |
-| `getUrlAsync` / `setUrlAsync` / `hasUrl…`            | Aliases for the text path — no separate Linux URL clip type                |
-| `getImageAsync` / `setImageAsync`                    | Throws — base64-PNG round-trip not wired yet                               |
-| `getHtmlAsync` / `setHtmlAsync`                      | Throws — HTML+plaintext fallback not wired yet                             |
-| `hasImageAsync` / `hasHtmlAsync`                     | Returns `false`                                                            |
-| `addClipboardListener`                               | Real — fan-out over `GdkClipboard::changed` (cross-app writes fire it too) |
-| `ContentType` / `StringFormat` / `ImageFormat` enums | Match upstream's numeric values                                            |
+| API                                                  | Behavior on Linux                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `setStringAsync(text)` / `setString`                 | Real — `gdk_clipboard_set_text` on the display                                       |
+| `getStringAsync()`                                   | Real for values WE wrote (sync read of `gdk_clipboard_get_content`)                  |
+| `hasStringAsync()`                                   | True iff `getStringAsync()` returns a non-empty string                               |
+| `getUrlAsync` / `setUrlAsync` / `hasUrl…`            | Aliases for the text path — no separate Linux URL clip type                          |
+| `getImageAsync` / `setImageAsync`                    | Real — base64 PNG/JPEG round-trip through `GdkTexture` + `gdk_clipboard_set_texture` |
+| `getHtmlAsync` / `setHtmlAsync`                      | Real — unioned `text/html` + `text/plain` provider; plaintext extracted in JS        |
+| `hasImageAsync` / `hasHtmlAsync`                     | Real — non-empty result from the matching async getter                               |
+| `setContentAsync({files: [...]})`                    | Real — `GdkFileList` content provider; file managers paste real file refs            |
+| `addClipboardListener`                               | Real — fan-out over `GdkClipboard::changed` (cross-app writes fire it too)           |
+| `ContentType` / `StringFormat` / `ImageFormat` enums | Match upstream's numeric values                                                      |
 
 ## Known gaps
 
@@ -63,15 +64,22 @@ and displays it inline.
   legacy sync `clipboardGetStringSync` is still there for the
   fast in-process round-trip but only sees this process's own
   writes.
-- **Images** (`getImageAsync` / `setImageAsync`) would round-trip
-  base64 PNG through `GdkTexture` + `gdk_clipboard_set_texture`,
-  same path the camera snap demo uses. Not bound yet.
-- **HTML** is the same shape — `gdk_content_provider_new_union` of
-  text + text/html. The expo API expects both formats present
-  simultaneously.
-- **File lists** (`Clipboard.setContentAsync({files: [...]})`) need
-  `gdk_clipboard_set_content` of a `G_FILE_LIST` provider. Less
-  commonly used than text but trivial to add.
+- **Images** — **DONE.** `setImageAsync(base64)` decodes via
+  `gdk_texture_new_from_bytes` and calls `gdk_clipboard_set_texture`;
+  `getImageAsync()` reads through `gdk_clipboard_read_texture_async`
+  and re-encodes as PNG via `gdk_texture_save_to_png_bytes` so the
+  base64 payload is self-describing.
+- **HTML** — **DONE.** `setHtmlAsync(html)` publishes a
+  `gdk_content_provider_new_union` over both `text/html` and
+  `text/plain;charset=utf-8` (plaintext extracted in JS) so
+  non-rich consumers still get something readable.
+  `getHtmlAsync()` asks for `text/html` specifically via
+  `gdk_clipboard_read_async` and drains the returned
+  `GInputStream`.
+- **File lists** — **DONE.** `Clipboard.setContentAsync({files:
+[...]})` builds a `GdkFileList` (`gdk_file_list_new_from_list`)
+  and publishes a typed `GDK_TYPE_FILE_LIST` content provider;
+  file managers paste real file refs, not just text URIs.
 - **Change listener** — **DONE.** `g_signal_connect(clip,
 "changed", ...)` is bound through a single native trampoline;
   the JS shim multiplexes all `addClipboardListener` subscribers

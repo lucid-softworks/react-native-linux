@@ -1,24 +1,20 @@
 'use strict';
 
-// Shim for `expo-clipboard`. Backed by the existing
-// rnLinux.clipboard* JSI bindings (vnext/src/jsi/RnLinuxBindings.cpp),
-// which talk to GdkClipboard on the display.
+// Shim for `expo-clipboard`. Backed by the rnLinux.clipboard* JSI
+// bindings (vnext/src/jsi/RnLinuxBindings.cpp), which talk to
+// GdkClipboard on the display.
 //
-// What's real vs not:
-//   * text: set + get round-trip is real, including cross-app
-//     pastes (the async path negotiates the MIME transfer with
-//     whichever app put the text on the clipboard via
-//     gdk_clipboard_read_text_async). The legacy synchronous
-//     getter only sees this process's own writes — useful as a
-//     fast in-process round-trip but doesn't see other apps.
-//   * images / HTML / files: GdkClipboard supports them natively
-//     but the upstream API shapes (base64 PNG, HTML+plaintext
-//     fallback, file list) need more plumbing. Stubbed to throw
-//     with a clear message so consumers fail loudly rather than
-//     silently get empty results.
-//   * change listener: subscribes to GdkClipboard's `changed`
-//     signal, but that's not bound JSI-side yet — addListener
-//     returns a no-op subscription for now.
+// API coverage:
+//   * text: cross-app — get/setStringAsync, plus a sync get for the
+//     fast in-process path.
+//   * image: base64 PNG/JPEG round-trip through GdkTexture.
+//   * html: unioned text/html + text/plain provider (the JS shim
+//     extracts the plaintext fallback so terminals and search bars
+//     still get something readable).
+//   * files: setContentAsync({files: [...]}) publishes a GdkFileList
+//     provider so file managers paste real file refs.
+//   * change listener: GdkClipboard's `changed` signal fans out to
+//     all JS subscribers, including cross-app writes.
 
 const _hasNative =
   typeof rnLinux !== 'undefined' && typeof rnLinux.clipboardSetString === 'function';
@@ -63,27 +59,107 @@ async function hasStringAsync() {
   return typeof v === 'string' && v.length > 0;
 }
 
-// Images, HTML, URLs, file lists — GdkClipboard supports them but
-// the API shape needs more wiring (base64 PNG round-trip, HTML+plain
-// fallback). Throw with a clear message rather than lie about
-// success or return empty strings that consumers might trust.
+// Image clipboard — base64 round-trip through GdkTexture. Native
+// side decodes PNG/JPEG on set and re-encodes as PNG on get, so the
+// JS contract matches expo's `data` (base64) + `size` (we don't
+// surface size, callers can decode via a TypedArray if they need
+// dimensions).
+async function setImageAsync(base64Image) {
+  if (!_hasNative || typeof rnLinux.clipboardSetImage !== 'function') return false;
+  if (typeof base64Image !== 'string' || !base64Image) return false;
+  // Strip a "data:image/...;base64," prefix if a caller pasted a
+  // full data URL — the native decoder wants raw base64 bytes.
+  const stripped = base64Image.includes(',') ? base64Image.split(',', 2)[1] : base64Image;
+  return Boolean(rnLinux.clipboardSetImage(stripped));
+}
+
 async function getImageAsync(_options) {
-  throw new Error('expo-clipboard: getImageAsync not implemented on Linux yet');
+  if (!_hasNative || typeof rnLinux.clipboardGetImageAsync !== 'function') return null;
+  return new Promise((resolve, reject) => {
+    rnLinux.clipboardGetImageAsync(
+      (data, mime) => {
+        if (!data) {
+          resolve(null);
+          return;
+        }
+        // expo's documented result shape is {data, size?}. We don't
+        // ship size for now (would need a decode pass); callers who
+        // need it can pipe through Image.getSize on the data URI.
+        resolve({data, size: null, mime: mime || 'image/png'});
+      },
+      msg => reject(new Error(msg)),
+    );
+  });
 }
-async function setImageAsync(_base64Image) {
-  throw new Error('expo-clipboard: setImageAsync not implemented on Linux yet');
-}
+
 async function hasImageAsync() {
-  return false;
+  // GdkClipboard doesn't surface a "has image" predicate without
+  // round-tripping content; we do the cheapest version of that
+  // (probe + immediately discard) so this returns the right
+  // boolean cross-app.
+  const v = await getImageAsync();
+  return v != null && typeof v.data === 'string' && v.data.length > 0;
+}
+
+// HTML clipboard — native side publishes a unioned text/html +
+// text/plain provider so non-rich consumers (terminals, search bars)
+// still see something readable. The plaintext fallback comes from
+// stripping HTML in JS, since the native side doesn't carry an HTML
+// parser.
+function _htmlToText(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|tr|pre|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/[ \t]+/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function getHtmlAsync() {
-  throw new Error('expo-clipboard: getHtmlAsync not implemented on Linux yet');
+  if (!_hasNative || typeof rnLinux.clipboardGetHtmlAsync !== 'function') return '';
+  return new Promise((resolve, reject) => {
+    rnLinux.clipboardGetHtmlAsync(
+      html => resolve(typeof html === 'string' ? html : ''),
+      msg => reject(new Error(msg)),
+    );
+  });
 }
-async function setHtmlAsync(_html) {
-  throw new Error('expo-clipboard: setHtmlAsync not implemented on Linux yet');
+
+async function setHtmlAsync(html) {
+  if (!_hasNative || typeof rnLinux.clipboardSetHtml !== 'function') return false;
+  const safe = String(html ?? '');
+  return Boolean(rnLinux.clipboardSetHtml(safe, _htmlToText(safe)));
 }
+
 async function hasHtmlAsync() {
+  const v = await getHtmlAsync();
+  return typeof v === 'string' && v.length > 0;
+}
+
+// File list — expo's setContentAsync({files: [...]}) lands here.
+// Accepts an array of absolute paths or file:// URIs and publishes
+// a GdkFileList content provider so paste in a file manager creates
+// real file refs (not just text).
+async function setContentAsync(content) {
+  if (!content || typeof content !== 'object') return false;
+  if (Array.isArray(content.files) && content.files.length > 0) {
+    if (!_hasNative || typeof rnLinux.clipboardSetFiles !== 'function') return false;
+    return Boolean(rnLinux.clipboardSetFiles(content.files.map(String)));
+  }
+  if (typeof content.text === 'string') return setStringAsync(content.text);
+  if (typeof content.html === 'string') return setHtmlAsync(content.html);
+  if (typeof content.image === 'string') return setImageAsync(content.image);
   return false;
 }
 
@@ -180,6 +256,8 @@ const api = {
   getUrlAsync,
   setUrlAsync,
   hasUrlAsync,
+  // Combined setter (files / text / html / image)
+  setContentAsync,
   // Listener
   addClipboardListener,
   removeClipboardListener,
