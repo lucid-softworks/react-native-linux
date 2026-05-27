@@ -22,12 +22,12 @@ Status legend:
 ## Quick smoke result
 
 Last attempted: 2026-05-27. **Akari boots to first render.** The window
-mounts with akari's `DevPerformanceOverlay` (~56 FPS, 17.7ms frametime)
+mounts with akari's `DevPerformanceOverlay` (~46 FPS, 21.5ms frametime)
 and the outer provider stack — `LanguageProvider` → `PlausibleProvider`
 → `ToastProvider` → `DialogProvider` → `ThemeProvider` →
 `ExternalLinkConfirmHost` → `AppProviders` → `QueryClient` /
 `PersistQueryClient` → `SafeAreaProvider` → `GestureHandlerRootView` —
-all mount clean.
+all mount clean. Zero JS errors during evaluation.
 
 The router itself shows
 `No component for "(auth)". Pass <...Screen component={...} /> or wrap
@@ -36,8 +36,59 @@ in a layout.` This is expected: our expo-router shim doesn't walk
 `app/(tabs)/_layout.tsx` the way real expo-router does. That's the
 next gap.
 
-The smoke harness lives in `/tmp/akari/` and is **not** in the repo —
-akari is the test subject, not a shipped dependency.
+### Smoke harness layout
+
+The harness lives outside the repo (akari is the test subject, not a
+shipped dependency) and outside akari (so its own metro/npm scripts
+don't pick it up):
+
+```
+/tmp/akari/                 # `git clone https://github.com/lucid-softworks/akari/`
+  apps/akari/               # the Expo 54 / RN 0.81 app under test
+  packages/                 # akari workspace packages (bluesky-api etc.)
+  node_modules/             # akari's hoisted deps — npm install --legacy-peer-deps
+  __rnlinux__/              # ← OUR smoke harness, kept out of git
+    entry.tsx               # imports apps/akari/app/_layout, registerRootComponent
+    bundle.mjs              # esbuild driver — RN_LINUX_REPO env overrides repo path
+    stubs/                  # one .js per missing-shim package
+      sentry-react-native.js
+      react-native-gesture-handler.js
+      react-navigation-native.js
+      expo-blur.js · expo-video.js · expo-system-ui.js · expo-dev-client.js
+      expo-background-task.js · expo-updates.js · expo-insights.js · expo-splash-screen.js
+      flash-list.js · lucide-react-native.js · expo-vector-icons.js
+      expo-metro-runtime.js · react-native-svg.js
+      react-native-webview.js · react-native-webrtc.js
+      react-native-exception-handler.js · react-simple-pull-to-refresh.js
+      rn-emoji-keyboard.js · react-native-web.js · axiom-crash-reporter.js
+      passthrough-view.js  # shared `<View>{children}</View>` helper
+```
+
+To rebuild + relaunch:
+
+```sh
+# Vendor — rebuild only when the umbrella shim package changes
+node apps/playground/bundle.mjs
+
+# App — rebuild the akari smoke (reuses vendor.bundle in-place)
+node /tmp/akari/__rnlinux__/bundle.mjs
+
+# Launch (inside the VM)
+scripts/vm/sh.sh 'scripts/vm/run-playground.sh'
+```
+
+The bundle.mjs script:
+
+- maps akari's `@/*` paths to `apps/akari/*` (and its tsconfig
+  `@/bluesky-api`, `@/clearsky-api`, … to `packages/*`)
+- aliases every missing-shim package to a local stub
+- borrows `@swc/core` from the host repo's node_modules via
+  `createRequire` (no `__rnlinux__/node_modules` of its own)
+- targets ES5 for **all** loaded source (the doc's older note that
+  RN 0.81 Hermes handles modern JS turned out to be wrong — see
+  below)
+- writes the app bundle into `apps/playground/linux/build/assets/`
+  so the existing `rn-linux-playground` binary picks it up
 
 ### What we learned during the boot
 
@@ -62,15 +113,42 @@ These are not akari-specific. They affect every Expo app we try to host.
 - **Hermes 0.12 chokes on esbuild's CJS-interop output.** Specifically:
   esbuild's `class extends (_X = expr)` rewrite (used by `__toESM`)
   and any top-level `async (…) =>` arrow expression both crash the
-  Hermes 0.12 parser. We blanket-lowered non-user-code to ES5 via swc
-  to dodge both. **Retired now** — the Hermes that ships with RN 0.81
-  (commit `e0fc6714…`) handles modern JS, and the playground bundle
-  builds + boots without lowering.
+  Hermes 0.12 parser. The akari bundle still needs blanket ES5
+  lowering via swc — earlier notes here claimed "RN 0.81 Hermes
+  handles modern JS" but that turned out to be **only partially
+  true**:
+  - The RN 0.81 Hermes commit (`e0fc6714…`) still self-reports as
+    `Hermes release version: 0.12.0` (`hermes -version`).
+  - It still rejects `class X { ... }` declarations and most class
+    expressions when invoked via the CLI (`hermes -exec`).
+  - The runtime evaluation path (`evaluateJavaScript` /
+    `hermes -lazy`) accepts the SYNTAX but silently **drops the
+    assignment**: `var X = class { ... }` leaves `X` undefined
+    because the class expression is never evaluated. Object.keys
+    lists the property; the value is undefined. The first
+    `new X()` later blows up.
+  - The akari smoke caught this via `new MMKV(...)` in
+    `useAppViewSettings.ts` — `import_react_native_mmkv.MMKV` was
+    undefined despite the module exporting it.
+  - **Workaround:** swc lowering to ES5 turns `var X = class { ... }`
+    into `var X = (function() { function X(...) {...}; X.prototype.* = ...; return X; })()`,
+    which Hermes handles correctly. Applied in both the akari
+    bundle (every source file) and the playground bundle (just
+    the umbrella shim package `packages/@lucid-softworks/react-native-linux-expo/`).
+  - The `hermes -lazy` CLI is a faithful reproducer of the runtime
+    behaviour — when debugging "import X returns undefined" symptoms,
+    reach for that.
 - **Per-iteration `let`/`const` in for-of loops mis-compiled closures**
   under Hermes 0.12 — esbuild's own `__copyProps` helper hit this. The
-  playground build still applies a `forEach` rewrite as a safety net;
-  if the new Hermes also fixed this (likely), the patch becomes a
-  no-op and can come down later.
+  playground build still applies a `forEach` rewrite as a safety net.
+  The akari bundle inherits the same patch (with the loop var renamed
+  across bundles — `key`, `key2`, `key3` — so the regex tolerates that).
+- **esbuild's `__require` resolves bare `require`** via the bundle's
+  top-level `var require = …` banner — but **only if the banner sits
+  outside the IIFE**. Banner content placed inside the IIFE is
+  shadowed; place it BEFORE the wrapping `(() => { ... })()`. esbuild
+  with `format: 'iife'` and a `banner.js` setting does this correctly
+  by default, but custom wrap-and-banner patterns can break it.
 
 ### Runtime bug surfaced
 
