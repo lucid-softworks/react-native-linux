@@ -25,9 +25,19 @@ sleep 1
 # cairo fallback by ~2-3x. Override by exporting RN_GSK_RENDERER.
 GSK_RENDERER="${RN_GSK_RENDERER:-ngl}"
 
+# Pass through every RN_LINUX_* env var the caller has set. The list
+# `env` builds gets only the explicit DISPLAY/GSK/BUNDLE pairs unless
+# we forward host vars too, so e.g. RN_LINUX_COLOR_SCHEME=dark would
+# otherwise be silently dropped here.
+extra_env=()
+while IFS= read -r line; do
+  extra_env+=("$line")
+done < <(env | grep -E '^RN_LINUX_' || true)
+
 nohup env DISPLAY=:1 \
   GSK_RENDERER="$GSK_RENDERER" \
   RN_BUNDLE_URL="file://$BUNDLE" \
+  "${extra_env[@]}" \
   "$EXE" </dev/null >"$LOG" 2>&1 &
 
 # Give the kernel a moment to register the process before we hand back.

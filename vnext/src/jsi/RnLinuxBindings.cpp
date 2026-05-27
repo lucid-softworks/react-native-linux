@@ -2092,16 +2092,26 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
-  // Appearance.getColorScheme backing. Reads the GTK setting
-  // `gtk-application-prefer-dark-theme` and returns 'dark' or 'light'.
-  // GTK exposes this via GtkSettings, which is global per display. The
-  // user's chosen system theme (set via the desktop's "Appearance"
-  // panel or AdwStyleManager on libadwaita systems) feeds it.
+  // Appearance.getColorScheme backing. Reads, in priority order:
+  //   1. the RN_LINUX_COLOR_SCHEME env var ("dark", "light", "auto")
+  //      — useful for forcing a theme inside the dev VM where Xfce
+  //      doesn't drive GTK4's app-prefer-dark setting on its own;
+  //   2. the GTK setting `gtk-application-prefer-dark-theme`, which a
+  //      GNOME / libadwaita desktop wires to the system "Appearance"
+  //      panel.
   bindMethod(rt,
              rnLinux,
              "getColorScheme",
              0,
              [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+               if (const char* env = std::getenv("RN_LINUX_COLOR_SCHEME")) {
+                 if (g_ascii_strcasecmp(env, "dark") == 0)
+                   return jsi::String::createFromUtf8(rt, "dark");
+                 if (g_ascii_strcasecmp(env, "light") == 0)
+                   return jsi::String::createFromUtf8(rt, "light");
+                 // anything else (including "auto") falls through to the
+                 // GtkSettings read below.
+               }
                GtkSettings* settings = gtk_settings_get_default();
                if (!settings)
                  return jsi::String::createFromUtf8(rt, "light");
