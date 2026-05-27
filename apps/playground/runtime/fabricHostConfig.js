@@ -55,6 +55,39 @@ const TYPE_TO_COMPONENT = {
 // covers what View/Text actually accept right now.
 const COLOR_PROPS = new Set(['backgroundColor', 'color', 'borderColor']);
 
+// CSS-named-color lookup — the most common ones apps reach for by name
+// instead of a hex code. RN's web-side color parser supports the full
+// CSS Color Module 4 named set; this is the tight subset that akari +
+// our shims actually emit (transparent + the basics + a sliver of
+// commonly-used aliases). Anything missing falls through to the
+// reconciler warning + raw passthrough.
+const NAMED_COLORS = {
+  transparent: [0, 0, 0, 0],
+  black: [0, 0, 0, 1],
+  white: [1, 1, 1, 1],
+  red: [1, 0, 0, 1],
+  green: [0, 128 / 255, 0, 1],
+  blue: [0, 0, 1, 1],
+  yellow: [1, 1, 0, 1],
+  cyan: [0, 1, 1, 1],
+  magenta: [1, 0, 1, 1],
+  gray: [128 / 255, 128 / 255, 128 / 255, 1],
+  grey: [128 / 255, 128 / 255, 128 / 255, 1],
+  silver: [192 / 255, 192 / 255, 192 / 255, 1],
+  maroon: [128 / 255, 0, 0, 1],
+  olive: [128 / 255, 128 / 255, 0, 1],
+  purple: [128 / 255, 0, 128 / 255, 1],
+  teal: [0, 128 / 255, 128 / 255, 1],
+  navy: [0, 0, 128 / 255, 1],
+  orange: [1, 165 / 255, 0, 1],
+  pink: [1, 192 / 255, 203 / 255, 1],
+  brown: [165 / 255, 42 / 255, 42 / 255, 1],
+  lightgray: [211 / 255, 211 / 255, 211 / 255, 1],
+  lightgrey: [211 / 255, 211 / 255, 211 / 255, 1],
+  darkgray: [169 / 255, 169 / 255, 169 / 255, 1],
+  darkgrey: [169 / 255, 169 / 255, 169 / 255, 1],
+};
+
 // Convert a CSS-style color string to a normalized [r, g, b, a] float
 // array. The C++ side's fromRawValueShared accepts this shape
 // (value.hasType<std::vector<float>>()) and packs it into a
@@ -65,6 +98,14 @@ function normalizeColor(c) {
   if (typeof c === 'number') return c;
   if (Array.isArray(c)) return c;
   if (typeof c !== 'string') return c;
+
+  // Named-color lookup is the hottest path on a feed page — every post
+  // touches `transparent` in multiple style slots, and walking the
+  // regex chain on every one was generating thousands of
+  // "unrecognized color" warning IPCs per commit and starving the
+  // reconciler.
+  const named = NAMED_COLORS[c.toLowerCase()];
+  if (named) return named;
 
   let m;
   if ((m = /^#([0-9a-f]{6})$/i.exec(c))) {
