@@ -106,12 +106,20 @@ const Text = React.forwardRef(function Text(props, ref) {
 // {pressed: false, hovered: false, focused: false} — apps get
 // rendering, just no visual press feedback yet.
 const Pressable = React.forwardRef(function Pressable(props, ref) {
-  const {onPress, children, ...rest} = props;
-  const resolvedChildren =
-    typeof children === 'function'
-      ? children({pressed: false, hovered: false, focused: false})
-      : children;
-  return React.createElement('view', {...rest, ref, onClick: onPress}, resolvedChildren);
+  const {onPress, children, style, ...rest} = props;
+  // RN's Pressable accepts BOTH `children` and `style` in render-prop
+  // form, evaluated with the current interaction state. Evaluate both
+  // here so flattenStyle (which only handles object/array forms) sees
+  // a usable shape — otherwise function-style silently drops every
+  // backgroundColor / padding / flex declaration on the button.
+  const state = {pressed: false, hovered: false, focused: false};
+  const resolvedChildren = typeof children === 'function' ? children(state) : children;
+  const resolvedStyle = typeof style === 'function' ? style(state) : style;
+  return React.createElement(
+    'view',
+    {...rest, ref, style: resolvedStyle, onClick: onPress},
+    resolvedChildren,
+  );
 });
 
 // <Switch value={bool} onValueChange={fn} disabled={bool} /> — backed
