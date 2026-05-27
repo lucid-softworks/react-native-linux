@@ -23,9 +23,9 @@ if(FOLLY_FOUND)
 endif()
 
 # Fallback: FetchContent. This is slow on first configure (~5-10 min) and
-# pulls in fmt, glog, gflags, gtest, etc. Pinned to a tag known good with
-# RN 0.76.
-set(FOLLY_TAG "v2024.01.01.00" CACHE STRING "Folly git tag")
+# pulls in fmt, glog, gflags, gtest, etc. Pinned to the tag RN 0.81's
+# CocoaPods helpers use (`react_native_pods.rb` → folly_config[:version]).
+set(FOLLY_TAG "v2024.11.18.00" CACHE STRING "Folly git tag")
 
 FetchContent_Declare(folly
   GIT_REPOSITORY https://github.com/facebook/folly.git

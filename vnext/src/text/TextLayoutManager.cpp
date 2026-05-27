@@ -19,9 +19,9 @@
 
 namespace facebook::react {
 
-void* TextLayoutManager::getNativeTextLayoutManager() const {
-  return (void*)this;
-}
+TextLayoutManager::TextLayoutManager(const ContextContainer::Shared& contextContainer)
+    : contextContainer_(contextContainer)
+    , textMeasureCache_(kSimpleThreadSafeCacheSizeCap) {}
 
 TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributedStringBox,
                                            const ParagraphAttributes& paragraphAttributes,
@@ -42,7 +42,13 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributed
   }
 
   if (attributedString.getFragments().empty()) {
-    return TextMeasurement{{0, 0}, std::move(attachments)};
+    // RN's assert_valid_size in ParagraphShadowNode requires the
+    // returned size to sit inside [min, max]. A parent that hard-pins
+    // its child's width (min == max > 0) is common — without clamping
+    // here, a zero-fragment paragraph trips the assertion immediately.
+    auto width = std::max(Float{0}, layoutConstraints.minimumSize.width);
+    auto height = std::max(Float{0}, layoutConstraints.minimumSize.height);
+    return TextMeasurement{{width, height}, std::move(attachments)};
   }
 
   // Pango needs a PangoContext to build layouts. The Cairo font-map
@@ -112,30 +118,6 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributed
   }
 
   return TextMeasurement{{width, height}, std::move(attachments)};
-}
-
-TextMeasurement TextLayoutManager::measureCachedSpannableById(
-    int64_t /*cacheId*/,
-    const ParagraphAttributes& /*paragraphAttributes*/,
-    const LayoutConstraints& /*layoutConstraints*/) const {
-  // We don't keep a measure cache yet — RN's only caller of this is
-  // Android-side. Returning {} matches the stock cxx behaviour.
-  return {};
-}
-
-LinesMeasurements
-TextLayoutManager::measureLines(const AttributedStringBox& /*attributedStringBox*/,
-                                const ParagraphAttributes& /*paragraphAttributes*/,
-                                const Size& /*size*/) const {
-  // Per-line metrics — used by accessibility / inline animations.
-  // Stub for now; revisit when those features arrive.
-  return {};
-}
-
-Float TextLayoutManager::baseline(const AttributedStringBox& /*attributedStringBox*/,
-                                  const ParagraphAttributes& /*paragraphAttributes*/,
-                                  const Size& /*size*/) const {
-  return 0;
 }
 
 } // namespace facebook::react

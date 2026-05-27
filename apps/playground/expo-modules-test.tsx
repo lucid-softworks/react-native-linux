@@ -5,6 +5,7 @@
 // Run with:
 //   RN_ENTRY=expo-modules-test.tsx node bundle.mjs
 
+import type * as React from 'react';
 import {useEffect, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {StatusBar} from 'expo-status-bar';
@@ -17,7 +18,7 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import {SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.app}>

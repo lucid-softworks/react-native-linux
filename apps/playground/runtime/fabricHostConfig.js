@@ -25,6 +25,12 @@ const {DefaultEventPriority} = require('react-reconciler/constants');
 
 const noop = () => {};
 
+// React 19 (reconciler 0.32) maintains a single ambient "update
+// priority" via set/get hooks rather than reading it from a global on
+// each call. Owned by the host config because the reconciler asks the
+// host where to store it.
+let currentUpdatePriority = 0;
+
 let nextTag = 2000;
 function newTag() {
   // Stay clear of the surfaceId range (1..1024) and the hand-rolled
@@ -302,6 +308,44 @@ const hostConfig = {
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
   getCurrentEventPriority: () => DefaultEventPriority,
+  // React 19 (reconciler 0.32) replaced getCurrentEventPriority's lone
+  // entry point with a tiny current-update-priority register. The
+  // reconciler reads/writes via these three hooks during scheduling.
+  // Mirror the simplest viable implementation — store a single number
+  // inside the renderer's module scope.
+  getCurrentUpdatePriority: () => currentUpdatePriority,
+  setCurrentUpdatePriority: priority => {
+    currentUpdatePriority = priority;
+  },
+  resolveUpdatePriority: () => currentUpdatePriority || DefaultEventPriority,
+  // New "suspend / preload commit" hooks. We don't run any kind of
+  // commit-deferral pipeline (no resource hoists, no router-driven
+  // transitions); flat-out no-ops keep the reconciler happy.
+  maySuspendCommit: () => false,
+  preloadInstance: () => true,
+  startSuspendingCommit: noop,
+  suspendInstance: noop,
+  waitForCommitToBeReady: () => null,
+  // Post-paint callback API. Reanimated and the upcoming View
+  // Transitions feature use it; we just invoke synchronously.
+  requestPostPaintCallback: cb => cb(performance.now()),
+  // Used by useFormState. We don't drive any form-action transitions
+  // yet; `NotPendingTransition` is the singleton React's React-19
+  // form-state path checks against.
+  NotPendingTransition: null,
+  HostTransitionContext: {
+    $$typeof: Symbol.for('react.context'),
+    Provider: null,
+    Consumer: null,
+    _currentValue: null,
+    _currentValue2: null,
+    _threadCount: 0,
+  },
+  resetFormInstance: noop,
+  // React 19 dev-mode console binding. Without an implementation,
+  // reconciler's bindToConsole pass silently disables warning grouping
+  // — fine for us.
+  bindToConsole: () => () => {},
 
   getRootHostContext: () => ({}),
   getChildHostContext: () => ({}),

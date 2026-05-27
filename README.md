@@ -114,7 +114,7 @@ react-native-linux/
 | Layout          | Yoga (bundled with RN)               |
 | Package manager | pnpm 9                               |
 | Build system    | CMake (Ninja)                        |
-| Minimum RN      | `^0.76`                              |
+| Minimum RN      | `^0.81`                              |
 | Minimum distro  | Ubuntu 24.04 LTS (CI gates on this)  |
 | License         | MIT                                  |
 

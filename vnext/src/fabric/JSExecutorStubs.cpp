@@ -1,23 +1,21 @@
-// Minimal stub implementations of cxxreact symbols the RN renderer
-// references but which would otherwise require pulling the entire
-// (legacy bridge) cxxreact source tree into the build.
+// Minimal stub for the `performanceNow()` symbol jsireact references —
+// in RN 0.81 it's a free function in `facebook::react`, no longer a
+// JSExecutor static. We supply the trivial implementation upstream
+// uses (`chronoToDOMHighResTimeStamp(steady_clock::now())`).
 //
-// Right now there's only one consumer: PerformanceEntryReporter (via
-// Scheduler / RuntimeScheduler_Legacy) calls JSExecutor::performanceNow()
-// to attach high-res timestamps to LongTask entries. We supply the
-// trivial chronoToDOMHighResTimeStamp(now()) version upstream uses.
-//
-// When TurboModules + real JSI/bridge plumbing arrive (Phase 5.6), this
-// file gets replaced by linking the real cxxreact .cpps.
+// When TurboModules + real JSI/bridge plumbing arrive, this file gets
+// replaced by linking the real jsireact .cpps.
 
 #include <chrono>
-#include <cxxreact/JSExecutor.h>
 #include <react/timing/primitives.h>
 
 namespace facebook::react {
 
-double JSExecutor::performanceNow() {
-  return chronoToDOMHighResTimeStamp(std::chrono::steady_clock::now());
+// RN 0.81 retired the free `chronoToDOMHighResTimeStamp` helper. The
+// HighResTimeStamp / HighResDuration primitives now expose the same
+// conversion via `(now - epoch).toDOMHighResTimeStamp()`.
+double performanceNow() {
+  return (HighResTimeStamp::now() - HighResTimeStamp{}).toDOMHighResTimeStamp();
 }
 
 } // namespace facebook::react

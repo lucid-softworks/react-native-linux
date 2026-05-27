@@ -12,6 +12,7 @@
 //   RN_ENTRY=expo-tabs.tsx node bundle.mjs
 //   # then kill the playground; watchdog will relaunch with the new bundle
 
+import type * as React from 'react';
 import {useState, type ReactNode} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {StatusBar} from 'expo-status-bar';
@@ -38,7 +39,7 @@ interface TabDef {
   render: () => ReactNode;
 }
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   const [active, setActive] = useState<TabName>('home');
   const [counter, setCounter] = useState(0);
 

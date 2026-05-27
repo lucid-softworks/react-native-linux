@@ -13,12 +13,13 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
-#include <react/config/ReactNativeConfig.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/core/EventBeat.h>
+#include <react/renderer/runtimescheduler/RuntimeScheduler.h>
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/renderer/scheduler/SchedulerToolbox.h>
 #include <react/renderer/scheduler/SurfaceHandler.h>
+#include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 #include <react/renderer/uimanager/UIManagerBinding.h>
 #include <react/utils/ContextContainer.h>
 #include <string>
@@ -34,6 +35,10 @@ struct RNLinuxHost::Impl {
   std::function<void(facebook::jsi::Runtime&)> beforeBundleEval;
   std::shared_ptr<facebook::react::ContextContainer> contextContainer;
   std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry> descriptorProviders;
+  // RN 0.81's EventBeat ctor needs a RuntimeScheduler reference, and
+  // the Scheduler itself doesn't construct one — the host owns it.
+  // Lives on Impl so it outlives every EventBeat the factory hands out.
+  std::shared_ptr<facebook::react::RuntimeScheduler> runtimeScheduler;
   std::unique_ptr<facebook::react::Scheduler> scheduler;
   std::unique_ptr<facebook::react::SurfaceHandler> rootSurface;
   std::thread jsThread;
@@ -111,13 +116,21 @@ void RNLinuxHost::start() {
   //    landing during JS bootstrap have a registry to talk to.
   impl_->schedulerDelegate = std::make_unique<LinuxSchedulerDelegate>(impl_->mountingManager);
   impl_->contextContainer = std::make_shared<facebook::react::ContextContainer>();
-  // The Scheduler reads runtime feature flags via
-  // ContextContainer::at<ReactNativeConfig>("ReactNativeConfig"); without
-  // an instance present the ctor asserts. Register an empty config —
-  // all features stay at their default values, which is what we want.
-  impl_->contextContainer->insert("ReactNativeConfig",
-                                  std::shared_ptr<const facebook::react::ReactNativeConfig>(
-                                      std::make_shared<facebook::react::EmptyReactNativeConfig>()));
+  // RN 0.81 retired ContextContainer-based ReactNativeConfig in favour
+  // of the global ReactNativeFeatureFlags singleton — the Scheduler no
+  // longer touches the container for feature lookups, so no
+  // registration needed.
+  //
+  // ParagraphComponentDescriptor looks up a TextLayoutManager via
+  // getManagerByName(TextLayoutManagerKey). Without it, every
+  // ParagraphShadowNode gets `setTextLayoutManager(nullptr)` and the
+  // `updateStateIfNeeded` path bails before calling `setStateData`,
+  // so our Pango-backed updateState never receives the AttributedString
+  // and every <Text> renders as an empty GtkLabel.
+  impl_->contextContainer->insert(
+      "TextLayoutManager",
+      std::shared_ptr<facebook::react::TextLayoutManager>(
+          std::make_shared<facebook::react::TextLayoutManager>(impl_->contextContainer)));
   impl_->descriptorProviders = makeLinuxComponentDescriptorRegistry();
 
   facebook::react::SchedulerToolbox toolbox;
@@ -144,12 +157,30 @@ void RNLinuxHost::start() {
     };
   }
 
+  // Stand up a RuntimeScheduler. Every EventBeat the factory hands out
+  // needs a reference to it (0.81 moved the ownership model so the host
+  // — not the Scheduler — owns the RuntimeScheduler). We pass the same
+  // RuntimeExecutor that drives the rest of the Scheduler so work is
+  // serialised on the JS thread.
+  impl_->runtimeScheduler =
+      std::make_shared<facebook::react::RuntimeScheduler>(toolbox.runtimeExecutor);
+
+  // Scheduler::Scheduler() in 0.81 fetches the RuntimeScheduler from
+  // contextContainer via RuntimeSchedulerKey (`react_native_assert`
+  // fires if it's missing). Register a weak ref so the asserter
+  // resolves; the host retains the strong ref on Impl.
+  impl_->contextContainer->insert(
+      facebook::react::RuntimeSchedulerKey,
+      std::weak_ptr<facebook::react::RuntimeScheduler>(impl_->runtimeScheduler));
+
   // EventBeat factory: produce a noop beat. Sufficient to satisfy the
   // Scheduler's non-null requirement; real event flow lands later.
-  toolbox.asynchronousEventBeatFactory =
-      [](const facebook::react::EventBeat::SharedOwnerBox& ownerBox) {
-        return std::make_unique<NoopEventBeat>(ownerBox);
-      };
+  auto& runtimeScheduler = *impl_->runtimeScheduler;
+  toolbox.eventBeatFactory =
+      [&runtimeScheduler](std::shared_ptr<facebook::react::EventBeat::OwnerBox> ownerBox)
+      -> std::unique_ptr<facebook::react::EventBeat> {
+    return std::make_unique<NoopEventBeat>(std::move(ownerBox), runtimeScheduler);
+  };
 
   impl_->scheduler = std::make_unique<facebook::react::Scheduler>(
       toolbox, /*animationDelegate=*/nullptr, impl_->schedulerDelegate.get());
@@ -331,7 +362,15 @@ void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
   // Our bundle (apps/playground/runtime/fabric.js) installs that hook
   // and uses nativeFabricUIManager to commit a shadow tree, so the
   // call no longer std::terminate's.
-  surface.start();
+  try {
+    surface.start();
+  } catch (const std::exception& e) {
+    RNL_LOGE("RNLinuxHost") << "surface.start() threw: " << e.what();
+    return;
+  } catch (...) {
+    RNL_LOGE("RNLinuxHost") << "surface.start() threw unknown exception";
+    return;
+  }
   // surface.start() runs JS (RN$AppRegistry.runApplication, which then
   // does reconciler.updateContainer → completeRoot). React schedules
   // post-commit passive effects (useEffect) as microtasks; drain them

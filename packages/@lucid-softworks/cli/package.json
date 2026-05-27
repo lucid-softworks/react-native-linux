@@ -34,10 +34,10 @@
   "peerDependencies": {
     "@react-native-community/cli": "*",
     "@react-native-community/cli-types": "*",
-    "react-native": "^0.76.0"
+    "react-native": "^0.81.0"
   },
   "devDependencies": {
-    "@react-native-community/cli-types": "^14.0.0",
+    "@react-native-community/cli-types": "^20.0.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.10",

@@ -115,6 +115,7 @@ jobs:
             libssl-dev \
             libgoogle-glog-dev \
             libgflags-dev \
+            libfast-float-dev \
             zlib1g-dev \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
@@ -123,9 +124,10 @@ jobs:
             python3 python3-pip
           # Folly's CMake reaches for Boost (context / filesystem / regex /
           # thread …) + a bunch of MODULE-required find_package() calls:
-          # DoubleConversion, LibEvent, OpenSSL. The optional ones (Glog,
-          # Gflags, ZLIB) get linked when present and we install them so
-          # the configure isn't constantly toggling Folly compile flags
+          # DoubleConversion, LibEvent, OpenSSL, FastFloat (new with
+          # Folly v2024.11.18.00). The optional ones (Glog, Gflags,
+          # ZLIB) get linked when present and we install them so the
+          # configure isn't constantly toggling Folly compile flags
           # between runs. Our CMakeLists for the playground app also
           # pulls in libsoup3 for the image loader's network backend.
           #

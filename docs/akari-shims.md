@@ -21,9 +21,129 @@ Status legend:
 
 ## Quick smoke result
 
-Last attempted: 2026-05-26. Bundle fails at first unresolved import.
-Static audit (this doc) is the source of truth until a real bundle
-attempt lands an end-to-end boot.
+Last attempted: 2026-05-27. **Akari boots to first render.** The window
+mounts with akari's `DevPerformanceOverlay` (~56 FPS, 17.7ms frametime)
+and the outer provider stack — `LanguageProvider` → `PlausibleProvider`
+→ `ToastProvider` → `DialogProvider` → `ThemeProvider` →
+`ExternalLinkConfirmHost` → `AppProviders` → `QueryClient` /
+`PersistQueryClient` → `SafeAreaProvider` → `GestureHandlerRootView` —
+all mount clean.
+
+The router itself shows
+`No component for "(auth)". Pass <...Screen component={...} /> or wrap
+in a layout.` This is expected: our expo-router shim doesn't walk
+`require.context()` to gather `app/(auth)/_layout.tsx` and
+`app/(tabs)/_layout.tsx` the way real expo-router does. That's the
+next gap.
+
+The smoke harness lives in `/tmp/akari/` and is **not** in the repo —
+akari is the test subject, not a shipped dependency.
+
+### What we learned during the boot
+
+These are not akari-specific. They affect every Expo app we try to host.
+
+- **Vendor React was 18.3.1; akari (and any modern Expo 54 / RN 0.81
+  app) uses React 19's `React.use(context)`.** During the smoke we
+  polyfilled it as `useContext` via a side-effect import that ran
+  _before_ hoisted ES imports — the only way to land on the React
+  module before every downstream `__toESM(require('react'))`
+  enumerates own keys. The repo has since moved to React 19.1.7 + RN
+  0.81 + matching Hermes, so the polyfill is no longer needed.
+- **esbuild's `__toESM` wrapper enumerates own keys via
+  `Object.getOwnPropertyNames`.** A lazy Proxy `get` trap is invisible
+  to that call, so any stub fronting a function with a per-property
+  `get` trap loses every named export through the CJS-to-ESM bridge.
+  Stubs need either eager properties or explicit `ownKeys` +
+  `getOwnPropertyDescriptor` traps.
+- **Stub container components must render `<View>{children}</View>`,
+  not return `null`.** A null-returning `GestureHandlerRootView`
+  hides the entire app tree.
+- **Hermes 0.12 chokes on esbuild's CJS-interop output.** Specifically:
+  esbuild's `class extends (_X = expr)` rewrite (used by `__toESM`)
+  and any top-level `async (…) =>` arrow expression both crash the
+  Hermes 0.12 parser. We blanket-lowered non-user-code to ES5 via swc
+  to dodge both. **Retired now** — the Hermes that ships with RN 0.81
+  (commit `e0fc6714…`) handles modern JS, and the playground bundle
+  builds + boots without lowering.
+- **Per-iteration `let`/`const` in for-of loops mis-compiled closures**
+  under Hermes 0.12 — esbuild's own `__copyProps` helper hit this. The
+  playground build still applies a `forEach` rewrite as a safety net;
+  if the new Hermes also fixed this (likely), the patch becomes a
+  no-op and can come down later.
+
+### Runtime bug surfaced
+
+When a JS render exception propagates out of the React tree during
+`UIManager::startSurface`, the C++ side calls `std::terminate` and the
+whole process aborts — even though the React ErrorBoundary above
+caught it cleanly and the runtime had recovered. The host's
+`surface.start()` call now wraps the synchronous path in
+try/catch, but the throw originates inside `UIManager::startSurface`
+itself (which is `noexcept`) so we still can't catch it from outside.
+Real fix lives inside the UIManager / our `RuntimeExecutor` —
+`runtimeExecutor` runs the lambda body inline, so any JSI exception
+the body throws escapes a `noexcept` boundary. **Open follow-up**:
+wrap the host's `runtimeExecutor` lambda in a catch so we never throw
+through `noexcept` again.
+
+### React 19 / RN 0.81 bump notes
+
+The bump landed in [commit history TBD]. Highlights:
+
+- React 18.3.1 → 19.1.7, react-reconciler 0.29.2 → 0.32.0,
+  react-native ^0.76 → ^0.81, plus `@react-native/babel-preset` and
+  `@react-native/metro-config` to ^0.81 and `@react-native-community/cli`
+  to ^20.
+- Hermes commit bumped to the one RN 0.81 ships (read from
+  `node_modules/react-native/sdks/.hermesversion`).
+- Folly tag bumped to `v2024.11.18.00` (RN 0.81's CocoaPods pin).
+- New FetchContent module for `fast_float` v8.0.0 — RN 0.81's CSS
+  tokenizer needs APIs that landed in fast_float 6.x. Ubuntu's
+  `libfast-float-dev` 3.9.0 stays installed for Folly's own internal
+  use; the renderer gets the v8 headers via the FetchContent target.
+- Several new `platform/cxx` include paths picked up: scrollview,
+  text, modal, react/utils, runtimeexecutor — RN 0.81 split per-
+  component / per-module host indirection across new subdirs.
+- `react/config/ReactNativeConfig.h` removed — replaced by the
+  global `ReactNativeFeatureFlags` singleton.
+- `SchedulerToolbox::asynchronousEventBeatFactory` became a single
+  `eventBeatFactory` and `EventBeat` now needs a `RuntimeScheduler&`
+  in its ctor. Host now owns a `RuntimeScheduler` and registers it
+  into `ContextContainer` under `RuntimeSchedulerKey` (the Scheduler
+  asserts on `find<weak_ptr<RuntimeScheduler>>`).
+- `MountingCoordinator::Shared` → `std::shared_ptr<const
+MountingCoordinator>` in the delegate signatures.
+- `ShadowViewMutation::parentShadowView` field removed; use
+  `parentTag` directly.
+- Two new pure virtuals on `SchedulerDelegate`:
+  `schedulerShouldSynchronouslyUpdateViewOnUIThread` and
+  `schedulerDidUpdateShadowTree`.
+- `JSExecutor::performanceNow()` became a free function
+  `facebook::react::performanceNow()`, and the
+  `chronoToDOMHighResTimeStamp` helper is gone — use
+  `(HighResTimeStamp::now() - HighResTimeStamp{})
+.toDOMHighResTimeStamp()`.
+- New required source files on the renderer link:
+  `react/renderer/mounting/internal/*.cpp` (CullingContext),
+  `runtimeexecutor/platform/cxx/.../RuntimeExecutorSyncUIThreadUtils.cpp`,
+  `jsinspector-modern/tracing/{PerformanceTracer,EventLoopReporter}.cpp`,
+  `oscompat/OSCompatPosix.cpp`. The shared library also needs
+  `-latomic` for `std::atomic<std::optional<double>>` on aarch64.
+- React 19 reconciler config picked up new host hooks:
+  `getCurrentUpdatePriority`/`setCurrentUpdatePriority`/`resolveUpdatePriority`,
+  `maySuspendCommit`, `preloadInstance`, `startSuspendingCommit`,
+  `suspendInstance`, `waitForCommitToBeReady`,
+  `requestPostPaintCallback`, `NotPendingTransition`,
+  `HostTransitionContext`, `resetFormInstance`, `bindToConsole`. All
+  no-op except the priority register, which holds a single number.
+
+After bump the playground bundle is 158 kB / vendor 2.9 MB (was 3.5 MB),
+boots cleanly, and renders 287-mutation cold mount with sustained
+60 Hz raf in the rich demo. A non-fatal `rAF threw: NaN is not a
+function` in the cross-fade animation helper still appears once on
+mount — likely a strictness change in React 19's scheduling layer
+that surfaces a NaN where the old reconciler was lax. Not a blocker.
 
 ## Ecosystem packages
 

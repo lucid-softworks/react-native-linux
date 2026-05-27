@@ -14,14 +14,13 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(REACT_NATIVE_LINUX_BUILD_TESTS "Build vnext unit tests" OFF)
 option(REACT_NATIVE_LINUX_USE_SYSTEM_HERMES "Use system-installed Hermes instead of FetchContent" OFF)
-# Hermes' CDP (Chrome DevTools Protocol) sources at the RN 0.76.2 commit
-# fail to build against GCC 13 / libstdc++ 13 (the Ubuntu 24.04 stack)
-# with "incomplete type std::__cxx11::basic_string<char>" errors in
+# Hermes' CDP (Chrome DevTools Protocol) sources have failed to build
+# against GCC 13 / libstdc++ 13 (the Ubuntu 24.04 stack) with
+# "incomplete type std::__cxx11::basic_string<char>" errors in
 # cdp/DomainState.cpp — Hermes was developed against an older libstdc++
 # that transitively included <string>. Default the inspector OFF on
-# Linux until we land a patch (or bump Hermes past that fix). Opt back
-# in with -DREACT_NATIVE_LINUX_ENABLE_INSPECTOR=ON once the patch is
-# upstream.
+# Linux until we verify the RN 0.81 Hermes drop fixes it. Opt back
+# in with -DREACT_NATIVE_LINUX_ENABLE_INSPECTOR=ON.
 option(REACT_NATIVE_LINUX_ENABLE_INSPECTOR "Enable Hermes Chrome inspector" OFF)
 
 # ------------------------------------------------------------------
@@ -71,6 +70,7 @@ pkg_check_modules(Notify REQUIRED IMPORTED_TARGET libnotify)
 pkg_check_modules(Secret REQUIRED IMPORTED_TARGET libsecret-1)
 include(ReactNativeHeaders)  # locate node_modules/react-native
 include(FetchHermes)      # Hermes runtime
+include(FetchFastFloat)   # fast_float — Folly's optional dep + RN 0.81 CSS parser
 include(FetchFolly)       # Folly (subset)
 include(FetchGlog)        # glog
 include(FetchFmt)         # fmt
@@ -172,6 +172,9 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/mounting/*.cpp
+  # CullingContext + sliceChildShadowNodeViewPairs moved under
+  # mounting/internal/ in RN 0.81 and Differentiator depends on them.
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/mounting/internal/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/telemetry/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/runtimescheduler/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/scheduler/*.cpp
@@ -186,7 +189,19 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/utils/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/debug/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/performance/timeline/*.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/reactperflogger/reactperflogger/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/logger/*.cpp
+  # RN 0.81's RuntimeScheduler_Modern calls into the jsinspector
+  # PerformanceTracer + EventLoopReporter. Just pull the tracing subset
+  # — the rest of jsinspector-modern is web-socket / CDP transport we
+  # don't run.
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/tracing/PerformanceTracer.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/tracing/EventLoopReporter.cpp
+  # RuntimeScheduler hops onto the UI thread via this helper.
+  ${REACT_NATIVE_ROOT}/ReactCommon/runtimeexecutor/platform/cxx/ReactCommon/RuntimeExecutorSyncUIThreadUtils.cpp
+  # PerformanceTracer pulls oscompat for thread/process ids — RN
+  # 0.81 split this into its own module. Linux falls under POSIX.
+  ${REACT_NATIVE_ROOT}/ReactCommon/oscompat/OSCompatPosix.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/jsi/jsi/JSIDynamic.cpp
 )
 # Exclude any test files swept up by the globs above.
@@ -217,6 +232,13 @@ target_include_directories(react_native_rn_renderer
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/graphics/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/view/platform/cxx
+    # RN 0.81 split per-component props/state out behind a HostPlatform*
+    # indirection. Each component's cxx-platform subdir is the
+    # generic-Linux/desktop implementation we want.
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/scrollview/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/text/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/modal/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/utils/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/textlayoutmanager/platform/cxx
@@ -225,6 +247,14 @@ target_include_directories(react_native_rn_renderer
     # the include base is the sibling `ReactCommon/` subdir.
     ${REACT_NATIVE_ROOT}/ReactCommon/callinvoker
     ${REACT_NATIVE_ROOT}/ReactCommon/runtimeexecutor
+    ${REACT_NATIVE_ROOT}/ReactCommon/runtimeexecutor/platform/cxx
+    ${REACT_NATIVE_ROOT}/ReactCommon/reactperflogger
+    # jsinspector-modern's tracing headers — needed because we link
+    # PerformanceTracer + EventLoopReporter for the RuntimeScheduler.
+    ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern
+    # oscompat OSCompat.h — process / thread id helpers used by
+    # PerformanceTracer above.
+    ${REACT_NATIVE_ROOT}/ReactCommon/oscompat
     ${REACT_NATIVE_ROOT}/ReactCommon/yoga
     ${RNL_SHIM_DIR}
 )
@@ -232,6 +262,12 @@ target_link_libraries(react_native_rn_renderer
   PUBLIC
     Hermes::Hermes
     Folly::folly
+    # RN 0.81's CSS tokenizer reaches for fast_float v6+ APIs
+    # (`chars_format::allow_leading_plus`). Ubuntu ships 3.9.0, so the
+    # FetchContent build at v8.0.0 must take precedence over the
+    # system header. Linking against the interface target propagates
+    # its include dir ahead of /usr/include.
+    FastFloat::fast_float
     # Our Pango-backed TextLayoutManager.cpp lives in this library and
     # needs both pangocairo (font map + layout APIs) and cairo
     # itself. GTK4 transitively links them, but rn_renderer is built
@@ -331,6 +367,12 @@ target_link_libraries(react_native_linux
     react_native_rn_renderer
     -Wl,--no-whole-archive
     yogacore
+    # RN 0.81's ReactNativeFeatureFlagsAccessor uses
+    # std::atomic<std::optional<double>> (16 bytes on aarch64), which
+    # needs the libatomic fallback for __atomic_{load,store}_16. Must
+    # come AFTER the static archive that references those symbols so
+    # ld resolves them in the right order.
+    atomic
 )
 
 # Fail the .so link if any reference goes unresolved. Without this,

@@ -3,6 +3,7 @@
 // can drop into any RN app. Measures FPS via rAF deltas over a 60-frame
 // sliding window, surfaces avg frame time + dropped-frame count.
 
+import type * as React from 'react';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Platform, Pressable, StyleSheet, Text, View} from 'react-native';
 
@@ -22,7 +23,7 @@ type PerfStats = {
 // no longer dominates the rolling window.
 const SAMPLE_WINDOW = 240;
 
-export function FpsOverlay(): JSX.Element | null {
+export function FpsOverlay(): React.JSX.Element | null {
   const [visible, setVisible] = useState(true);
   const [stats, setStats] = useState<PerfStats>({
     fps: 0,

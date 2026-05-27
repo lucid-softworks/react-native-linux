@@ -13,13 +13,13 @@ if(REACT_NATIVE_LINUX_USE_SYSTEM_HERMES)
   return()
 endif()
 
-# Hermes commit that React Native 0.76.2 was built against. Source of
+# Hermes commit that React Native 0.81 was built against. Source of
 # truth: `node_modules/react-native/sdks/.hermesversion`, which is a
 # string of the form `hermes-YYYY-MM-DD-RNvX.Y.Z-<sha>`. We pin the
 # <sha> part directly because the literal `hermes-…-<sha>` string is
 # RN's vendoring tag, not a tag on facebook/hermes.
-set(HERMES_COMMIT "5b4aa20c719830dcf5684832b89a6edb95ac3d64"
-    CACHE STRING "Hermes git commit to fetch (matches RN 0.76.2 .hermesversion)")
+set(HERMES_COMMIT "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    CACHE STRING "Hermes git commit to fetch (matches RN 0.81 .hermesversion)")
 
 FetchContent_Declare(hermes
   GIT_REPOSITORY https://github.com/facebook/hermes.git

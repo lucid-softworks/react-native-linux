@@ -6,7 +6,7 @@ Decisions locked in (2026-05-21):
 - **JS engine:** Hermes (vendor bundle pre-compiled to `.hbc` for fast cold start)
 - **Architecture:** Fabric (Scheduler + cloneNodeWithNewProps persistent mode)
 - **Repo layout:** Monorepo, mirroring `microsoft/react-native-windows` (`vnext/` + `packages/*`)
-- **Target RN version:** `^0.76`
+- **Target RN version:** `^0.81`
 
 > "MVP working" target hit (2026-05-25): standard `import {View, Text, …} from 'react-native'` JSX renders into a GTK4 window via Fabric, with state-preserving Fast Refresh in ≈135 ms edit→visible.
 

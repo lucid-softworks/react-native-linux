@@ -20,9 +20,9 @@ class LinuxSchedulerDelegate final : public facebook::react::SchedulerDelegate {
   ~LinuxSchedulerDelegate() override;
 
   void schedulerDidFinishTransaction(
-      const facebook::react::MountingCoordinator::Shared& coordinator) override;
+      const std::shared_ptr<const facebook::react::MountingCoordinator>& coordinator) override;
   void schedulerShouldRenderTransactions(
-      const facebook::react::MountingCoordinator::Shared& coordinator) override;
+      const std::shared_ptr<const facebook::react::MountingCoordinator>& coordinator) override;
   void schedulerDidRequestPreliminaryViewAllocation(
       const facebook::react::ShadowNode& shadowNode) override;
   void schedulerDidDispatchCommand(const facebook::react::ShadowView& shadowView,
@@ -33,6 +33,14 @@ class LinuxSchedulerDelegate final : public facebook::react::SchedulerDelegate {
   void schedulerDidSetIsJSResponder(const facebook::react::ShadowView& shadowView,
                                     bool isJSResponder,
                                     bool blockNativeResponder) override;
+  // RN 0.81 added these two to the delegate contract. The
+  // synchronous-update path is iOS/Android optimisation glue we don't
+  // need; the shadow-tree-did-update hook is for direct-manipulation
+  // callers (Animated, Reanimated) that we don't drive yet.
+  void schedulerShouldSynchronouslyUpdateViewOnUIThread(facebook::react::Tag tag,
+                                                        const folly::dynamic& props) override;
+  void schedulerDidUpdateShadowTree(
+      const std::unordered_map<facebook::react::Tag, folly::dynamic>& tagToProps) override;
 
  private:
   std::shared_ptr<LinuxMountingManager> mountingManager_;

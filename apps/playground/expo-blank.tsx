@@ -12,11 +12,12 @@
 //   * runtime/vendor.js + bundle.mjs — wire `expo-status-bar` into
 //     the vendor require-shim so it resolves at app-bundle load time.
 
+import type * as React from 'react';
 import {StatusBar} from 'expo-status-bar';
 import {StyleSheet, Text, View} from 'react-native';
 import {renderFabric} from './runtime';
 
-function App(): JSX.Element {
+function App(): React.JSX.Element {
   return (
     <View style={styles.container}>
       <Text>Open up App.js to start working on your app!</Text>

@@ -42,7 +42,7 @@ const GearIcon = ({color, size}: {color: string; size: number}) => (
   <SymbolView name="gearshape.fill" size={size} tintColor={color} />
 );
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.app}>

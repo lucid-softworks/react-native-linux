@@ -126,7 +126,7 @@ const data: Item[] = Array.from({length: 80}, (_, i) => ({
         : 'styled with StyleSheet.create',
 }));
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   const [count, setCount] = useState(0);
   const [tick, setTick] = useState(0);
   const [name, setName] = useState('');

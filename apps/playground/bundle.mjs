@@ -59,26 +59,14 @@ const refreshTransformPlugin = {
         if (source === null) source = readFileSync(args.path, 'utf8');
         return source;
       };
-      // Hermes 0.12 chokes on `var X = class extends MemberExpression
-      // {...}` — the wrapping shape esbuild emits when CJS-converting
-      // `class X extends React.Component {}`. We hand-rolled a
-      // function-constructor for our own ErrorBoundary; third-party
-      // libraries (react-native-paper, react-navigation, …) can't be
-      // touched. Lower classes via swc target=es5 for any node_modules
-      // file that exports a class component. The regex is cheap and
-      // skips the bulk of plain-data files.
-      // Any node_modules file containing a class expression — bare
-      // `var X = class {…}` (expo-location's Subscriber), `class
-      // CodedError extends Error` (expo-modules-core), or the
-      // member-expression `class extends React.Component` esbuild
-      // emits when CJS-converting. Hermes 0.12 chokes on all of them.
-      // Cheap precheck: look for the `class` keyword followed by `{`
-      // or `extends`. Anything that matches goes through swc target=es5
-      // and gets lowered to a function constructor.
-      const isHermesIncompatibleClass =
-        args.path.includes('/node_modules/') &&
-        /\bclass\b(?:\s+[\w$]+)?\s*(?:extends\s+\S+\s*)?\{/.test(lazySource());
-      if (!inUserCode && !isNativeSpec && !isHermesIncompatibleClass) return null;
+      // Hermes 0.12 needed ES5 lowering for node_modules files that
+      // shipped class expressions — esbuild's `class extends (expr)`
+      // CJS-interop rewrite hit a parser bug. The Hermes drop that
+      // ships with RN 0.81 (commit e0fc6714…) handles all of these,
+      // so the lowering pass goes away entirely. Only user code +
+      // Flow-tagged Native* specs still need the swc transform — for
+      // JSX and Flow stripping, not for any class workaround.
+      if (!inUserCode && !isNativeSpec) return null;
 
       // RN's Native* spec files are usually Flow-flavoured (// @flow,
       // `interface Spec extends TurboModule`, `(expr: ?Type)` casts).
@@ -103,11 +91,7 @@ const refreshTransformPlugin = {
               refresh: inUserCode,
             },
           },
-          // es5 for node_modules with class components so swc lowers
-          // them to function constructors Hermes can compile; es2020
-          // for our own code (Hermes handles those classes fine since
-          // they're not in the same CJS-wrap pattern).
-          target: isHermesIncompatibleClass && !inUserCode ? 'es5' : 'es2020',
+          target: 'es2020',
         },
       });
       return {contents: result.code, loader: 'js'};

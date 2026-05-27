@@ -57,7 +57,7 @@ const RouterIcon = ({color, size}: {color: string; size: number}) => (
   <SymbolView name="paperplane.fill" size={size} tintColor={color} />
 );
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.app}>
@@ -92,7 +92,7 @@ export default function App(): JSX.Element {
 // Mirror of expo-blank.tsx's body — the literal `create-expo-app
 // --template blank` content. The point is "an unmodified Expo blank
 // app renders here."
-function BlankScreen(): JSX.Element {
+function BlankScreen(): React.JSX.Element {
   return (
     <View style={styles.blankWrap}>
       <Text style={styles.blankText}>Open up App.js to start working on your app!</Text>
@@ -109,7 +109,7 @@ type HostRef = {
   blur: () => void;
 };
 
-function ModulesScreen(): JSX.Element {
+function ModulesScreen(): React.JSX.Element {
   const measuredRef = useRef<HostRef | null>(null);
   const [measured, setMeasured] = useState<string>('—');
   useEffect(() => {
@@ -212,7 +212,7 @@ function ModulesScreen(): JSX.Element {
   );
 }
 
-function RouterScreen(): JSX.Element {
+function RouterScreen(): React.JSX.Element {
   const params = useLocalSearchParams() as {via?: string};
   const [count, setCount] = useState(0);
   return (

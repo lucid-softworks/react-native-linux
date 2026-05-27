@@ -45,14 +45,14 @@ void LinuxMountingManager::performTransaction(const facebook::react::MountingTra
       break;
 
     case Type::Insert:
-      handleInsert(m.parentShadowView.tag, m.newChildShadowView.tag, m.index);
+      handleInsert(m.parentTag, m.newChildShadowView.tag, m.index);
       // Layout/position can only be applied once the child is in a
       // GtkFixed parent — do it here.
       applyLayout(m.newChildShadowView);
       break;
 
     case Type::Remove:
-      handleRemove(m.parentShadowView.tag, m.oldChildShadowView.tag, m.index);
+      handleRemove(m.parentTag, m.oldChildShadowView.tag, m.index);
       break;
 
     case Type::Update:
@@ -138,6 +138,10 @@ void LinuxMountingManager::handleRemove(Tag parentTag, Tag childTag, int /*index
 void LinuxMountingManager::handleUpdate(const facebook::react::ShadowView& oldView,
                                         const facebook::react::ShadowView& newView) {
   auto* view = registry_.lookup(newView.tag);
+  RNL_LOGI("MountingManager") << "handleUpdate tag=" << newView.tag
+                              << " comp=" << newView.componentName
+                              << " view=" << (view ? "ok" : "NULL")
+                              << " state=" << (newView.state ? "yes" : "no");
   if (!view)
     return;
   if (oldView.props && newView.props && oldView.props != newView.props) {

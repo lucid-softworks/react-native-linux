@@ -17,7 +17,7 @@ namespace {
 // g_idle_add, which invokes us on the UI thread.
 struct PendingTransaction {
   std::shared_ptr<LinuxMountingManager> mountingManager;
-  facebook::react::MountingCoordinator::Shared coordinator;
+  std::shared_ptr<const facebook::react::MountingCoordinator> coordinator;
 };
 
 gboolean dispatchTransactionOnUiThread(gpointer data) {
@@ -40,7 +40,7 @@ LinuxSchedulerDelegate::LinuxSchedulerDelegate(std::shared_ptr<LinuxMountingMana
 LinuxSchedulerDelegate::~LinuxSchedulerDelegate() = default;
 
 void LinuxSchedulerDelegate::schedulerDidFinishTransaction(
-    const facebook::react::MountingCoordinator::Shared& coordinator) {
+    const std::shared_ptr<const facebook::react::MountingCoordinator>& coordinator) {
   if (!mountingManager_) {
     RNL_LOGW("SchedulerDelegate") << "no mounting manager — dropping transaction";
     return;
@@ -62,7 +62,7 @@ void LinuxSchedulerDelegate::schedulerDidFinishTransaction(
 }
 
 void LinuxSchedulerDelegate::schedulerShouldRenderTransactions(
-    const facebook::react::MountingCoordinator::Shared& coordinator) {
+    const std::shared_ptr<const facebook::react::MountingCoordinator>& coordinator) {
   // For our MVP we treat "should render" the same as "did finish" — the
   // distinction matters on Android where MapBuffer props need a second
   // pass. Revisit when we support legacy view managers.
@@ -96,6 +96,21 @@ void LinuxSchedulerDelegate::schedulerDidSetIsJSResponder(
     bool /*blockNativeResponder*/) {
   // GTK gesture controllers manage their own grab state; no equivalent to
   // RN's "JS responder" concept is needed for the touch model we expose.
+}
+
+void LinuxSchedulerDelegate::schedulerShouldSynchronouslyUpdateViewOnUIThread(
+    facebook::react::Tag /*tag*/, const folly::dynamic& /*props*/) {
+  // Direct-manipulation fast path — used by Reanimated to bypass the
+  // Fabric commit for worklet-driven updates. We don't run worklets on
+  // the UI thread today, so the next normal commit will pick the props
+  // up.
+}
+
+void LinuxSchedulerDelegate::schedulerDidUpdateShadowTree(
+    const std::unordered_map<facebook::react::Tag, folly::dynamic>& /*tagToProps*/) {
+  // Notification that the JS thread directly mutated the shadow tree
+  // (Animated.setNativeProps and friends). No-op until we wire those
+  // module paths through to the Linux side.
 }
 
 } // namespace rnlinux
