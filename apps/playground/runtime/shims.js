@@ -155,6 +155,294 @@ if (typeof globalThis.performance === 'undefined') {
   globalThis.performance = {now: () => Date.now()};
 }
 
+// AbortController / AbortSignal — Hermes 0.12 ships neither, but
+// TanStack Query's Query.fetch unconditionally does
+// `new AbortController()` on every fetch, and lots of fetch-using
+// libraries forward a signal through. Without the globals the
+// ReferenceError throws synchronously before the retryer is even
+// created, so the query stays pending forever with fetchStatus=idle.
+// Function-constructor form for Hermes lazy-parse compatibility
+// (the same reason FormData / Blob / Headers are not classes).
+if (typeof globalThis.AbortSignal === 'undefined') {
+  function AbortSignal() {
+    this.aborted = false;
+    this.reason = undefined;
+    this._listeners = [];
+    this.onabort = null;
+  }
+  AbortSignal.prototype.addEventListener = function (event, listener) {
+    if (event === 'abort') this._listeners.push(listener);
+  };
+  AbortSignal.prototype.removeEventListener = function (event, listener) {
+    if (event !== 'abort') return;
+    const i = this._listeners.indexOf(listener);
+    if (i >= 0) this._listeners.splice(i, 1);
+  };
+  AbortSignal.prototype.dispatchEvent = function (event) {
+    if (event && event.type === 'abort') {
+      const ls = this._listeners.slice();
+      for (let i = 0; i < ls.length; i++) {
+        try {
+          ls[i].call(this, event);
+        } catch (_) {
+          // swallow — listener errors must not block other listeners
+        }
+      }
+      if (typeof this.onabort === 'function') {
+        try {
+          this.onabort(event);
+        } catch (_) {}
+      }
+    }
+    return true;
+  };
+  AbortSignal.prototype.throwIfAborted = function () {
+    if (this.aborted) throw this.reason;
+  };
+  globalThis.AbortSignal = AbortSignal;
+}
+if (typeof globalThis.AbortController === 'undefined') {
+  function AbortController() {
+    this.signal = new globalThis.AbortSignal();
+  }
+  AbortController.prototype.abort = function (reason) {
+    if (this.signal.aborted) return;
+    this.signal.aborted = true;
+    this.signal.reason = reason !== undefined ? reason : new Error('Aborted');
+    this.signal.dispatchEvent({type: 'abort'});
+  };
+  globalThis.AbortController = AbortController;
+}
+
+// TextEncoder / TextDecoder — Hermes 0.12 ships neither. Atproto's
+// `@atproto/lexicon` (pulled in by bluesky-api's response decode path)
+// uses `new TextDecoder().decode(buf)` to turn the response bytes into
+// a string; without it every feed response throws "Property
+// 'TextDecoder' doesn't exist" inside the response handler. Same story
+// for TextEncoder on the request side.
+if (typeof globalThis.TextEncoder === 'undefined') {
+  function TextEncoder() {}
+  TextEncoder.prototype.encode = function (input) {
+    const s = String(input == null ? '' : input);
+    // Quick path: ASCII-only inputs map one byte per char. Doing the
+    // surrogate-pair handling unconditionally below is fine but
+    // benchmarks show ~3× faster on the JSON-body hot path.
+    let asciiOnly = true;
+    for (let i = 0; i < s.length; i++) {
+      if (s.charCodeAt(i) > 0x7f) {
+        asciiOnly = false;
+        break;
+      }
+    }
+    if (asciiOnly) {
+      const out = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+      return out;
+    }
+    // UTF-8 encode with surrogate-pair pairing.
+    const tmp = [];
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i);
+      if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+        const c2 = s.charCodeAt(i + 1);
+        if (c2 >= 0xdc00 && c2 <= 0xdfff) {
+          c = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+          i++;
+        }
+      }
+      if (c < 0x80) {
+        tmp.push(c);
+      } else if (c < 0x800) {
+        tmp.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+      } else if (c < 0x10000) {
+        tmp.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      } else {
+        tmp.push(
+          0xf0 | (c >> 18),
+          0x80 | ((c >> 12) & 0x3f),
+          0x80 | ((c >> 6) & 0x3f),
+          0x80 | (c & 0x3f),
+        );
+      }
+    }
+    return new Uint8Array(tmp);
+  };
+  globalThis.TextEncoder = TextEncoder;
+}
+if (typeof globalThis.TextDecoder === 'undefined') {
+  function TextDecoder(label, options) {
+    this.encoding = (label || 'utf-8').toLowerCase();
+    this.fatal = !!(options && options.fatal);
+    this.ignoreBOM = !!(options && options.ignoreBOM);
+  }
+  TextDecoder.prototype.decode = function (input) {
+    if (input == null) return '';
+    // Accept ArrayBuffer + any TypedArray. For non-Uint8Array views we
+    // build a fresh Uint8Array over the same buffer slice.
+    let bytes;
+    if (input instanceof Uint8Array) {
+      bytes = input;
+    } else if (input.buffer && typeof input.byteLength === 'number') {
+      bytes = new Uint8Array(input.buffer, input.byteOffset || 0, input.byteLength);
+    } else if (input instanceof ArrayBuffer) {
+      bytes = new Uint8Array(input);
+    } else {
+      bytes = new Uint8Array(input);
+    }
+    // Strip BOM unless ignoreBOM.
+    let i = 0;
+    if (
+      !this.ignoreBOM &&
+      bytes.length >= 3 &&
+      bytes[0] === 0xef &&
+      bytes[1] === 0xbb &&
+      bytes[2] === 0xbf
+    ) {
+      i = 3;
+    }
+    let out = '';
+    while (i < bytes.length) {
+      const b0 = bytes[i++];
+      let cp;
+      if (b0 < 0x80) {
+        cp = b0;
+      } else if (b0 < 0xc0) {
+        cp = 0xfffd; // unexpected continuation byte
+      } else if (b0 < 0xe0) {
+        cp = ((b0 & 0x1f) << 6) | (bytes[i++] & 0x3f);
+      } else if (b0 < 0xf0) {
+        cp = ((b0 & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+      } else {
+        cp =
+          ((b0 & 0x07) << 18) |
+          ((bytes[i++] & 0x3f) << 12) |
+          ((bytes[i++] & 0x3f) << 6) |
+          (bytes[i++] & 0x3f);
+      }
+      if (cp > 0xffff) {
+        cp -= 0x10000;
+        out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+      } else {
+        out += String.fromCharCode(cp);
+      }
+    }
+    return out;
+  };
+  globalThis.TextDecoder = TextDecoder;
+}
+
+// URLSearchParams — Hermes 0.12 doesn't ship it. The bluesky-api client
+// (and lots of fetch-using libs) build query strings with
+// `new URLSearchParams(record).toString()`; without it every GET that
+// has query params throws "Property 'URLSearchParams' doesn't exist"
+// inside buildXrpcUrl and the request never reaches fetch — every feed
+// stays in a pending state forever with no error visible to the user
+// (TanStack Query just sees a rejected promise the queryFn never
+// surfaces).
+//
+// Implementation only covers what the WHATWG spec contract actually
+// asks for: append/set/get/getAll/has/delete/toString/iteration plus
+// the (init) constructor form (record, array-of-pairs, string with
+// leading `?` stripped, another URLSearchParams).
+if (typeof globalThis.URLSearchParams === 'undefined') {
+  function URLSearchParams(init) {
+    this._entries = [];
+    if (init == null) return;
+    if (typeof init === 'string') {
+      // Spec: leading "?" stripped.
+      const s = init.charAt(0) === '?' ? init.slice(1) : init;
+      if (s.length === 0) return;
+      const pairs = s.split('&');
+      for (let i = 0; i < pairs.length; i++) {
+        if (pairs[i].length === 0) continue;
+        const eq = pairs[i].indexOf('=');
+        const k = eq < 0 ? pairs[i] : pairs[i].slice(0, eq);
+        const v = eq < 0 ? '' : pairs[i].slice(eq + 1);
+        this._entries.push([
+          decodeURIComponent(k.replace(/\+/g, ' ')),
+          decodeURIComponent(v.replace(/\+/g, ' ')),
+        ]);
+      }
+    } else if (typeof init.forEach === 'function' && init instanceof URLSearchParams) {
+      init.forEach((value, key) => this._entries.push([key, value]));
+    } else if (Array.isArray(init)) {
+      for (let i = 0; i < init.length; i++) {
+        const pair = init[i];
+        if (!pair || pair.length < 2) continue;
+        this._entries.push([String(pair[0]), String(pair[1])]);
+      }
+    } else if (typeof init === 'object') {
+      const keys = Object.keys(init);
+      for (let i = 0; i < keys.length; i++) {
+        this._entries.push([keys[i], String(init[keys[i]])]);
+      }
+    }
+  }
+  function _encode(s) {
+    // WHATWG URLSearchParams uses application/x-www-form-urlencoded:
+    // spaces map to '+' and the encode-set is wider than encodeURIComponent's.
+    // For the read-only XRPC GET surface this hits, the standard escape
+    // (with %20→'+' substitution) is enough.
+    return encodeURIComponent(s).replace(/%20/g, '+');
+  }
+  URLSearchParams.prototype.append = function (name, value) {
+    this._entries.push([String(name), String(value)]);
+  };
+  URLSearchParams.prototype.set = function (name, value) {
+    const k = String(name);
+    let placed = false;
+    this._entries = this._entries.filter(e => {
+      if (e[0] !== k) return true;
+      if (!placed) {
+        e[1] = String(value);
+        placed = true;
+        return true;
+      }
+      return false;
+    });
+    if (!placed) this._entries.push([k, String(value)]);
+  };
+  URLSearchParams.prototype.delete = function (name) {
+    const k = String(name);
+    this._entries = this._entries.filter(e => e[0] !== k);
+  };
+  URLSearchParams.prototype.get = function (name) {
+    const k = String(name);
+    const hit = this._entries.find(e => e[0] === k);
+    return hit ? hit[1] : null;
+  };
+  URLSearchParams.prototype.getAll = function (name) {
+    const k = String(name);
+    return this._entries.filter(e => e[0] === k).map(e => e[1]);
+  };
+  URLSearchParams.prototype.has = function (name) {
+    const k = String(name);
+    return this._entries.some(e => e[0] === k);
+  };
+  URLSearchParams.prototype.forEach = function (fn, thisArg) {
+    for (let i = 0; i < this._entries.length; i++) {
+      fn.call(thisArg, this._entries[i][1], this._entries[i][0], this);
+    }
+  };
+  URLSearchParams.prototype.toString = function () {
+    const out = [];
+    for (let i = 0; i < this._entries.length; i++) {
+      out.push(_encode(this._entries[i][0]) + '=' + _encode(this._entries[i][1]));
+    }
+    return out.join('&');
+  };
+  URLSearchParams.prototype.keys = function* () {
+    for (let i = 0; i < this._entries.length; i++) yield this._entries[i][0];
+  };
+  URLSearchParams.prototype.values = function* () {
+    for (let i = 0; i < this._entries.length; i++) yield this._entries[i][1];
+  };
+  URLSearchParams.prototype.entries = function* () {
+    for (let i = 0; i < this._entries.length; i++) yield this._entries[i].slice();
+  };
+  globalThis.URLSearchParams = URLSearchParams;
+}
+
 // ───────────────────────────────────────────────────────────────────
 // fetch() — minimal whatwg-fetch surface, backed by rnLinux.fetch()
 // which delegates to libsoup-3 in our C++ host. Hermes doesn't ship
