@@ -168,6 +168,81 @@ if (typeof globalThis.performance === 'undefined') {
 // Caller-shaped Headers, plain objects, and arrays-of-pairs are all
 // flattened to a plain {name: value} object before crossing the JSI
 // boundary.
+// FormData / Blob — Hermes ships neither. Even bluesky-api's
+// createSession path (which serialises a JSON body) does
+// `body instanceof FormData` and `body instanceof Blob` before
+// deciding the content-type, and those checks throw
+// "FormData is not defined" / "Blob is not defined" when the
+// globals are missing. We only need a callable identity so
+// `instanceof` returns false for the JSON-body path; full
+// multipart serialisation can come later when an app needs it.
+if (typeof globalThis.FormData === 'undefined') {
+  function FormData() {
+    this._entries = [];
+  }
+  FormData.prototype.append = function (name, value, filename) {
+    this._entries.push([String(name), value, filename]);
+  };
+  FormData.prototype.set = function (name, value, filename) {
+    const k = String(name);
+    this._entries = this._entries.filter(e => e[0] !== k);
+    this._entries.push([k, value, filename]);
+  };
+  FormData.prototype.delete = function (name) {
+    const k = String(name);
+    this._entries = this._entries.filter(e => e[0] !== k);
+  };
+  FormData.prototype.get = function (name) {
+    const k = String(name);
+    const hit = this._entries.find(e => e[0] === k);
+    return hit ? hit[1] : null;
+  };
+  FormData.prototype.getAll = function (name) {
+    const k = String(name);
+    return this._entries.filter(e => e[0] === k).map(e => e[1]);
+  };
+  FormData.prototype.has = function (name) {
+    const k = String(name);
+    return this._entries.some(e => e[0] === k);
+  };
+  FormData.prototype.forEach = function (cb, thisArg) {
+    for (const [k, v] of this._entries) cb.call(thisArg, v, k, this);
+  };
+  FormData.prototype.keys = function () {
+    return this._entries.map(e => e[0])[Symbol.iterator]();
+  };
+  FormData.prototype.values = function () {
+    return this._entries.map(e => e[1])[Symbol.iterator]();
+  };
+  FormData.prototype.entries = function () {
+    return this._entries.map(e => [e[0], e[1]])[Symbol.iterator]();
+  };
+  globalThis.FormData = FormData;
+}
+
+if (typeof globalThis.Blob === 'undefined') {
+  function Blob(parts, options) {
+    this._parts = Array.isArray(parts) ? parts : [];
+    this.type = (options && options.type) || '';
+    this.size = 0;
+    for (const p of this._parts) {
+      if (typeof p === 'string') this.size += p.length;
+      else if (p && typeof p.size === 'number') this.size += p.size;
+      else if (p && typeof p.byteLength === 'number') this.size += p.byteLength;
+    }
+  }
+  Blob.prototype.slice = function (start, end, contentType) {
+    return new Blob([], {type: contentType || this.type});
+  };
+  Blob.prototype.text = function () {
+    return Promise.resolve(this._parts.filter(p => typeof p === 'string').join(''));
+  };
+  Blob.prototype.arrayBuffer = function () {
+    return Promise.resolve(new ArrayBuffer(this.size));
+  };
+  globalThis.Blob = Blob;
+}
+
 if (typeof globalThis.Headers === 'undefined') {
   // Function-constructor + prototype form. `class Headers { ... }`
   // assignments are silently dropped by Hermes 0.12's lazy-parse — the

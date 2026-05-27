@@ -185,6 +185,10 @@ TextInputComponentView::TextInputComponentView(Tag tag)
 }
 
 TextInputComponentView::~TextInputComponentView() {
+  if (dispatchIdleId_ != 0) {
+    g_source_remove(dispatchIdleId_);
+    dispatchIdleId_ = 0;
+  }
   if (cssProvider_) {
     g_object_unref(static_cast<GtkCssProvider*>(cssProvider_));
   }
@@ -201,13 +205,28 @@ void TextInputComponentView::onTextChanged(GtkWidget* editable, gpointer userDat
   if (s == self->lastText_)
     return; // dedupe identical fires
   self->lastText_ = s;
-  // Dispatch synchronously — deferring via g_idle_add introduces a
-  // race for controlled `<TextInput value={state}>` patterns. If the
-  // user keeps typing while the idle is pending, JS only sees the
-  // first character; the next React commit then writes that stale
-  // value back to GtkText via gtk_editable_set_text, blowing away
-  // the rest of what the user just typed.
-  dispatchFabricChangeText(self->tag_, s);
+  // Defer the JS dispatch via g_idle_add so the keystroke paints
+  // BEFORE the synchronous React commit chain runs. GtkText has
+  // already inserted the glyph by the time `changed` fires; we don't
+  // need to block its next-frame paint waiting for the full
+  // reconciler pass for the affected subtree.
+  //
+  // Single coalesced idle source per tag — when it fires it reads
+  // the LATEST `lastText_`, so a burst of keystrokes ships one
+  // dispatch per main-loop turn instead of one-per-key. The
+  // controlled-input echo race is closed by tracking
+  // lastDispatched_ and rejecting matching writes in updateProps.
+  if (self->dispatchIdleId_ == 0) {
+    self->dispatchIdleId_ = g_idle_add(
+        +[](gpointer ud) -> gboolean {
+          auto* self2 = static_cast<TextInputComponentView*>(ud);
+          self2->dispatchIdleId_ = 0;
+          self2->lastDispatched_ = self2->lastText_;
+          dispatchFabricChangeText(self2->tag_, self2->lastDispatched_);
+          return G_SOURCE_REMOVE;
+        },
+        self);
+  }
 }
 
 void TextInputComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
@@ -249,15 +268,21 @@ void TextInputComponentView::updateProps(facebook::react::Props const& /*oldProp
   // iOS/Android contract for password fields.
   gtk_text_set_visibility(GTK_TEXT(widget_), tp.traits.secureTextEntry ? FALSE : TRUE);
 
-  // value: set only when the props differ from the current entry —
-  // we suppress the signal during programmatic writes so we don't
-  // bounce updates back to JS unnecessarily.
+  // value: set only when the props differ from the current entry and
+  // the incoming value isn't just JS echoing back the LAST value we
+  // dispatched. Because the changed-signal dispatch is now coalesced
+  // via g_idle_add, the user can keep typing after we've handed off
+  // "abc" to JS; once React's commit catches up with tp.text="abc",
+  // GtkText might already hold "abcd". Without the lastDispatched_
+  // guard we'd treat that re-arrival as a programmatic write and
+  // clobber the "d" the user just typed.
   const auto* current = gtk_editable_get_text(GTK_EDITABLE(widget_));
   std::string currentStr = current ? current : "";
-  if (tp.text != currentStr) {
+  if (tp.text != currentStr && tp.text != lastDispatched_) {
     suppressChangeSignal_ = true;
     gtk_editable_set_text(GTK_EDITABLE(widget_), tp.text.c_str());
     lastText_ = tp.text;
+    lastDispatched_ = tp.text;
     suppressChangeSignal_ = false;
   }
 }
