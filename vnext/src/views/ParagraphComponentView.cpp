@@ -138,10 +138,10 @@ void ParagraphComponentView::updateState(facebook::react::State const& state) {
   // do the rendering. Fragments without styling collapse into bare
   // (escaped) text.
   std::string markup = text::buildMarkup(paragraphState.attributedString);
-  RNL_LOGI("Paragraph") << "updateState fragments="
-                        << paragraphState.attributedString.getFragments().size() << " markup=\""
-                        << markup << "\"";
-  gtk_label_set_markup(GTK_LABEL(widget_), markup.c_str());
+  if (markup != lastMarkup_) {
+    gtk_label_set_markup(GTK_LABEL(widget_), markup.c_str());
+    lastMarkup_ = std::move(markup);
+  }
 
   // Horizontal alignment lives in the AttributedString's first
   // fragment's TextAttributes (RN funnels Text-style props there).

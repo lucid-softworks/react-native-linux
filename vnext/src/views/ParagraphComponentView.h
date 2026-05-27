@@ -33,6 +33,14 @@ class ParagraphComponentView final : public LinuxComponentView {
   // animation translates the widget left.
   void* cssProvider_ = nullptr;
   std::string lastCss_;
+  // Cache the last Pango markup we wrote, so a state update with the
+  // same content can skip gtk_label_set_markup (which re-runs Pango's
+  // markup parser + queues a relayout). On every keystroke the React
+  // reconciler in persistent mode hands us fresh ParagraphState
+  // objects for every sibling Paragraph in the tree — without this
+  // diff, a single character pushed dozens of redundant Pango re-
+  // parses and the cumulative cost showed up as visible typing lag.
+  std::string lastMarkup_;
 };
 
 } // namespace rnlinux

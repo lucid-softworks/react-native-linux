@@ -138,7 +138,13 @@ void LinuxMountingManager::handleRemove(Tag parentTag, Tag childTag, int /*index
 void LinuxMountingManager::handleUpdate(const facebook::react::ShadowView& oldView,
                                         const facebook::react::ShadowView& newView) {
   auto* view = registry_.lookup(newView.tag);
-  RNL_LOGI("MountingManager") << "handleUpdate tag=" << newView.tag
+  // Per-update logging was useful during the React 19 reconciler bring-
+  // up but it fires for every node in the affected subtree on every
+  // commit — a single keystroke into a TextInput inside akari's auth
+  // screen logged ~50 lines per character, and each line is a sync
+  // write that shows up as typing lag. Keep it under RNL_LOGD so the
+  // info is still grep-able in debug builds.
+  RNL_LOGD("MountingManager") << "handleUpdate tag=" << newView.tag
                               << " comp=" << newView.componentName
                               << " view=" << (view ? "ok" : "NULL")
                               << " state=" << (newView.state ? "yes" : "no");
