@@ -901,10 +901,15 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                   if ((t2 - t0) > p.maxUs)
                     p.maxUs = (t2 - t0);
                   if (p.n >= 60) {
-                    RNL_LOGI("rnLinux.rafProf")
-                        << "n=" << p.n << " avg_js=" << (p.jsUs / p.n) << "us"
-                        << " avg_drain=" << (p.drainUs / p.n) << "us" << " max_total=" << p.maxUs
-                        << "us";
+                    char buf[160];
+                    std::snprintf(buf,
+                                  sizeof(buf),
+                                  "n=%d avg_js=%lldus avg_drain=%lldus max_total=%lldus",
+                                  p.n,
+                                  (long long)(p.jsUs / p.n),
+                                  (long long)(p.drainUs / p.n),
+                                  (long long)p.maxUs);
+                    RNL_LOGI("rnLinux.rafProf") << buf;
                     p = {};
                   }
                 } catch (const jsi::JSError& e) {
