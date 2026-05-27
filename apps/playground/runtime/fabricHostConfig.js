@@ -546,18 +546,24 @@ const hostConfig = {
     return oldProps === newProps ? null : true;
   },
 
+  // React 19 / reconciler 0.32 collapsed the React 18 cloneInstance
+  // arglist (currentInstance, updatePayload, type, oldProps, newProps,
+  // workInProgress, childrenUnchanged, recyclableInstance) to six args:
+  // (currentInstance, type, oldProps, newProps, keepChildren,
+  //  internalInstanceHandle). Reading the old positions silently shifted
+  // every param — `type` arrived as oldProps, `keepChildren` was
+  // undefined, so we always took the "lose children" branch and any
+  // <Text>'s RawText children fell off on every re-render.
   cloneInstance(
     currentInstance,
-    _updatePayload,
     type,
     _oldProps,
     newProps,
-    _workInProgress,
-    childrenUnchanged,
-    /*recyclableInstance*/
+    keepChildren,
+    /*internalInstanceHandle*/
   ) {
     const fabricProps = buildFabricProps(type, newProps);
-    const fabricNode = childrenUnchanged
+    const fabricNode = keepChildren
       ? currentFabric.cloneNodeWithNewProps(currentInstance.fabricNode, fabricProps)
       : currentFabric.cloneNodeWithNewChildrenAndProps(currentInstance.fabricNode, fabricProps);
     // Re-bind the click handler — JS function identity changes across
