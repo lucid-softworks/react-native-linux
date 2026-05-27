@@ -176,11 +176,43 @@ function buildFabricProps(type, props) {
   return out;
 }
 
+// Synthetic-event factory for press / change / scroll callbacks. RN's
+// `GestureResponderEvent` is a SyntheticEvent with `stopPropagation`
+// and `preventDefault` methods + a `nativeEvent` bag. Userland reaches
+// for those — akari's auth Pressables (and many react-navigation
+// pressables) call `e.stopPropagation()` synchronously — so passing
+// `undefined` would crash with "Cannot read properties of undefined".
+// (Local alias so we can land this without touching the file-top
+// `noop` const — keeps the diff tight.)
+function makeSyntheticEvent(type, nativeEvent) {
+  return {
+    type: type || 'press',
+    nativeEvent: nativeEvent || {},
+    stopPropagation: noop,
+    preventDefault: noop,
+    persist: noop,
+    target: null,
+    currentTarget: null,
+    timeStamp: Date.now(),
+    bubbles: false,
+    cancelable: true,
+    defaultPrevented: false,
+    isTrusted: true,
+  };
+}
+
 // Push (or remove) a click handler for a Fabric tag into the JSI
 // registry the C++ ViewComponentView gesture controller consults.
+// dispatchFabricClick calls us with no arguments, so we wrap the
+// userland handler to feed it a synthetic event — without this any
+// `(e) => e.stopPropagation()` style handler dies on the first tap.
 function syncClickHandler(tag, props) {
-  const handler = props && typeof props.onClick === 'function' ? props.onClick : null;
-  rnLinux.fabricOnClick(tag, handler);
+  const onClick = props && typeof props.onClick === 'function' ? props.onClick : null;
+  if (!onClick) {
+    rnLinux.fabricOnClick(tag, null);
+    return;
+  }
+  rnLinux.fabricOnClick(tag, () => onClick(makeSyntheticEvent('press')));
 }
 
 function syncChangeTextHandler(tag, props) {
