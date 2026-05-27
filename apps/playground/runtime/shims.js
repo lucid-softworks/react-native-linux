@@ -169,49 +169,54 @@ if (typeof globalThis.performance === 'undefined') {
 // flattened to a plain {name: value} object before crossing the JSI
 // boundary.
 if (typeof globalThis.Headers === 'undefined') {
-  globalThis.Headers = class Headers {
-    constructor(init) {
-      this._m = new Map();
-      if (init) {
-        if (Array.isArray(init)) {
-          for (const pair of init) this._m.set(String(pair[0]).toLowerCase(), String(pair[1]));
-        } else if (init instanceof Headers) {
-          init.forEach((v, k) => this._m.set(k, v));
-        } else if (typeof init === 'object') {
-          for (const k of Object.keys(init)) this._m.set(k.toLowerCase(), String(init[k]));
-        }
+  // Function-constructor + prototype form. `class Headers { ... }`
+  // assignments are silently dropped by Hermes 0.12's lazy-parse — the
+  // var binding is created but the class expression never evaluates,
+  // so globalThis.Headers stays undefined and the fetch trampoline
+  // dies on `new globalThis.Headers(...)`. Same gotcha that bit the
+  // react-native-mmkv shim earlier; see docs/akari-shims.md.
+  function Headers(init) {
+    this._m = new Map();
+    if (init) {
+      if (Array.isArray(init)) {
+        for (const pair of init) this._m.set(String(pair[0]).toLowerCase(), String(pair[1]));
+      } else if (init instanceof Headers) {
+        init.forEach((v, k) => this._m.set(k, v));
+      } else if (typeof init === 'object') {
+        for (const k of Object.keys(init)) this._m.set(k.toLowerCase(), String(init[k]));
       }
     }
-    get(n) {
-      return this._m.get(String(n).toLowerCase()) || null;
-    }
-    set(n, v) {
-      this._m.set(String(n).toLowerCase(), String(v));
-    }
-    append(n, v) {
-      const k = String(n).toLowerCase();
-      const prev = this._m.get(k);
-      this._m.set(k, prev ? prev + ', ' + String(v) : String(v));
-    }
-    has(n) {
-      return this._m.has(String(n).toLowerCase());
-    }
-    delete(n) {
-      this._m.delete(String(n).toLowerCase());
-    }
-    forEach(cb, thisArg) {
-      this._m.forEach((v, k) => cb.call(thisArg, v, k, this));
-    }
-    keys() {
-      return this._m.keys();
-    }
-    values() {
-      return this._m.values();
-    }
-    entries() {
-      return this._m.entries();
-    }
+  }
+  Headers.prototype.get = function (n) {
+    return this._m.get(String(n).toLowerCase()) || null;
   };
+  Headers.prototype.set = function (n, v) {
+    this._m.set(String(n).toLowerCase(), String(v));
+  };
+  Headers.prototype.append = function (n, v) {
+    const k = String(n).toLowerCase();
+    const prev = this._m.get(k);
+    this._m.set(k, prev ? prev + ', ' + String(v) : String(v));
+  };
+  Headers.prototype.has = function (n) {
+    return this._m.has(String(n).toLowerCase());
+  };
+  Headers.prototype.delete = function (n) {
+    this._m.delete(String(n).toLowerCase());
+  };
+  Headers.prototype.forEach = function (cb, thisArg) {
+    this._m.forEach((v, k) => cb.call(thisArg, v, k, this));
+  };
+  Headers.prototype.keys = function () {
+    return this._m.keys();
+  };
+  Headers.prototype.values = function () {
+    return this._m.values();
+  };
+  Headers.prototype.entries = function () {
+    return this._m.entries();
+  };
+  globalThis.Headers = Headers;
 }
 
 if (

@@ -3923,7 +3923,6 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         const auto url = args[0].asString(rt).utf8(rt);
         const auto method =
             (count >= 2 && args[1].isString()) ? args[1].asString(rt).utf8(rt) : std::string{"GET"};
-
         SoupMessage* msg = soup_message_new(method.c_str(), url.c_str());
         if (!msg) {
           if (count >= 6 && args[5].isObject() && args[5].asObject(rt).isFunction(rt)) {
