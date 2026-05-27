@@ -166,6 +166,19 @@ struct State {
   // without this hook the value is captured once at mount and the
   // layout never updates when the user resizes.
   std::shared_ptr<jsi::Function> dimensionsOnChange;
+  // Coalescing for `dispatchDimensionsChange`. The GdkFrameClock tick
+  // fires resize per frame during a drag — without coalescing the
+  // executor queues up one JS-callback task per frame (60/sec) behind
+  // whatever the JS worker is busy with (often a long mount commit).
+  // The user sees the sidebar collapse 30+ seconds after the drag.
+  // We instead keep a single "pending" snapshot of the latest values;
+  // if `dimPostInFlight` is true a post is already queued, so we
+  // just rotate the values and let the queued post pick up the
+  // latest when it runs.
+  std::atomic<double> pendingDimWidth{0};
+  std::atomic<double> pendingDimHeight{0};
+  std::atomic<double> pendingDimScale{1};
+  std::atomic<bool> dimPostInFlight{false};
 
   // Phase 5.8: every C++→JS callback (dispatchFabric*, fetch result,
   // GIO/libsoup signals) posts through this executor instead of
@@ -588,16 +601,35 @@ void dispatchFabricLayout(int tag, float x, float y, float w, float h) {
 
 void dispatchDimensionsChange(double width, double height, double scale) {
   auto& s = state();
+  // Always rotate the latest pending values — the in-flight post (if
+  // any) will pick them up when it runs.
+  s.pendingDimWidth.store(width);
+  s.pendingDimHeight.store(height);
+  s.pendingDimScale.store(scale);
   if (!s.executor || !s.dimensionsOnChange)
     return;
-  s.executor([width, height, scale](jsi::Runtime& rt) {
+  // If we already have a post queued, don't queue another — the
+  // queued one will read the latest pending values when the worker
+  // gets to it. exchange returns the PREVIOUS value, so we only
+  // enqueue when no post was in flight.
+  if (s.dimPostInFlight.exchange(true))
+    return;
+  s.executor([](jsi::Runtime& rt) {
     auto& s = state();
+    // Clear the in-flight flag before reading the snapshot so a
+    // resize that lands while we're calling the JS handler can
+    // enqueue the next post — the worker will get to it after this
+    // one returns.
+    s.dimPostInFlight.store(false);
     if (!s.dimensionsOnChange)
       return;
+    const double w = s.pendingDimWidth.load();
+    const double h = s.pendingDimHeight.load();
+    const double scale = s.pendingDimScale.load();
     try {
       jsi::Object dims(rt);
-      dims.setProperty(rt, "width", jsi::Value(width));
-      dims.setProperty(rt, "height", jsi::Value(height));
+      dims.setProperty(rt, "width", jsi::Value(w));
+      dims.setProperty(rt, "height", jsi::Value(h));
       dims.setProperty(rt, "scale", jsi::Value(scale));
       dims.setProperty(rt, "fontScale", jsi::Value(1.0));
       s.dimensionsOnChange->call(rt, dims);
