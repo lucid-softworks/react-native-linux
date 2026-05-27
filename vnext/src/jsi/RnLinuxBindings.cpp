@@ -1776,20 +1776,35 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
             cb,
             nullptr,
             +[](GObject* src, GAsyncResult* res, gpointer userData) {
-              auto* ctx = static_cast<Ctx*>(userData);
-              auto& s = state();
+              std::unique_ptr<Ctx> ctx(static_cast<Ctx*>(userData));
               GError* err = nullptr;
               gchar* text = gdk_clipboard_read_text_finish(GDK_CLIPBOARD(src), res, &err);
-              if (s.runtime) {
-                jsi::Runtime& jrt = *s.runtime;
+              // Flatten the result onto thread-safe locals so the
+              // worker side doesn't have to touch GTK / GError.
+              std::string payload = text ? text : "";
+              std::string errMsg;
+              const bool hadError = (err != nullptr);
+              if (hadError && err->message)
+                errMsg = err->message;
+              if (text)
+                g_free(text);
+              if (err)
+                g_error_free(err);
+              auto& s = state();
+              if (!s.executor)
+                return;
+              s.executor([ctx = std::shared_ptr<Ctx>(std::move(ctx)),
+                          payload = std::move(payload),
+                          hadError,
+                          errMsg = std::move(errMsg)](jsi::Runtime& jrt) mutable {
                 try {
-                  if (text) {
+                  if (!payload.empty()) {
                     if (ctx->onResult)
-                      ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, text));
-                  } else if (err && ctx->onError) {
+                      ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, payload));
+                  } else if (hadError && ctx->onError) {
                     ctx->onError->call(jrt,
                                        jsi::String::createFromUtf8(
-                                           jrt, err->message ? err->message : "(read failed)"));
+                                           jrt, errMsg.empty() ? "(read failed)" : errMsg));
                   } else if (ctx->onResult) {
                     // No text on the clipboard right now — that's
                     // not an error; expo's contract is empty
@@ -1800,12 +1815,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                 } catch (const std::exception& e) {
                   RNL_LOGE("rnLinux.clipboard") << "async cb threw: " << e.what();
                 }
-              }
-              if (text)
-                g_free(text);
-              if (err)
-                g_error_free(err);
-              delete ctx;
+              });
             },
             ctx);
         return jsi::Value::undefined();
@@ -1893,45 +1903,57 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
             cb,
             nullptr,
             +[](GObject* src, GAsyncResult* res, gpointer userData) {
-              auto* ctx = static_cast<ImgCtx*>(userData);
-              auto& s = state();
+              std::unique_ptr<ImgCtx> ctx(static_cast<ImgCtx*>(userData));
               GError* err = nullptr;
               GdkTexture* tex = gdk_clipboard_read_texture_finish(GDK_CLIPBOARD(src), res, &err);
-              if (s.runtime) {
-                jsi::Runtime& jrt = *s.runtime;
+              // Encode the PNG on the main / GTK thread — that's where
+              // the GdkTexture lives — then hop to the worker with
+              // just the base64 string. Skipping the hop with the
+              // raw texture would expose the underlying pixbuf cache
+              // across threads.
+              std::string base64;
+              std::string mime;
+              std::string errMsg;
+              const bool hadError = (err != nullptr);
+              if (tex) {
+                GBytes* png = gdk_texture_save_to_png_bytes(tex);
+                if (png) {
+                  gsize len = 0;
+                  const void* data = g_bytes_get_data(png, &len);
+                  char* enc = g_base64_encode(static_cast<const guchar*>(data), len);
+                  if (enc)
+                    base64 = enc;
+                  if (enc)
+                    g_free(enc);
+                  mime = "image/png";
+                  g_bytes_unref(png);
+                }
+                g_object_unref(tex);
+              }
+              if (err && err->message)
+                errMsg = err->message;
+              if (err)
+                g_error_free(err);
+              auto& s = state();
+              if (!s.executor)
+                return;
+              s.executor([ctx = std::shared_ptr<ImgCtx>(std::move(ctx)),
+                          base64 = std::move(base64),
+                          mime = std::move(mime),
+                          hadError,
+                          errMsg = std::move(errMsg)](jsi::Runtime& jrt) mutable {
                 try {
-                  if (tex) {
-                    // Re-encode as PNG so JS gets a self-describing
-                    // payload. gdk_texture_save_to_png_bytes uses
-                    // the same loader libpixbuf knows about.
-                    GBytes* png = gdk_texture_save_to_png_bytes(tex);
-                    if (png) {
-                      gsize len = 0;
-                      const void* data = g_bytes_get_data(png, &len);
-                      char* enc = g_base64_encode(static_cast<const guchar*>(data), len);
-                      if (ctx->onResult) {
-                        ctx->onResult->call(jrt,
-                                            jsi::String::createFromUtf8(jrt, enc ? enc : ""),
-                                            jsi::String::createFromUtf8(jrt, "image/png"));
-                      }
-                      if (enc)
-                        g_free(enc);
-                      g_bytes_unref(png);
-                    } else if (ctx->onResult) {
-                      // Texture but PNG encode failed — return empty
-                      // payload so consumers can branch on it the
-                      // same way they would for "nothing copied".
+                  if (!base64.empty()) {
+                    if (ctx->onResult)
                       ctx->onResult->call(jrt,
-                                          jsi::String::createFromUtf8(jrt, ""),
-                                          jsi::String::createFromUtf8(jrt, ""));
-                    }
-                    g_object_unref(tex);
-                  } else if (err && ctx->onError) {
+                                          jsi::String::createFromUtf8(jrt, base64),
+                                          jsi::String::createFromUtf8(jrt, mime));
+                  } else if (hadError && ctx->onError) {
                     ctx->onError->call(jrt,
                                        jsi::String::createFromUtf8(
-                                           jrt, err->message ? err->message : "(read failed)"));
+                                           jrt, errMsg.empty() ? "(read failed)" : errMsg));
                   } else if (ctx->onResult) {
-                    // Empty clipboard or no image on it — match the
+                    // Empty clipboard or PNG encode failed — match the
                     // text-async contract of "empty string for nothing".
                     ctx->onResult->call(jrt,
                                         jsi::String::createFromUtf8(jrt, ""),
@@ -1941,10 +1963,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                 } catch (const std::exception& e) {
                   RNL_LOGE("rnLinux.clipboard") << "image read cb threw: " << e.what();
                 }
-              }
-              if (err)
-                g_error_free(err);
-              delete ctx;
+              });
             },
             ctx);
         return jsi::Value::undefined();
@@ -2031,13 +2050,13 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
             G_PRIORITY_DEFAULT,
             nullptr,
             +[](GObject* src, GAsyncResult* res, gpointer userData) {
-              auto* ctx = static_cast<HtmlCtx*>(userData);
-              auto& s = state();
+              std::unique_ptr<HtmlCtx> ctx(static_cast<HtmlCtx*>(userData));
               GError* err = nullptr;
               const char* outMime = nullptr;
               GInputStream* stream =
                   gdk_clipboard_read_finish(GDK_CLIPBOARD(src), res, &outMime, &err);
               std::string body;
+              const bool hadStream = (stream != nullptr);
               if (stream) {
                 // 8 KiB chunks — HTML payloads usually fit in one
                 // iteration; this caps memory use if some misbehaved
@@ -2049,16 +2068,28 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                 }
                 g_object_unref(stream);
               }
-              if (s.runtime) {
-                jsi::Runtime& jrt = *s.runtime;
+              std::string errMsg;
+              const bool hadError = (err != nullptr);
+              if (err && err->message)
+                errMsg = err->message;
+              if (err)
+                g_error_free(err);
+              auto& s = state();
+              if (!s.executor)
+                return;
+              s.executor([ctx = std::shared_ptr<HtmlCtx>(std::move(ctx)),
+                          body = std::move(body),
+                          hadStream,
+                          hadError,
+                          errMsg = std::move(errMsg)](jsi::Runtime& jrt) mutable {
                 try {
-                  if (stream) {
+                  if (hadStream) {
                     if (ctx->onResult)
                       ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, body));
-                  } else if (err && ctx->onError) {
+                  } else if (hadError && ctx->onError) {
                     ctx->onError->call(jrt,
                                        jsi::String::createFromUtf8(
-                                           jrt, err->message ? err->message : "(read failed)"));
+                                           jrt, errMsg.empty() ? "(read failed)" : errMsg));
                   } else if (ctx->onResult) {
                     ctx->onResult->call(jrt, jsi::String::createFromUtf8(jrt, ""));
                   }
@@ -2066,10 +2097,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                 } catch (const std::exception& e) {
                   RNL_LOGE("rnLinux.clipboard") << "html read cb threw: " << e.what();
                 }
-              }
-              if (err)
-                g_error_free(err);
-              delete ctx;
+              });
             },
             ctx);
         return jsi::Value::undefined();
@@ -2155,24 +2183,28 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                                                        "changed",
                                                        G_CALLBACK(+[](GdkClipboard*, gpointer) {
                                                          auto& s = state();
-                                                         if (!s.runtime || !s.clipboardOnChange)
+                                                         if (!s.executor || !s.clipboardOnChange)
                                                            return;
-                                                         jsi::Runtime& jrt = *s.runtime;
-                                                         try {
-                                                           // expo's addClipboardListener fires with
-                                                           // a {} payload (the iOS/Android payload
-                                                           // is content- type metadata we don't
-                                                           // carry). Consumers re-call
-                                                           // getStringAsync if they want the new
-                                                           // text — matches the expo idiom.
-                                                           jsi::Object o(jrt);
-                                                           s.clipboardOnChange->call(jrt, o);
-                                                           jrt.drainMicrotasks();
-                                                         } catch (const std::exception& e) {
-                                                           RNL_LOGE("rnLinux.clipboard")
-                                                               << "change listener threw: "
-                                                               << e.what();
-                                                         }
+                                                         s.executor([](jsi::Runtime& jrt) {
+                                                           auto& s = state();
+                                                           if (!s.clipboardOnChange)
+                                                             return;
+                                                           try {
+                                                             // expo's addClipboardListener fires
+                                                             // with a {} payload (the iOS/Android
+                                                             // payload is content- type metadata we
+                                                             // don't carry). Consumers re-call
+                                                             // getStringAsync if they want the new
+                                                             // text — matches the expo idiom.
+                                                             jsi::Object o(jrt);
+                                                             s.clipboardOnChange->call(jrt, o);
+                                                             jrt.drainMicrotasks();
+                                                           } catch (const std::exception& e) {
+                                                             RNL_LOGE("rnLinux.clipboard")
+                                                                 << "change listener threw: "
+                                                                 << e.what();
+                                                           }
+                                                         });
                                                        }),
                                                        nullptr);
         return jsi::Value::undefined();
@@ -2621,19 +2653,26 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         }
         s.localeOnChange = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
         auto fireFromCallback = +[](GFileMonitor*, GFile*, GFile*, GFileMonitorEvent, gpointer ud) {
+          // Snapshot via libc on the main thread (it just reads
+          // env vars), then hop to the worker for the JSI call.
           auto* snapToObj = static_cast<
               std::function<jsi::Object(jsi::Runtime&, const rnlinux::locale::LocaleSnapshot&)>*>(
               ud);
+          auto snap = rnlinux::locale::snapshot();
           auto& st = state();
-          if (!st.runtime || !st.localeOnChange)
+          if (!st.executor || !st.localeOnChange)
             return;
-          jsi::Runtime& jrt = *st.runtime;
-          try {
-            st.localeOnChange->call(jrt, (*snapToObj)(jrt, rnlinux::locale::snapshot()));
-            jrt.drainMicrotasks();
-          } catch (const std::exception& e) {
-            RNL_LOGE("rnLinux.locale") << "listener threw: " << e.what();
-          }
+          st.executor([snapToObj, snap = std::move(snap)](jsi::Runtime& jrt) mutable {
+            auto& st = state();
+            if (!st.localeOnChange)
+              return;
+            try {
+              st.localeOnChange->call(jrt, (*snapToObj)(jrt, snap));
+              jrt.drainMicrotasks();
+            } catch (const std::exception& e) {
+              RNL_LOGE("rnLinux.locale") << "listener threw: " << e.what();
+            }
+          });
         };
         // Heap-allocate one copy of the snapshot-to-obj lambda so
         // both monitors share it; lifetime matches the listener
@@ -3501,7 +3540,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
              "reloadApp",
              0,
              [](jsi::Runtime& /*rt*/, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
-               g_idle_add(
+               // Hop to the main context — g_idle_add attaches to the
+               // thread-default context, and the JS binding runs on
+               // the worker now, so g_idle_add would silently never
+               // fire (LogBox's "Reload" button used to work because
+               // JS was on main).
+               g_main_context_invoke_full(
+                   g_main_context_default(),
+                   G_PRIORITY_DEFAULT,
                    +[](gpointer) -> gboolean {
                      const auto& s = state();
                      if (s.reload) {
@@ -3509,7 +3555,8 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                      }
                      return G_SOURCE_REMOVE;
                    },
-                   nullptr);
+                   nullptr,
+                   /*notify=*/nullptr);
                return jsi::Value::undefined();
              });
 

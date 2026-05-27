@@ -2,6 +2,7 @@
 
 #include "react-native-linux/Logging.h"
 
+#include <glib.h>
 #include <jsi/jsi.h>
 #include <pthread.h>
 #include <utility>
@@ -26,6 +27,20 @@ void JsThread::run() {
     pthread_setname_np(pthread_self(), trimmed.c_str());
   }
 
+  // Push the *main* GMainContext as this thread's default so any GIO
+  // async op kicked off from a JSI binding (g_timeout_add, libsoup's
+  // send_and_read_async, gdk_clipboard_read_*_async, …) schedules its
+  // completion callback into the context the GTK main loop iterates.
+  //
+  // Without this, every async call defaults to the worker's own
+  // thread-default context, which has no main loop iterating it — so
+  // setTimeout, libsoup completions, file-monitor signals all sit
+  // forever and never fire. Real RN sidesteps the issue because its
+  // platform glue is built around the platform's main loop being
+  // accessible from any thread; here we have to be explicit.
+  GMainContext* mainCtx = g_main_context_default();
+  g_main_context_push_thread_default(mainCtx);
+
   // Construct the runtime *on this thread*. Hermes binds the runtime
   // to its constructing thread (HermesRuntime::makeHermesRuntime
   // installs a JsThreadSafetyTrap that fires if the runtime is
@@ -47,6 +62,7 @@ void JsThread::run() {
 
   if (!runtime_) {
     RNL_LOGE("JsThread") << "no runtime; worker exiting";
+    g_main_context_pop_thread_default(mainCtx);
     return;
   }
 
@@ -81,6 +97,12 @@ void JsThread::run() {
     doomed = std::move(runtime_);
   }
   doomed.reset();
+
+  // Balance the push at run() start so we leave the context stack
+  // empty before the pthread exits. Order matters — pop AFTER the
+  // runtime destructor has run (any GIO/timer callbacks the dtor
+  // schedules still target main, not the worker).
+  g_main_context_pop_thread_default(mainCtx);
 }
 
 void JsThread::waitForReady() {
