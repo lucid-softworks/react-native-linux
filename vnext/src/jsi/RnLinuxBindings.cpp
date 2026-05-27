@@ -191,6 +191,22 @@ void bindMethod(jsi::Runtime& rt, jsi::Object& target, const char* name, unsigne
       jsi::Function::createFromHostFunction(rt, propName, nargs, std::forward<Fn>(fn)));
 }
 
+// Attach a GSource to the MAIN context (the one g_application_run is
+// iterating) and return its tag. `g_timeout_add` / `g_idle_add`
+// implicitly attach to the *thread-default* context, which on our JS
+// worker thread is a separate context with no main loop iterating it
+// — so a timer scheduled from a JSI binding handler (setTimeout, rAF,
+// libsoup async, …) would otherwise never fire. Phase 5.8.
+//
+// Caller still uses g_source_remove(tag) to cancel.
+guint attachTimeoutMain(guint intervalMs, GSourceFunc cb, gpointer data) {
+  GSource* src = g_timeout_source_new(intervalMs);
+  g_source_set_callback(src, cb, data, /*notify=*/nullptr);
+  guint tag = g_source_attach(src, g_main_context_default());
+  g_source_unref(src);
+  return tag;
+}
+
 // Convenience: build a per-widget CSS provider so JS can change background
 // colors without leaking style across siblings.
 GtkCssProvider* ensureCssProvider(GtkWidget* w) {
@@ -822,6 +838,11 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   // schedules these on the platform's native compositor vsync; we'd
   // wire to GdkFrameClock for that, but a 16ms tick is fine for the
   // playground demo work.
+  //
+  // Phase 5.8: the timer source is attached to the MAIN context (not
+  // the JS worker's thread-default), so the callback fires on the GTK
+  // main thread. Body is posted through `state().executor` so the
+  // jsi::Function call runs on the worker where the runtime lives.
   bindMethod(
       rt,
       rnLinux,
@@ -833,56 +854,67 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         auto fn = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
         int handlerId = state().nextTimerId++;
         // One-shot — return G_SOURCE_REMOVE inside the callback.
-        guint sourceId = g_timeout_add(
+        guint sourceId = attachTimeoutMain(
             16,
             +[](gpointer ud) -> gboolean {
               int hid = GPOINTER_TO_INT(ud);
-              auto it = state().timerHandlers.find(hid);
-              if (it == state().timerHandlers.end() || !state().runtime) {
+              auto& s = state();
+              if (!s.executor) {
+                // No executor (shutting down) — drop the source. The
+                // map entry leaks until resetRnLinuxBindings clears
+                // it; touching timerHandlers from main would race
+                // the worker's reads.
                 return G_SOURCE_REMOVE;
               }
-              auto fn = it->second.second;
-              // Pull the entry out of the map BEFORE calling — apps
-              // commonly schedule the next rAF from inside the callback
-              // and the new id reuses the slot if we leave it stale.
-              state().timerHandlers.erase(it);
-              try {
-                // rAF fires the callback with a high-res timestamp in
-                // milliseconds — RN/web convention. We compute from
-                // GLib's monotonic time so consecutive rAFs see a
-                // strictly-monotonic clock.
-                const double tMs = g_get_monotonic_time() / 1000.0;
-                const gint64 t0 = g_get_monotonic_time();
-                fn->call(*state().runtime, jsi::Value{tMs});
-                const gint64 t1 = g_get_monotonic_time();
-                state().runtime->drainMicrotasks();
-                const gint64 t2 = g_get_monotonic_time();
-                // Light-weight rolling profile so we can see WHICH phase
-                // of the rAF is slow. n=60 ≈ 1 s at 60 Hz.
-                struct RafProf {
-                  int n = 0;
-                  gint64 jsUs = 0, drainUs = 0, maxUs = 0;
-                };
-                static RafProf p;
-                p.n++;
-                p.jsUs += (t1 - t0);
-                p.drainUs += (t2 - t1);
-                if ((t2 - t0) > p.maxUs)
-                  p.maxUs = (t2 - t0);
-                if (p.n >= 60) {
-                  RNL_LOGI("rnLinux.rafProf") << "n=" << p.n << " avg_js=" << (p.jsUs / p.n) << "us"
-                                              << " avg_drain=" << (p.drainUs / p.n) << "us"
-                                              << " max_total=" << p.maxUs << "us";
-                  p = {};
+              s.executor([hid](jsi::Runtime& rt) {
+                auto& s = state();
+                auto it = s.timerHandlers.find(hid);
+                if (it == s.timerHandlers.end())
+                  return;
+                auto fn = it->second.second;
+                // Pull the entry out of the map BEFORE calling — apps
+                // commonly schedule the next rAF from inside the callback
+                // and the new id reuses the slot if we leave it stale.
+                s.timerHandlers.erase(it);
+                try {
+                  // rAF fires the callback with a high-res timestamp in
+                  // milliseconds — RN/web convention. We compute from
+                  // GLib's monotonic time so consecutive rAFs see a
+                  // strictly-monotonic clock.
+                  const double tMs = g_get_monotonic_time() / 1000.0;
+                  const gint64 t0 = g_get_monotonic_time();
+                  fn->call(rt, jsi::Value{tMs});
+                  const gint64 t1 = g_get_monotonic_time();
+                  rt.drainMicrotasks();
+                  const gint64 t2 = g_get_monotonic_time();
+                  // Light-weight rolling profile so we can see WHICH phase
+                  // of the rAF is slow. n=60 ≈ 1 s at 60 Hz.
+                  struct RafProf {
+                    int n = 0;
+                    gint64 jsUs = 0, drainUs = 0, maxUs = 0;
+                  };
+                  static RafProf p;
+                  p.n++;
+                  p.jsUs += (t1 - t0);
+                  p.drainUs += (t2 - t1);
+                  if ((t2 - t0) > p.maxUs)
+                    p.maxUs = (t2 - t0);
+                  if (p.n >= 60) {
+                    RNL_LOGI("rnLinux.rafProf")
+                        << "n=" << p.n << " avg_js=" << (p.jsUs / p.n) << "us"
+                        << " avg_drain=" << (p.drainUs / p.n) << "us" << " max_total=" << p.maxUs
+                        << "us";
+                    p = {};
+                  }
+                } catch (const jsi::JSError& e) {
+                  // Include the stack so we can tell WHICH chain is overflowing
+                  // — generic "Maximum call stack size exceeded" doesn't say.
+                  RNL_LOGE("rnLinux") << "rAF threw: " << e.getMessage() << "\n    stack:\n"
+                                      << e.getStack();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux") << "rAF threw: " << e.what();
                 }
-              } catch (const jsi::JSError& e) {
-                // Include the stack so we can tell WHICH chain is overflowing
-                // — generic "Maximum call stack size exceeded" doesn't say.
-                RNL_LOGE("rnLinux") << "rAF threw: " << e.getMessage() << "\n    stack:\n"
-                                    << e.getStack();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux") << "rAF threw: " << e.what();
-              }
+              });
               return G_SOURCE_REMOVE;
             },
             GINT_TO_POINTER(handlerId));
@@ -927,25 +959,32 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         auto fn = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
         guint ms = static_cast<guint>(args[1].asNumber());
         int handlerId = state().nextTimerId++;
-        guint sourceId = g_timeout_add(
+        guint sourceId = attachTimeoutMain(
             ms,
             +[](gpointer ud) -> gboolean {
               int hid = GPOINTER_TO_INT(ud);
-              auto it = state().timerHandlers.find(hid);
-              if (it == state().timerHandlers.end() || !state().runtime) {
+              auto& s = state();
+              if (!s.executor)
                 return G_SOURCE_REMOVE;
-              }
-              try {
-                it->second.second->call(*state().runtime);
-                state().runtime->drainMicrotasks();
-              } catch (const jsi::JSError& e) {
-                RNL_LOGE("rnLinux") << "timeout threw: " << e.getMessage();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux") << "timeout threw: " << e.what();
-              }
-              // One-shot — drop our handle so a subsequent clearTimeout
-              // call on a stale id is a no-op.
-              state().timerHandlers.erase(hid);
+              s.executor([hid](jsi::Runtime& rt) {
+                auto& s = state();
+                auto it = s.timerHandlers.find(hid);
+                if (it == s.timerHandlers.end())
+                  return;
+                auto fn = it->second.second;
+                // One-shot — drop the handle before invoking so a
+                // re-schedule from inside the callback can reuse the slot
+                // and a stale clearTimeout call is a no-op.
+                s.timerHandlers.erase(it);
+                try {
+                  fn->call(rt);
+                  rt.drainMicrotasks();
+                } catch (const jsi::JSError& e) {
+                  RNL_LOGE("rnLinux") << "timeout threw: " << e.getMessage();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux") << "timeout threw: " << e.what();
+                }
+              });
               return G_SOURCE_REMOVE;
             },
             GINT_TO_POINTER(handlerId));
@@ -981,22 +1020,27 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         auto fn = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
         guint ms = static_cast<guint>(args[1].asNumber());
         int handlerId = state().nextTimerId++;
-        guint sourceId = g_timeout_add(
+        guint sourceId = attachTimeoutMain(
             ms,
             +[](gpointer ud) -> gboolean {
               int hid = GPOINTER_TO_INT(ud);
-              auto it = state().timerHandlers.find(hid);
-              if (it == state().timerHandlers.end() || !state().runtime) {
+              auto& s = state();
+              if (!s.executor)
                 return G_SOURCE_REMOVE;
-              }
-              try {
-                it->second.second->call(*state().runtime);
-                state().runtime->drainMicrotasks();
-              } catch (const jsi::JSError& e) {
-                RNL_LOGE("rnLinux") << "interval threw: " << e.getMessage();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux") << "interval threw: " << e.what();
-              }
+              s.executor([hid](jsi::Runtime& rt) {
+                auto& s = state();
+                auto it = s.timerHandlers.find(hid);
+                if (it == s.timerHandlers.end())
+                  return;
+                try {
+                  it->second.second->call(rt);
+                  rt.drainMicrotasks();
+                } catch (const jsi::JSError& e) {
+                  RNL_LOGE("rnLinux") << "interval threw: " << e.getMessage();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux") << "interval threw: " << e.what();
+                }
+              });
               return G_SOURCE_CONTINUE;
             },
             GINT_TO_POINTER(handlerId));
