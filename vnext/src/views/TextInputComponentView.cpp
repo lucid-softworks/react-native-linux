@@ -50,9 +50,39 @@ const char* keyvalToRnKey(guint keyval) {
 gboolean onKeyPressed(GtkEventControllerKey* /*controller*/,
                       guint keyval,
                       guint /*keycode*/,
-                      GdkModifierType /*state*/,
+                      GdkModifierType state,
                       gpointer userData) {
   auto* self = static_cast<TextInputComponentView*>(userData);
+  // GtkText doesn't ship default key bindings for Ctrl+A / Ctrl+C /
+  // Ctrl+X / Ctrl+V — those live on the higher-level GtkEntry wrapper.
+  // We use GtkText directly (for the placeholder/CSS hooks RN needs),
+  // so we have to wire the standard editing accelerators ourselves.
+  // Modifier check tolerates NumLock / CapsLock by masking to the
+  // accelerator-relevant bits only.
+  const auto mods = state & gtk_accelerator_get_default_mod_mask();
+  if (mods == GDK_CONTROL_MASK) {
+    GtkEditable* ed = GTK_EDITABLE(self->widget());
+    switch (keyval) {
+    case GDK_KEY_a:
+    case GDK_KEY_A:
+      gtk_editable_select_region(ed, 0, -1);
+      return TRUE;
+    case GDK_KEY_c:
+    case GDK_KEY_C:
+      g_signal_emit_by_name(ed, "copy-clipboard");
+      return TRUE;
+    case GDK_KEY_x:
+    case GDK_KEY_X:
+      g_signal_emit_by_name(ed, "cut-clipboard");
+      return TRUE;
+    case GDK_KEY_v:
+    case GDK_KEY_V:
+      g_signal_emit_by_name(ed, "paste-clipboard");
+      return TRUE;
+    default:
+      break;
+    }
+  }
   std::string s;
   if (const char* named = keyvalToRnKey(keyval)) {
     s = named;
@@ -133,7 +163,18 @@ TextInputComponentView::TextInputComponentView(Tag tag)
   // GtkEventControllerKey lets us fire onKeyPress for every keystroke
   // before GtkText processes it. We pass through (return FALSE) so
   // editing isn't blocked.
+  //
+  // CRITICAL: phase MUST be CAPTURE, not the default BUBBLE. GtkText
+  // consumes printable-character key-presses internally (inserting
+  // the glyph and returning TRUE), so a BUBBLE-phase controller never
+  // sees them — including Ctrl+A / Ctrl+C / Ctrl+V (GtkText is the
+  // raw text widget; the standard editing accelerators live on the
+  // higher-level GtkEntry wrapper, which we don't use). Capture
+  // intercepts the event on its way DOWN to GtkText so we can
+  // honour Ctrl+A select-all (and forward onKeyPress to JS) before
+  // GtkText decides to swallow the event.
   GtkEventController* keyCtl = gtk_event_controller_key_new();
+  gtk_event_controller_set_propagation_phase(keyCtl, GTK_PHASE_CAPTURE);
   g_signal_connect_data(keyCtl,
                         "key-pressed",
                         G_CALLBACK(&onKeyPressed),
@@ -160,6 +201,12 @@ void TextInputComponentView::onTextChanged(GtkWidget* editable, gpointer userDat
   if (s == self->lastText_)
     return; // dedupe identical fires
   self->lastText_ = s;
+  // Dispatch synchronously — deferring via g_idle_add introduces a
+  // race for controlled `<TextInput value={state}>` patterns. If the
+  // user keeps typing while the idle is pending, JS only sees the
+  // first character; the next React commit then writes that stale
+  // value back to GtkText via gtk_editable_set_text, blowing away
+  // the rest of what the user just typed.
   dispatchFabricChangeText(self->tag_, s);
 }
 
