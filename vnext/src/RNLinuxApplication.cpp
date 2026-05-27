@@ -48,13 +48,6 @@ struct RNLinuxApplication::Impl {
   // dedupe — we only push into resizeRootSurface() on a real change.
   int lastWidth = -1;
   int lastHeight = -1;
-  // Coalescing for the resize → Yoga commit cascade. Each commit walks
-  // the full tree, so firing once per frame during a drag jitters
-  // visibly. We hold the LATEST pending dimensions and let a timer
-  // flush them at ~30 Hz.
-  int pendingWidth = -1;
-  int pendingHeight = -1;
-  guint pendingResizeSource = 0;
 };
 
 namespace {
@@ -328,6 +321,16 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
   // resize path — explicit resize, maximize, fullscreen, snap-tile —
   // without juggling a separate signal per source. Dedupe via
   // lastWidth/lastHeight so steady-state ticks are cheap.
+  //
+  // Phase 5.8: the resize commit fires directly inside the tick
+  // callback, which is itself driven by `GdkFrameClock` at the
+  // display's vsync rate. The previous 33 ms `g_timeout_add`
+  // coalescer was made redundant by the dedupe — `constraintLayout`
+  // is only called on actual size change — and it added 33-66 ms of
+  // latency on top of the JS-worker round-trip, which made resize
+  // artifacts (children positioned at old Yoga coords inside the
+  // new-sized viewport) very visible during a drag. Driving from the
+  // tick directly pins the resize commit to the next paint frame.
   gtk_widget_add_tick_callback(
       impl->viewport,
       +[](GtkWidget* w, GdkFrameClock* /*clock*/, gpointer userData) -> gboolean {
@@ -343,8 +346,6 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
         }
         impl->lastWidth = width;
         impl->lastHeight = height;
-        impl->pendingWidth = width;
-        impl->pendingHeight = height;
         // Pin rootView's size_request to the viewport so its natural
         // size can't be inflated by child widgets that report a larger
         // natural than Yoga gave them (FlatList items, big GtkLabels,
@@ -355,21 +356,13 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
         // them. Combined with overflow:hidden, this keeps rootView
         // exactly the size of the visible area.
         gtk_widget_set_size_request(impl->rootView, width, height);
-        // Coalesce: at most one Yoga commit per ~33 ms even if the WM
-        // hands us a configure-event every frame.
-        if (impl->pendingResizeSource == 0) {
-          impl->pendingResizeSource = g_timeout_add(
-              33,
-              +[](gpointer ud) -> gboolean {
-                auto* i = static_cast<RNLinuxApplication::Impl*>(ud);
-                i->pendingResizeSource = 0;
-                if (i->host && i->pendingWidth > 0 && i->pendingHeight > 0) {
-                  i->host->resizeRootSurface(i->pendingWidth, i->pendingHeight);
-                }
-                return G_SOURCE_REMOVE;
-              },
-              impl);
-        }
+        // Enqueue the Yoga commit on the JS worker. The RuntimeExecutor
+        // hops cross-thread; worker picks up next dispatch and
+        // SchedulerDelegate posts the new mount transaction back to
+        // main via g_main_context_invoke_full. Net latency from drag
+        // pixel → repositioned children: ~1 frame + worker turn (no
+        // longer the 33 ms timer we used to wear on top).
+        impl->host->resizeRootSurface(width, height);
         return G_SOURCE_CONTINUE;
       },
       impl,
@@ -415,10 +408,6 @@ void RNLinuxApplication::onShutdown(GtkApplication*, void* userData) {
   if (impl->reloadDebounceSource) {
     g_source_remove(impl->reloadDebounceSource);
     impl->reloadDebounceSource = 0;
-  }
-  if (impl->pendingResizeSource) {
-    g_source_remove(impl->pendingResizeSource);
-    impl->pendingResizeSource = 0;
   }
   if (impl->bundleMonitor) {
     g_object_unref(impl->bundleMonitor);
