@@ -16,8 +16,16 @@
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
+#include <react/renderer/textlayoutmanager/TextMeasureCache.h>
 
 namespace facebook::react {
+
+namespace {
+TextMeasurement measureUncached(const AttributedString& attributedString,
+                                const ParagraphAttributes& paragraphAttributes,
+                                const LayoutConstraints& layoutConstraints,
+                                TextMeasurement::Attachments attachments);
+}
 
 TextLayoutManager::TextLayoutManager(const ContextContainer::Shared& contextContainer)
     : contextContainer_(contextContainer)
@@ -51,6 +59,26 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributed
     return TextMeasurement{{width, height}, std::move(attachments)};
   }
 
+  // textMeasureCache_ is keyed by (attributedString, paragraphAttributes,
+  // layoutConstraints) with layout-equivalence aware comparisons (see
+  // TextMeasureCache.h). On every keystroke React's reconciler hands us
+  // fresh ParagraphState pointers for every sibling Paragraph in the
+  // affected subtree; without this cache Yoga calls measureContent →
+  // our measure() → buildMarkup + PangoContext + PangoLayout for every
+  // single one, even though the text + constraints haven't changed.
+  // The cache miss path is unchanged from below.
+  TextMeasureCacheKey cacheKey{attributedString, paragraphAttributes, layoutConstraints};
+  return textMeasureCache_.get(cacheKey, [&]() {
+    return measureUncached(attributedString, paragraphAttributes, layoutConstraints, attachments);
+  });
+}
+
+namespace {
+
+TextMeasurement measureUncached(const AttributedString& attributedString,
+                                const ParagraphAttributes& paragraphAttributes,
+                                const LayoutConstraints& layoutConstraints,
+                                TextMeasurement::Attachments attachments) {
   // Pango needs a PangoContext to build layouts. The Cairo font-map
   // backend gives us one tied to the system fontconfig setup — same
   // fonts GTK widgets use, so measurement matches what GtkLabel
@@ -120,4 +148,5 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributed
   return TextMeasurement{{width, height}, std::move(attachments)};
 }
 
+} // namespace
 } // namespace facebook::react
