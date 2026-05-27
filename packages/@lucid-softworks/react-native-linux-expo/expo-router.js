@@ -71,7 +71,13 @@ const router = {
   navigate: (...a) => withNav('navigate', a),
 };
 
-const RouterContext = React.createContext({
+// null sentinel — a nested <Stack> / <Tabs> uses it to decide whether
+// it's the outermost router (creates its own state, wraps the tree in
+// the Provider) or is nested inside another router (reuses the
+// existing state, skips the Provider). The hooks below default-init
+// to a stub for callers outside any router (rare, mostly tests).
+const RouterContext = React.createContext(null);
+const RouterStub = Object.freeze({
   pathname: '/',
   params: {},
   history: ['/'],
@@ -130,10 +136,10 @@ function parseHref(href) {
   return {pathname: path || '/', params};
 }
 
-function makeRouter(initial = '/') {
-  const [pathname, setPathname] = React.useState(initial);
+function makeRouter(initial, isRoot) {
+  const [pathname, setPathname] = React.useState(initial || '/');
   const [params, setParams] = React.useState({});
-  const [history, setHistory] = React.useState([initial]);
+  const [history, setHistory] = React.useState([initial || '/']);
   const navigate = React.useCallback(href => {
     const {pathname: p, params: q} = parseHref(href);
     setPathname(p);
@@ -172,12 +178,35 @@ function makeRouter(initial = '/') {
     [pathname, params, history, navigate, replace, back, merge, canGoBack],
   );
   React.useEffect(() => {
+    // Only the OUTERMOST router publishes itself as the singleton —
+    // nested Stack/Tabs reuse the parent's ctx, so they'd otherwise
+    // race the same write here and depending on mount order leave
+    // activeNav pointing at the wrong (inner) router. That's exactly
+    // why <Pressable onPress={() => router.push('/(auth)/password')}>
+    // silently snapped back to the inner stack's first screen
+    // instead of navigating.
+    if (!isRoot) return;
     activeNav = ctx;
     return () => {
       if (activeNav === ctx) activeNav = null;
     };
-  }, [ctx]);
+  }, [ctx, isRoot]);
   return ctx;
+}
+
+// "Strip the current Stack/Tabs' base from the pathname, return the
+// next segment." The auth Stack's base is `(auth)`; a pathname of
+// `/(auth)/password` reduces to `password`, which IS one of its
+// declared child names. Without this every nested router tried to
+// match the FULL pathname against its OWN screen list and the
+// outer-most segment always won — so the auth Stack fell back to
+// `signin` no matter what router.push wrote.
+function effectiveSegment(pathname, base) {
+  let p = (pathname || '/').replace(/^\//, '');
+  let b = (base || '').replace(/^\//, '');
+  if (b && p === b) return '';
+  if (b && p.startsWith(b + '/')) p = p.slice(b.length + 1);
+  return p.split('/')[0] || '';
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -185,28 +214,29 @@ function makeRouter(initial = '/') {
 // pathname segment. Stack.Screen is config-only (no own render).
 
 function Stack({children, screenOptions}) {
-  const ctx = makeRouter('/');
+  const parent = React.useContext(RouterContext);
+  // Always call makeRouter for hook stability, but only let the
+  // outermost Stack publish itself as `activeNav` (see makeRouter).
+  const local = makeRouter('/', !parent);
+  const ctx = parent || local;
   const base = React.useContext(RouteBaseContext);
   const screens = collectScreens(children, Stack.Screen, base);
-  const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || 'index';
+  const seg = effectiveSegment(ctx.pathname, base) || 'index';
   const match = screens.find(s => s.name === seg) ?? screens[0];
   const headerShown = match?.options?.headerShown ?? screenOptions?.headerShown ?? true;
-  return React.createElement(
-    RouterContext.Provider,
-    {value: ctx},
-    React.createElement(
-      View,
-      {style: {flex: 1}},
-      headerShown && match?.options?.title
-        ? React.createElement(
-            View,
-            {style: stackStyles.header},
-            React.createElement(Text, {style: stackStyles.headerTitle}, match.options.title),
-          )
-        : null,
-      React.createElement(View, {style: {flex: 1}}, renderScreen(match)),
-    ),
+  const tree = React.createElement(
+    View,
+    {style: {flex: 1}},
+    headerShown && match?.options?.title
+      ? React.createElement(
+          View,
+          {style: stackStyles.header},
+          React.createElement(Text, {style: stackStyles.headerTitle}, match.options.title),
+        )
+      : null,
+    React.createElement(View, {style: {flex: 1}}, renderScreen(match)),
   );
+  return parent ? tree : React.createElement(RouterContext.Provider, {value: ctx}, tree);
 }
 Stack.Screen = function StackScreen(_props) {
   return null;
@@ -228,10 +258,12 @@ const stackStyles = {
 // Tabs — bottom tab bar + active screen content.
 
 function Tabs({children, screenOptions}) {
-  const ctx = makeRouter('/');
+  const parent = React.useContext(RouterContext);
+  const local = makeRouter('/', !parent);
+  const ctx = parent || local;
   const base = React.useContext(RouteBaseContext);
   const screens = collectScreens(children, Tabs.Screen, base);
-  const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || screens[0]?.name;
+  const seg = effectiveSegment(ctx.pathname, base) || screens[0]?.name;
   const active = screens.find(s => s.name === seg) ?? screens[0];
   const activeColor =
     active?.options?.tabBarActiveTintColor ?? screenOptions?.tabBarActiveTintColor ?? '#2563eb';
@@ -259,7 +291,18 @@ function Tabs({children, screenOptions}) {
           const color = isActive ? activeColor : inactiveColor;
           return React.createElement(
             Pressable,
-            {key: s.name, style: tabsStyles.tab, onPress: () => ctx.navigate('/' + s.name)},
+            {
+              key: s.name,
+              style: tabsStyles.tab,
+              // Push an ABSOLUTE href so the navigation lands at the
+              // right depth: a nested <Tabs> inside `(tabs)/_layout.tsx`
+              // pressing the "messages" tab needs to write
+              // `/(tabs)/messages`, not `/messages`, otherwise the root
+              // Stack tries to find a `messages` screen and falls back
+              // to its default.
+              onPress: () =>
+                ctx.navigate('/' + (base ? base.replace(/^\//, '') + '/' : '') + s.name),
+            },
             s.options?.tabBarIcon
               ? s.options.tabBarIcon({color, focused: isActive, size: 24})
               : null,
@@ -379,7 +422,7 @@ function renderScreenBody(match) {
 
 function Link(props) {
   const {href, asChild, replace, children, style, onPress, ...rest} = props;
-  const ctx = React.useContext(RouterContext);
+  const ctx = React.useContext(RouterContext) || RouterStub;
   const handle = e => {
     if (onPress) onPress(e);
     if (e && e.defaultPrevented) return;
@@ -417,7 +460,7 @@ function Slot({children}) {
 }
 
 function Redirect({href}) {
-  const ctx = React.useContext(RouterContext);
+  const ctx = React.useContext(RouterContext) || RouterStub;
   React.useEffect(() => {
     ctx.replace(href);
   }, [href]);
@@ -433,28 +476,28 @@ function ThemeProvider({value, children}) {
 }
 
 function useRouter() {
-  return React.useContext(RouterContext);
+  return React.useContext(RouterContext) || RouterStub;
 }
 function useNavigation() {
-  return React.useContext(RouterContext);
+  return React.useContext(RouterContext) || RouterStub;
 }
 function useLocalSearchParams() {
-  return React.useContext(RouterContext).params;
+  return (React.useContext(RouterContext) || RouterStub).params;
 }
 function useGlobalSearchParams() {
-  return React.useContext(RouterContext).params;
+  return (React.useContext(RouterContext) || RouterStub).params;
 }
 function useSegments() {
-  return (React.useContext(RouterContext).pathname || '/')
+  return ((React.useContext(RouterContext) || RouterStub).pathname || '/')
     .replace(/^\//, '')
     .split('/')
     .filter(Boolean);
 }
 function usePathname() {
-  return React.useContext(RouterContext).pathname;
+  return (React.useContext(RouterContext) || RouterStub).pathname;
 }
 function useRootNavigationState() {
-  const ctx = React.useContext(RouterContext);
+  const ctx = React.useContext(RouterContext) || RouterStub;
   return {
     key: 'root',
     index: ctx.history.length - 1,
