@@ -81,6 +81,7 @@ const RouterStub = Object.freeze({
   pathname: '/',
   params: {},
   history: ['/'],
+  push: () => {},
   navigate: () => {},
   replace: () => {},
   back: () => {},
@@ -169,6 +170,12 @@ function makeRouter(initial, isRoot) {
       pathname,
       params,
       history,
+      // `push` and `navigate` are aliases here — real expo-router exposes
+      // both on its useRouter() return shape (push adds to history,
+      // navigate is the lower-level primitive). Akari's Sidebar/footer
+      // destructure { push }; without this alias every nav handler trips
+      // "undefined is not a function" the moment you click.
+      push: navigate,
       navigate,
       replace,
       back,
