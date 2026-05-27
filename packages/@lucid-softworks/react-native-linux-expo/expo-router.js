@@ -209,6 +209,33 @@ function effectiveSegment(pathname, base) {
   return p.split('/')[0] || '';
 }
 
+// When the pathname doesn't pick a screen by name (typically because
+// the user just navigated to `/` and the layout has only group screens
+// like `(auth)` / `(tabs)`), pick the one whose group has an `index`
+// route in our file-system table. Real expo-router treats group
+// segments as URL-transparent — `/` resolves through the group that
+// has an index leaf. For akari that's `(tabs)` (it has
+// `app/(tabs)/index/index.tsx`), NOT `(auth)`. Without this lookup we
+// always fall back to `screens[0]`, which kept routing post-login
+// back to the auth choice screen.
+function pickDefaultScreen(screens, base) {
+  const routes = typeof globalThis !== 'undefined' ? globalThis.__expoRouterRoutes : null;
+  if (routes) {
+    for (const s of screens) {
+      if (!s.name || s.name[0] !== '(' || s.name[s.name.length - 1] !== ')') continue;
+      const groupPath = (base ? base : '') + '/' + s.name;
+      if (
+        routes[groupPath + '/index'] ||
+        routes[groupPath + '/index/_layout'] ||
+        routes[groupPath + '/index/index']
+      ) {
+        return s;
+      }
+    }
+  }
+  return screens[0];
+}
+
 // ────────────────────────────────────────────────────────────────
 // Stack — renders the screen whose `name` matches the current
 // pathname segment. Stack.Screen is config-only (no own render).
@@ -222,7 +249,7 @@ function Stack({children, screenOptions}) {
   const base = React.useContext(RouteBaseContext);
   const screens = collectScreens(children, Stack.Screen, base);
   const seg = effectiveSegment(ctx.pathname, base) || 'index';
-  const match = screens.find(s => s.name === seg) ?? screens[0];
+  const match = screens.find(s => s.name === seg) ?? pickDefaultScreen(screens, base);
   const headerShown = match?.options?.headerShown ?? screenOptions?.headerShown ?? true;
   const tree = React.createElement(
     View,
@@ -264,7 +291,7 @@ function Tabs({children, screenOptions}) {
   const base = React.useContext(RouteBaseContext);
   const screens = collectScreens(children, Tabs.Screen, base);
   const seg = effectiveSegment(ctx.pathname, base) || screens[0]?.name;
-  const active = screens.find(s => s.name === seg) ?? screens[0];
+  const active = screens.find(s => s.name === seg) ?? pickDefaultScreen(screens, base);
   const activeColor =
     active?.options?.tabBarActiveTintColor ?? screenOptions?.tabBarActiveTintColor ?? '#2563eb';
   const inactiveColor =
