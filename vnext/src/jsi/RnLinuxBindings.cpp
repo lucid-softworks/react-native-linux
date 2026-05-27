@@ -3932,7 +3932,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           return jsi::Value::undefined();
         }
 
-        // Headers — flat {name: value} object from JS.
+        // Pull content-type out of the JS headers FIRST so we can pass
+        // it directly to soup_message_set_request_body_from_bytes —
+        // appending it via soup_message_headers_append before setting
+        // the body caused the bsky XRPC server to reply "request
+        // encoding Content-Type required but not provided" (libsoup3's
+        // set_request_body_from_bytes was clearing the value we'd
+        // already appended). Everything else passes through unchanged.
+        std::string contentType;
         if (count >= 3 && args[2].isObject()) {
           auto headers = args[2].asObject(rt);
           auto names = headers.getPropertyNames(rt);
@@ -3941,19 +3948,30 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           for (size_t i = 0; i < n; ++i) {
             auto k = names.getValueAtIndex(rt, i).asString(rt).utf8(rt);
             auto v = headers.getProperty(rt, k.c_str()).toString(rt).utf8(rt);
+            if (g_ascii_strcasecmp(k.c_str(), "content-type") == 0) {
+              contentType = v;
+              continue;
+            }
             soup_message_headers_append(mh, k.c_str(), v.c_str());
           }
         }
 
-        // Body — UTF-8 string. Default content-type follows fetch
-        // semantics: caller-provided header wins; otherwise text/plain.
+        // Body — UTF-8 string. set_request_body_from_bytes is the only
+        // libsoup3 API that publishes both the bytes and Content-Type
+        // atomically; passing the value via this call rather than
+        // appending via the header loop avoids the "header lost on
+        // body attach" footgun.
         if (count >= 4 && args[3].isString()) {
           auto body = args[3].asString(rt).utf8(rt);
           GBytes* gb = g_bytes_new(body.data(), body.size());
-          SoupMessageHeaders* mh = soup_message_get_request_headers(msg);
-          const char* ct = soup_message_headers_get_one(mh, "content-type");
-          soup_message_set_request_body_from_bytes(msg, ct ? ct : "text/plain", gb);
+          soup_message_set_request_body_from_bytes(
+              msg, contentType.empty() ? "text/plain" : contentType.c_str(), gb);
           g_bytes_unref(gb);
+        } else if (!contentType.empty()) {
+          // Body-less request that still carries a Content-Type (rare —
+          // e.g. some bearer-only POSTs). Append now.
+          soup_message_headers_append(
+              soup_message_get_request_headers(msg), "Content-Type", contentType.c_str());
         }
 
         auto ctx = std::make_unique<FetchCtx>();
