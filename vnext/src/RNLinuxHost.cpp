@@ -428,6 +428,13 @@ void RNLinuxHost::resizeRootSurface(int w, int h) {
   impl_->rootSurface->constraintLayout(
       {{W, H}, {W, H}, facebook::react::LayoutDirection::LeftToRight},
       {.pointScaleFactor = static_cast<facebook::react::Float>(config_.pointScaleFactor)});
+  // Wake the JS-side `useWindowDimensions` listener so responsive
+  // layouts (akari's sidebar / tab-bar switch, anything keying on
+  // window width) re-render against the new dimensions. Without
+  // this the value is captured once at mount and never updates.
+  dispatchDimensionsChange(static_cast<double>(w),
+                           static_cast<double>(h),
+                           static_cast<double>(config_.pointScaleFactor));
 }
 
 void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {

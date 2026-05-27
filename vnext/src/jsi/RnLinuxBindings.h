@@ -132,4 +132,11 @@ void dispatchFabricBlur(int tag);
 // is registered for the tag.
 void dispatchFabricLayout(int tag, float x, float y, float w, float h);
 
+// Notify the JS-side `useWindowDimensions` listener that the surface
+// allocation changed. Called from RNLinuxHost::resizeRootSurface so
+// every actual resize wakes the responsive-layout code (akari's
+// sidebar / tab-bar switch, etc.). No-op if no listener is
+// registered.
+void dispatchDimensionsChange(double width, double height, double scale);
+
 } // namespace rnlinux

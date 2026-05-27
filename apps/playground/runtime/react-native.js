@@ -89,28 +89,97 @@ const Platform = {
 // GTK doesn't surface a separate "screen" rect from JS-accessible
 // state in a windowed app (multi-monitor display info would require
 // reading the GdkMonitor list).
-// useWindowDimensions — RN hook returning the current 'window'
-// dimensions, re-rendering on resize. Real implementation subscribes
-// to Dimensions change events; we don't fire those yet, so the value
-// is captured once at mount. Good enough for most layout code.
-function useWindowDimensions() {
-  return Dimensions.get('window');
-}
 
 const _zeroDim = {width: 0, height: 0, scale: 1, fontScale: 1};
+
+// Fan-out for the single C++-side `setOnDimensionsChange` listener.
+// Every `Dimensions.addEventListener('change', cb)` and every
+// `useWindowDimensions` mount appends here; C++ fires once per real
+// resize and we run the whole list inline.
+const _dimChangeListeners = new Set();
+let _currentDim = _zeroDim;
+let _dimNativeWired = false;
+
+function _refreshDim() {
+  if (typeof rnLinux === 'undefined' || !rnLinux.getWindowDimensions) return _zeroDim;
+  const d = rnLinux.getWindowDimensions();
+  return d || _zeroDim;
+}
+
+function _ensureNativeWired() {
+  if (_dimNativeWired) return;
+  if (typeof rnLinux === 'undefined' || !rnLinux.setOnDimensionsChange) return;
+  _dimNativeWired = true;
+  _currentDim = _refreshDim();
+  rnLinux.setOnDimensionsChange(next => {
+    _currentDim = next || _refreshDim();
+    // Snapshot iteration — subscriber `remove` calls during dispatch
+    // are common (useEffect cleanup on unmount) and would otherwise
+    // invalidate the Set iterator.
+    const snapshot = Array.from(_dimChangeListeners);
+    for (const fn of snapshot) {
+      try {
+        fn({window: _currentDim, screen: _currentDim});
+      } catch (e) {
+        if (typeof rnLinux !== 'undefined') {
+          rnLinux.log('error', '[Dimensions] listener threw: ' + (e && e.message));
+        }
+      }
+    }
+  });
+}
+
 const Dimensions = {
   get: kind => {
     if (kind !== 'screen' && kind !== 'window') return _zeroDim;
-    if (typeof rnLinux === 'undefined' || !rnLinux.getWindowDimensions) return _zeroDim;
-    const d = rnLinux.getWindowDimensions();
-    return d || _zeroDim;
+    _ensureNativeWired();
+    // Always read fresh — `useWindowDimensions` below caches into
+    // useState, but external `Dimensions.get` callers expect the
+    // current value, not whatever we last cached.
+    _currentDim = _refreshDim();
+    return _currentDim;
   },
-  // RN's API includes a change listener for orientation/resize. Apps
-  // wire onLayout against their root View for this; we don't fire
-  // change events yet, so return a no-op subscription.
-  addEventListener: () => ({remove: () => {}}),
-  removeEventListener: () => {},
+  addEventListener: (event, cb) => {
+    if (event !== 'change' || typeof cb !== 'function') {
+      return {remove: () => {}};
+    }
+    _ensureNativeWired();
+    _dimChangeListeners.add(cb);
+    return {remove: () => _dimChangeListeners.delete(cb)};
+  },
+  removeEventListener: (event, cb) => {
+    if (event === 'change') _dimChangeListeners.delete(cb);
+  },
 };
+
+// useWindowDimensions — RN hook returning the current 'window'
+// dimensions, re-rendering on resize.
+//
+// `useSyncExternalStore` is the correct primitive here. With
+// useState + useEffect there's a window between the initial render
+// (which captures whatever value `getSnapshot` returned at that
+// moment) and the effect commit (which subscribes); a resize that
+// fires in that window is missed. `useSyncExternalStore` resolves
+// this by re-reading the snapshot synchronously after subscribe and
+// re-rendering if it changed.
+//
+// `_currentDim` is mutated by `setOnDimensionsChange` (above) on
+// every real resize; subscribers fire and React re-reads the
+// snapshot. `getSnapshot` returns the SAME reference between resizes,
+// so React's bail-out check (Object.is on the snapshot) avoids
+// re-renders when nothing actually changed.
+function _dimSubscribe(cb) {
+  _ensureNativeWired();
+  _dimChangeListeners.add(cb);
+  return () => _dimChangeListeners.delete(cb);
+}
+function _dimGetSnapshot() {
+  _ensureNativeWired();
+  return _currentDim;
+}
+function useWindowDimensions() {
+  return React.useSyncExternalStore(_dimSubscribe, _dimGetSnapshot, _dimGetSnapshot);
+}
 
 // Reads the GTK setting `gtk-application-prefer-dark-theme` on each
 // call so apps see the current system preference. We don't yet emit

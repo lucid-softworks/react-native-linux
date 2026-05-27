@@ -158,6 +158,15 @@ struct State {
   gulong localeMonitorEtcSignalId{0};
   gulong localeMonitorDefaultSignalId{0};
 
+  // Window-dimensions change listener — populated by JS via
+  // rnLinux.setOnDimensionsChange. Fired from RNLinuxHost::resizeRootSurface
+  // (which itself runs from the GdkFrameClock tick on main) via
+  // dispatchDimensionsChange below. Akari + most responsive RN apps
+  // hide / show their sidebar / tab-bar off useWindowDimensions —
+  // without this hook the value is captured once at mount and the
+  // layout never updates when the user resizes.
+  std::shared_ptr<jsi::Function> dimensionsOnChange;
+
   // Phase 5.8: every C++→JS callback (dispatchFabric*, fetch result,
   // GIO/libsoup signals) posts through this executor instead of
   // dereferencing `runtime` directly. The runtime lives on a worker
@@ -288,6 +297,7 @@ void resetRnLinuxBindings() {
     state().localeMonitorDefault = nullptr;
   }
   state().localeOnChange.reset();
+  state().dimensionsOnChange.reset();
   state().nodes.clear();
   state().nextId = 1;
   state().nextTimerId = 1;
@@ -572,6 +582,28 @@ void dispatchFabricLayout(int tag, float x, float y, float w, float h) {
       RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.getMessage();
     } catch (const std::exception& e) {
       RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchDimensionsChange(double width, double height, double scale) {
+  auto& s = state();
+  if (!s.executor || !s.dimensionsOnChange)
+    return;
+  s.executor([width, height, scale](jsi::Runtime& rt) {
+    auto& s = state();
+    if (!s.dimensionsOnChange)
+      return;
+    try {
+      jsi::Object dims(rt);
+      dims.setProperty(rt, "width", jsi::Value(width));
+      dims.setProperty(rt, "height", jsi::Value(height));
+      dims.setProperty(rt, "scale", jsi::Value(scale));
+      dims.setProperty(rt, "fontScale", jsi::Value(1.0));
+      s.dimensionsOnChange->call(rt, dims);
+      rt.drainMicrotasks();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "dimensions change handler threw: " << e.what();
     }
   });
 }
@@ -2274,6 +2306,26 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         obj.setProperty(rt, "scale", jsi::Value(static_cast<double>(scale)));
         obj.setProperty(rt, "fontScale", jsi::Value(1.0));
         return obj;
+      });
+
+  // Registers / clears the JS-side `useWindowDimensions` listener.
+  // The C++ side fires `dispatchDimensionsChange` from
+  // RNLinuxHost::resizeRootSurface — JS hands us a single fan-out
+  // function, the JS shim fans out to whatever components subscribed.
+  // Pass null / undefined to clear.
+  bindMethod(
+      rt,
+      rnLinux,
+      "setOnDimensionsChange",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        auto& s = state();
+        if (count < 1 || args[0].isNull() || args[0].isUndefined()) {
+          s.dimensionsOnChange.reset();
+          return jsi::Value::undefined();
+        }
+        s.dimensionsOnChange = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
       });
 
   // Alert backing. JS calls rnLinux.showAlert(title, message, buttons, cb).
