@@ -13,12 +13,32 @@ std::string envOr(const char* key, std::string fallback) {
 }
 
 std::string resolveBundleUrl() {
+  std::string url;
   if (const char* override = std::getenv("RN_BUNDLE_URL")) {
-    return override;
+    url = override;
+  } else {
+    const auto host = envOr("RN_METRO_HOST", "127.0.0.1");
+    const auto port = envOr("RN_METRO_PORT", "8081");
+    url = "http://" + host + ":" + port + "/index.bundle?platform=linux&dev=true&minify=false";
   }
-  const auto host = envOr("RN_METRO_HOST", "127.0.0.1");
-  const auto port = envOr("RN_METRO_PORT", "8081");
-  return "http://" + host + ":" + port + "/index.bundle?platform=linux&dev=true&minify=false";
+  // For file:// app bundles, prefer the `.hbc` (Hermes bytecode)
+  // sibling when it exists — same idiom as the vendor resolver
+  // below. Hermes auto-detects the magic header on
+  // evaluateJavaScript and skips parse/codegen, so a 36 MB app
+  // bundle that takes ~2 minutes to interpret-parse on this VM
+  // loads in single-digit seconds when precompiled. The bundler
+  // (apps/playground/bundle.mjs + /tmp/akari/__rnlinux__/bundle.mjs)
+  // emits both `.bundle` and `.bundle.hbc` next to each other.
+  const std::string fileScheme = "file://";
+  if (url.rfind(fileScheme, 0) == 0) {
+    const auto path = url.substr(fileScheme.size());
+    const auto hbc = path + ".hbc";
+    struct stat st {};
+    if (::stat(hbc.c_str(), &st) == 0) {
+      return fileScheme + hbc;
+    }
+  }
+  return url;
 }
 
 std::string resolveVendorBundleUrl(const std::string& appBundleUrl) {
@@ -39,7 +59,7 @@ std::string resolveVendorBundleUrl(const std::string& appBundleUrl) {
     return {};
   const auto dir = path.substr(0, slash + 1);
   const auto hbc = dir + "vendor.bundle.hbc";
-  struct stat st{};
+  struct stat st {};
   if (::stat(hbc.c_str(), &st) == 0) {
     return fileScheme + hbc;
   }

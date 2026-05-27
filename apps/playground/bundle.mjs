@@ -313,11 +313,23 @@ const appOpts = {
 // JS init lands tens of milliseconds faster. We tolerate a missing
 // hermesc — the C++ side falls back to evaluating the JS bundle.
 function compileVendorBytecode() {
-  const hermescCandidates = [
-    resolve(here, '../../vnext/build/bin/hermesc'),
-    resolve(here, '../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc'),
-    resolve(here, '../../node_modules/react-native/sdks/hermesc/osx-bin/hermesc'),
-  ];
+  // Order matters — `existsSync` doesn't check that the binary is
+  // exec-able on the current host. Bytecode is portable across
+  // architectures, so the macOS hermesc producing output for the
+  // Linux VM is fine; we just need to pick the one that actually
+  // RUNS where the bundler runs. The VM-built `vnext/build/bin/hermesc`
+  // is an ARM64 Linux ELF, which `spawn` on macOS hits with an
+  // `Exec format error` (status null in the log).
+  const isMacOS = process.platform === 'darwin';
+  const hermescCandidates = isMacOS
+    ? [
+        resolve(here, '../../node_modules/react-native/sdks/hermesc/osx-bin/hermesc'),
+        resolve(here, '../../vnext/build/bin/hermesc'),
+      ]
+    : [
+        resolve(here, '../../vnext/build/bin/hermesc'),
+        resolve(here, '../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc'),
+      ];
   const hermesc = hermescCandidates.find(existsSync);
   if (!hermesc) {
     console.log('[hermesc] not found — vendor stays as JS source');
