@@ -115,6 +115,7 @@ set(RNL_SOURCES
   src/fabric/LinuxComponentViewRegistry.cpp
   src/fabric/JSExecutorStubs.cpp
   src/jsi/HermesRuntimeFactory.cpp
+  src/jsi/JsThread.cpp
   src/jsi/BundleLoader.cpp
   src/jsi/RnLinuxBindings.cpp
   src/jsi/TurboModuleRegistry.cpp
