@@ -291,7 +291,7 @@ const stackStyles = {
 // ────────────────────────────────────────────────────────────────
 // Tabs — bottom tab bar + active screen content.
 
-function Tabs({children, screenOptions}) {
+function Tabs({children, screenOptions, tabBar}) {
   const parent = React.useContext(RouterContext);
   const local = makeRouter('/', !parent);
   const ctx = parent || local;
@@ -299,10 +299,99 @@ function Tabs({children, screenOptions}) {
   const screens = collectScreens(children, Tabs.Screen, base);
   const seg = effectiveSegment(ctx.pathname, base) || screens[0]?.name;
   const active = screens.find(s => s.name === seg) ?? pickDefaultScreen(screens, base);
+  const activeIndex = Math.max(
+    0,
+    screens.findIndex(s => s === active),
+  );
   const activeColor =
     active?.options?.tabBarActiveTintColor ?? screenOptions?.tabBarActiveTintColor ?? '#2563eb';
   const inactiveColor =
     active?.options?.tabBarInactiveTintColor ?? screenOptions?.tabBarInactiveTintColor ?? '#9ca3af';
+  // `tabBarStyle: { display: 'none' }` from screenOptions hides the bar
+  // entirely. Apps set this when a parent container handles the tab UI
+  // (e.g. a desktop sidebar). Without honouring it we'd draw both.
+  const tabBarStyleProp = active?.options?.tabBarStyle ?? screenOptions?.tabBarStyle;
+  const tabBarHidden =
+    tabBarStyleProp && typeof tabBarStyleProp === 'object' && tabBarStyleProp.display === 'none';
+
+  let tabBarNode = null;
+  if (tabBarHidden) {
+    tabBarNode = null;
+  } else if (typeof tabBar === 'function') {
+    // React Navigation's `tabBar` render-prop receives a
+    // BottomTabBarProps shape. We supply the minimum surface that
+    // akari's <HardcodedTabBar> actually reads — state with routes /
+    // index / routeNames, a navigation object with navigate / emit /
+    // dispatch, an empty descriptors map (akari's bar doesn't read
+    // descriptors; if it did we'd populate per-screen options here),
+    // and a zero-inset SafeArea object. The bar's TabButtons call
+    // navigation.emit({type:'tabPress', target, canPreventDefault})
+    // and then `navigation.navigate(route.name)`; we route that
+    // through our pathname-based router via ctx.navigate.
+    const navObject = {
+      navigate: (name, _params) =>
+        ctx.navigate('/' + (base ? base.replace(/^\//, '') + '/' : '') + name),
+      emit: () => ({defaultPrevented: false}),
+      dispatch: () => {},
+      reset: () => {},
+      goBack: () => ctx.back?.(),
+      isFocused: () => true,
+      addListener: () => () => {},
+      removeListener: () => {},
+    };
+    const navState = {
+      index: activeIndex,
+      routeNames: screens.map(s => s.name),
+      routes: screens.map(s => ({key: s.name, name: s.name, params: undefined})),
+      type: 'tab',
+      stale: false,
+      history: [],
+      key: 'tabs-' + (base || 'root'),
+    };
+    const descriptors = {};
+    for (const s of screens) {
+      descriptors[s.name] = {
+        options: s.options || {},
+        route: {key: s.name, name: s.name, params: undefined},
+        navigation: navObject,
+      };
+    }
+    tabBarNode = tabBar({
+      state: navState,
+      navigation: navObject,
+      descriptors,
+      insets: {top: 0, right: 0, bottom: 0, left: 0},
+    });
+  } else {
+    tabBarNode = React.createElement(
+      View,
+      {style: tabsStyles.bar},
+      screens.map(s => {
+        const isActive = s === active;
+        const color = isActive ? activeColor : inactiveColor;
+        return React.createElement(
+          Pressable,
+          {
+            key: s.name,
+            style: tabsStyles.tab,
+            // Push an ABSOLUTE href so the navigation lands at the
+            // right depth: a nested <Tabs> inside `(tabs)/_layout.tsx`
+            // pressing the "messages" tab needs to write
+            // `/(tabs)/messages`, not `/messages`, otherwise the root
+            // Stack tries to find a `messages` screen and falls back
+            // to its default.
+            onPress: () => ctx.navigate('/' + (base ? base.replace(/^\//, '') + '/' : '') + s.name),
+          },
+          s.options?.tabBarIcon ? s.options.tabBarIcon({color, focused: isActive, size: 24}) : null,
+          React.createElement(
+            Text,
+            {style: [tabsStyles.label, {color}]},
+            s.options?.title ?? s.name,
+          ),
+        );
+      }),
+    );
+  }
   return React.createElement(
     RouterContext.Provider,
     {value: ctx},
@@ -317,37 +406,7 @@ function Tabs({children, screenOptions}) {
           )
         : null,
       React.createElement(View, {style: {flex: 1}}, renderScreen(active)),
-      React.createElement(
-        View,
-        {style: tabsStyles.bar},
-        screens.map(s => {
-          const isActive = s === active;
-          const color = isActive ? activeColor : inactiveColor;
-          return React.createElement(
-            Pressable,
-            {
-              key: s.name,
-              style: tabsStyles.tab,
-              // Push an ABSOLUTE href so the navigation lands at the
-              // right depth: a nested <Tabs> inside `(tabs)/_layout.tsx`
-              // pressing the "messages" tab needs to write
-              // `/(tabs)/messages`, not `/messages`, otherwise the root
-              // Stack tries to find a `messages` screen and falls back
-              // to its default.
-              onPress: () =>
-                ctx.navigate('/' + (base ? base.replace(/^\//, '') + '/' : '') + s.name),
-            },
-            s.options?.tabBarIcon
-              ? s.options.tabBarIcon({color, focused: isActive, size: 24})
-              : null,
-            React.createElement(
-              Text,
-              {style: [tabsStyles.label, {color}]},
-              s.options?.title ?? s.name,
-            ),
-          );
-        }),
-      ),
+      tabBarNode,
     ),
   );
 }
