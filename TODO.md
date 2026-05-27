@@ -67,8 +67,8 @@ Honest gaps for arbitrary RN apps to drop in:
 - [x] HermesRuntimeFactory + `withMicrotaskQueue(true)` + explicit drain after evaluate
 - [x] Bundle loader (file:// works; http:// stub remains — for the bundle, not for `<Image>`)
 - [x] Vendor + app two-bundle split; vendor pre-compiled to Hermes `.hbc`
-- [ ] Dedicated JS thread (still single-threaded — `Runtime::executor` is synchronous)
-- [ ] folly executor + g_idle_add cross-thread plumbing (single-threaded path covers MVP)
+- [x] Dedicated JS thread — Hermes runs on its own pthread (`vnext/src/jsi/JsThread.{h,cpp}`); RuntimeExecutor posts onto it, sync fast-path when called from the worker itself
+- [x] g*idle_add cross-thread plumbing — SchedulerDelegate uses `g_main_context_invoke_full(g_main_context_default(), …)` for JS → main mount hops; worker pushes main GMainContext as thread-default so GIO async (libsoup, gdk_clipboard_read*\*\_async, g_timeout_add) lands on the main loop
 
 ### 5.3 — Fabric integration
 
@@ -129,6 +129,21 @@ Honest gaps for arbitrary RN apps to drop in:
 - [ ] Hermes inspector port
 - [ ] Cmd/Ctrl+R reload keybinding at the GTK level
 - [ ] Performance overlay (FPS)
+
+### 5.9 — Off-load blocking native work from the JS worker
+
+Now that Hermes runs on its own pthread, every blocking native module that's reachable from JSI freezes the JS thread for the duration — React's scheduler can't pump, dispatch\* events queue up, fetch completions back up. Audit ordered by impact (file:line; thread today → target thread):
+
+- [x] **SecureStore async variants** (`vnext/src/jsi/RnLinuxBindings.cpp:2780+` → `vnext/src/securestore/SecureStore.cpp`) — `secret_password_*_sync` blocks 0.5–5 s on keyring prompts. New `secureStoreSetItemAsync` / `secureStoreGetItemAsync` / `secureStoreDeleteItemAsync` bindings spawn a detached `std::thread` for the libsecret call and post the JS callback back through `state().executor`. Sync variants kept for bootstrap-time hydration paths. JS shim (`expo-secure-store.js`) routes `setItemAsync` / `getItemAsync` / `deleteItemAsync` through the new bindings.
+- [x] **Location signal callbacks** (`vnext/src/jsi/RnLinuxBindings.cpp:2515+`) — onFix / onError fired from the main thread; now hop to the worker via executor before touching the runtime.
+- [ ] **Location D-Bus setup** (`vnext/src/location/Location.cpp:89–150+`) — `g_bus_get_sync` + `g_dbus_connection_call_sync` block 500–2000 ms on first connection; needs `LocationClient` to expose an async start variant (or move the JSI bindings to a `std::thread` like SecureStore) so `locationStartWatch` doesn't pin the JS thread on cold start.
+- [ ] **AsyncStorage I/O** (`vnext/src/storage/AsyncStorage.cpp` + `vnext/src/jsi/RnLinuxBindings.cpp:1472`) — sync `ifstream` / `ofstream` + JSON round-trip on every key. First read on cold start blocks; every write rewrites the whole store. Should post to a worker thread; consider SQLite once the key set grows.
+- [ ] **Image `data:` URI decode** (`vnext/src/views/ImageComponentView.cpp:72–105`) — `gdk_pixbuf_loader_write` is synchronous inside the mount commit. Sub-5 ms for 4 KB logos, can be 50 ms+ for larger payloads. Should GTask off + texture-via-callback into the component view.
+- [ ] **Print / PDF export** (`vnext/src/print/Print.cpp:149–219`) — sync Pango + Cairo render; 100–500 ms for a 100-page doc. Worker thread + progress-on-main idle.
+- [ ] **Crypto digest** (`vnext/src/jsi/RnLinuxBindings.cpp:1633`) — sync SHA + base64 on large blobs. Threshold-gated (>1 MB) worker dispatch.
+- [ ] **Download read loop** (`vnext/src/filesystem/FileSystem.cpp:373–461`) — `g_input_stream_read` in `onSoupSendFinish` ties the main loop up for multi-MB downloads. Should be a GTask with progress on main idle.
+- [ ] **Per-view `updateProps` profiling** (`vnext/src/fabric/LinuxMountingManager.cpp:23–86`) — current profile rolls per-transaction times; can't drill into which component made a commit slow. Add per-view timing + log outliers >5 ms.
+- [ ] **Pango text-measure cache hit rate** (`vnext/src/text/TextLayoutManager.cpp:78–148`) — cache exists; verify >90 % hit rate on a feed scroll; pre-warm common app text if low.
 
 ## Phase 9 — Component coverage
 
@@ -236,7 +251,7 @@ Once arbitrary RN apps load and run, the structural things between "works" and "
 
 - **Real-app harness** — a published demo or two living under `apps/`, run on every CI build, gating merges on visible regression. The cheapest production-readiness signal you can get.
 - **TurboModule manager + codegen** — third-party native modules can't autolink today. Lots of common libraries (FBSDK, MMKV, RNFS, sentry-react-native, …) need this. Blocks any RN ecosystem package with a `react-native.config.js`.
-- **Dedicated JS thread** — currently single-threaded, JS work runs on the GTK main loop. Doesn't matter at MVP scale but real apps will jank under sustained load (large lists, complex animations, heavy effects). Bigger refactor — touches `RuntimeExecutor`, `g_idle_add` crossing, every JSI binding's threading assumption.
+- **Off-thread native modules** — the JS thread split landed (Phase 5.8), but blocking native calls (SecureStore D-Bus, Location D-Bus, AsyncStorage I/O, Print/Cairo, large image decodes, crypto on big blobs, multi-MB downloads) still pin the JS worker or main thread. Plan + status per call site in Phase 5.9 above.
 - **Accessibility (AT-SPI2)** — hard requirement for enterprise / regulated / EU-accessibility-act-affected shipping. Currently `AccessibilityInfo` is a stub. The schedulerDidSendAccessibilityEvent hook exists but doesn't emit through AT-SPI.
 - **Distro packaging** — AppImage script and `.deb` packager both exist; CLI exposes them via `react-native pack-linux --target=deb|appimage` (defaults pulled from `package.json`). Flatpak / Snap / `.rpm` still open — each ~50–100 lines of script following the same shape as `scripts/package/deb.sh`. See `docs/packaging.md`.
 - **Hermes inspector** — Chrome DevTools attach for production-grade debugging. Port-bind + websocket bridge.

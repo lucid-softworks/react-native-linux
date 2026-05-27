@@ -23,6 +23,7 @@
 #include <jsi/jsi.h>
 #include <string>
 #include <sys/random.h>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -2507,45 +2508,54 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         }
 
         const bool ok = s.location->startWatch(
-            // onFix — fires on every LocationUpdated from GeoClue. The
-            // signal callback runs on the GTK main loop thread, which
-            // is the same thread that owns the runtime, so calling
-            // into JS inline is safe.
+            // onFix — fires on every LocationUpdated from GeoClue.
+            // The signal callback fires on the GTK main thread (post-
+            // Phase 5.8 the JS runtime is on the worker), so hop
+            // through the executor before touching the runtime.
             [](const rnlinux::location::LocationFix& fix) {
               auto& st = state();
-              if (!st.runtime || !st.locationOnFix)
+              if (!st.executor || !st.locationOnFix)
                 return;
-              jsi::Runtime& jrt = *st.runtime;
-              try {
-                jsi::Object obj(jrt);
-                obj.setProperty(jrt, "latitude", jsi::Value(fix.latitude));
-                obj.setProperty(jrt, "longitude", jsi::Value(fix.longitude));
-                obj.setProperty(jrt, "accuracy", jsi::Value(fix.accuracy));
-                obj.setProperty(jrt, "altitude", jsi::Value(fix.altitude));
-                obj.setProperty(jrt, "speed", jsi::Value(fix.speed));
-                obj.setProperty(jrt, "heading", jsi::Value(fix.heading));
-                obj.setProperty(jrt, "timestamp", jsi::Value(static_cast<double>(fix.timestampMs)));
-                st.locationOnFix->call(jrt, obj);
-                jrt.drainMicrotasks();
-              } catch (const jsi::JSError& e) {
-                RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.getMessage();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.what();
-              }
+              st.executor([fix](jsi::Runtime& jrt) {
+                auto& st = state();
+                if (!st.locationOnFix)
+                  return;
+                try {
+                  jsi::Object obj(jrt);
+                  obj.setProperty(jrt, "latitude", jsi::Value(fix.latitude));
+                  obj.setProperty(jrt, "longitude", jsi::Value(fix.longitude));
+                  obj.setProperty(jrt, "accuracy", jsi::Value(fix.accuracy));
+                  obj.setProperty(jrt, "altitude", jsi::Value(fix.altitude));
+                  obj.setProperty(jrt, "speed", jsi::Value(fix.speed));
+                  obj.setProperty(jrt, "heading", jsi::Value(fix.heading));
+                  obj.setProperty(
+                      jrt, "timestamp", jsi::Value(static_cast<double>(fix.timestampMs)));
+                  st.locationOnFix->call(jrt, obj);
+                  jrt.drainMicrotasks();
+                } catch (const jsi::JSError& e) {
+                  RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.getMessage();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.what();
+                }
+              });
             },
             // onError — fires once if start sequence fails or the
             // bus/agent isn't reachable.
             [](const std::string& msg) {
               auto& st = state();
-              if (!st.runtime || !st.locationOnError)
+              if (!st.executor || !st.locationOnError)
                 return;
-              jsi::Runtime& jrt = *st.runtime;
-              try {
-                st.locationOnError->call(jrt, jsi::String::createFromUtf8(jrt, msg));
-                jrt.drainMicrotasks();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux.location") << "err handler threw: " << e.what();
-              }
+              st.executor([msg](jsi::Runtime& jrt) {
+                auto& st = state();
+                if (!st.locationOnError)
+                  return;
+                try {
+                  st.locationOnError->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                  jrt.drainMicrotasks();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.location") << "err handler threw: " << e.what();
+                }
+              });
             });
         if (!ok) {
           s.locationOnFix.reset();
@@ -2773,6 +2783,159 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         } catch (const std::exception& e) {
           throw jsi::JSError(rt, e.what());
         }
+        return jsi::Value::undefined();
+      });
+
+  // Async variants — same backing calls but they spawn a detached
+  // std::thread to do the libsecret D-Bus round-trip off the JS
+  // worker. The keyring daemon can take 0.5–5 seconds to answer
+  // (especially if it pops a password prompt or has to start the
+  // daemon on first use), which previously froze the entire JS
+  // thread including React's scheduler. Keeping the sync variants
+  // unchanged so call sites that hydrate state at module-load time
+  // (akari's secureStorageBootstrap) keep working.
+  bindMethod(
+      rt,
+      rnLinux,
+      "secureStoreSetItemAsync",
+      5,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 4)
+          return jsi::Value::undefined();
+        const auto key = args[0].asString(rt).utf8(rt);
+        const auto value = args[1].asString(rt).utf8(rt);
+        const std::string service =
+            (count >= 3 && args[2].isString()) ? args[2].asString(rt).utf8(rt) : std::string{};
+        auto onResult = std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt));
+        auto onError = count >= 5 && args[4].isObject() && args[4].asObject(rt).isFunction(rt)
+                           ? std::make_shared<jsi::Function>(args[4].asObject(rt).asFunction(rt))
+                           : nullptr;
+        std::thread([key = std::move(key), value = std::move(value), service, onResult, onError]() {
+          auto& s = state();
+          try {
+            rnlinux::securestore::setItem(key, value, service);
+            if (!s.executor)
+              return;
+            s.executor([onResult](jsi::Runtime& rt) {
+              try {
+                onResult->call(rt);
+                rt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.secureStore") << "set onResult threw: " << e.what();
+              }
+            });
+          } catch (const std::exception& e) {
+            if (!s.executor || !onError)
+              return;
+            std::string msg = e.what();
+            s.executor([onError, msg = std::move(msg)](jsi::Runtime& rt) {
+              try {
+                onError->call(rt, jsi::String::createFromUtf8(rt, msg));
+                rt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.secureStore") << "set onError threw: " << e.what();
+              }
+            });
+          }
+        }).detach();
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "secureStoreGetItemAsync",
+      4,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 3)
+          return jsi::Value::undefined();
+        const auto key = args[0].asString(rt).utf8(rt);
+        const std::string service =
+            (count >= 2 && args[1].isString()) ? args[1].asString(rt).utf8(rt) : std::string{};
+        auto onResult = std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt));
+        auto onError = count >= 4 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)
+                           ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
+                           : nullptr;
+        std::thread([key = std::move(key), service, onResult, onError]() {
+          auto& s = state();
+          try {
+            auto v = rnlinux::securestore::getItem(key, service);
+            if (!s.executor)
+              return;
+            // Move payload into the executor task so the worker
+            // converts to jsi::String on the JS thread.
+            std::optional<std::string> payload = std::move(v);
+            s.executor([onResult, payload = std::move(payload)](jsi::Runtime& rt) mutable {
+              try {
+                if (payload)
+                  onResult->call(rt, jsi::String::createFromUtf8(rt, *payload));
+                else
+                  onResult->call(rt, jsi::Value::null());
+                rt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.secureStore") << "get onResult threw: " << e.what();
+              }
+            });
+          } catch (const std::exception& e) {
+            if (!s.executor || !onError)
+              return;
+            std::string msg = e.what();
+            s.executor([onError, msg = std::move(msg)](jsi::Runtime& rt) {
+              try {
+                onError->call(rt, jsi::String::createFromUtf8(rt, msg));
+                rt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.secureStore") << "get onError threw: " << e.what();
+              }
+            });
+          }
+        }).detach();
+        return jsi::Value::undefined();
+      });
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "secureStoreDeleteItemAsync",
+      4,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 3)
+          return jsi::Value::undefined();
+        const auto key = args[0].asString(rt).utf8(rt);
+        const std::string service =
+            (count >= 2 && args[1].isString()) ? args[1].asString(rt).utf8(rt) : std::string{};
+        auto onResult = std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt));
+        auto onError = count >= 4 && args[3].isObject() && args[3].asObject(rt).isFunction(rt)
+                           ? std::make_shared<jsi::Function>(args[3].asObject(rt).asFunction(rt))
+                           : nullptr;
+        std::thread([key = std::move(key), service, onResult, onError]() {
+          auto& s = state();
+          try {
+            rnlinux::securestore::deleteItem(key, service);
+            if (!s.executor)
+              return;
+            s.executor([onResult](jsi::Runtime& rt) {
+              try {
+                onResult->call(rt);
+                rt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.secureStore") << "delete onResult threw: " << e.what();
+              }
+            });
+          } catch (const std::exception& e) {
+            if (!s.executor || !onError)
+              return;
+            std::string msg = e.what();
+            s.executor([onError, msg = std::move(msg)](jsi::Runtime& rt) {
+              try {
+                onError->call(rt, jsi::String::createFromUtf8(rt, msg));
+                rt.drainMicrotasks();
+              } catch (const std::exception& e) {
+                RNL_LOGE("rnLinux.secureStore") << "delete onError threw: " << e.what();
+              }
+            });
+          }
+        }).detach();
         return jsi::Value::undefined();
       });
 

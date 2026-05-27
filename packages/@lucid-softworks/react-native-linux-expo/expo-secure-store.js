@@ -40,30 +40,59 @@ function _service(options) {
   return typeof s === 'string' ? s : '';
 }
 
-async function setItemAsync(key, value, options) {
+// Async variants go through the *Async JSI bindings, which run the
+// libsecret/D-Bus round-trip on a detached std::thread off the JS
+// worker. The keyring daemon can take seconds to answer (especially
+// on first use or when a password prompt is involved); doing the
+// call inline on the worker would freeze React's scheduler for that
+// long. The sync variants below still block (callers explicitly
+// asked for a sync answer).
+function setItemAsync(key, value, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
-    throw new TypeError('setItemAsync: key must be a non-empty string');
+    return Promise.reject(new TypeError('setItemAsync: key must be a non-empty string'));
   }
-  rnLinux.secureStoreSetItem(key, String(value ?? ''), _service(options));
+  return new Promise((resolve, reject) => {
+    rnLinux.secureStoreSetItemAsync(
+      key,
+      String(value ?? ''),
+      _service(options),
+      () => resolve(),
+      msg => reject(new Error(msg)),
+    );
+  });
 }
 
-async function getItemAsync(key, options) {
+function getItemAsync(key, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
-    throw new TypeError('getItemAsync: key must be a non-empty string');
+    return Promise.reject(new TypeError('getItemAsync: key must be a non-empty string'));
   }
   // C++ side returns null for missing entries; preserve that so
   // consumers branching on `=== null` work unchanged.
-  return rnLinux.secureStoreGetItem(key, _service(options));
+  return new Promise((resolve, reject) => {
+    rnLinux.secureStoreGetItemAsync(
+      key,
+      _service(options),
+      v => resolve(v),
+      msg => reject(new Error(msg)),
+    );
+  });
 }
 
-async function deleteItemAsync(key, options) {
+function deleteItemAsync(key, options) {
   _assert();
   if (typeof key !== 'string' || !key) {
-    throw new TypeError('deleteItemAsync: key must be a non-empty string');
+    return Promise.reject(new TypeError('deleteItemAsync: key must be a non-empty string'));
   }
-  rnLinux.secureStoreDeleteItem(key, _service(options));
+  return new Promise((resolve, reject) => {
+    rnLinux.secureStoreDeleteItemAsync(
+      key,
+      _service(options),
+      () => resolve(),
+      msg => reject(new Error(msg)),
+    );
+  });
 }
 
 // Sync variants — expo-secure-store ships these for some SDK
