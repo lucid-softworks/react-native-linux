@@ -62,6 +62,48 @@ bool isHttpScheme(const std::string& uri) {
   return uri.rfind("http://", 0) == 0 || uri.rfind("https://", 0) == 0;
 }
 
+// data:[<mime>][;base64],<payload>
+// esbuild's `loader: 'dataurl'` rewrites bundled image assets into this
+// form, so akari's AppLogo (a 4 kB PNG) lands here at import time. We
+// decode + feed GdkPixbufLoader, then hand the pixbuf to GdkTexture
+// for GtkPicture. base64 is what RN's image asset registry emits in
+// practice; uri-encoded payloads are rare enough we don't decode them
+// today.
+GdkTexture* decodeDataUri(const std::string& uri) {
+  // Parse "data:<mime>;base64,<payload>" — the comma after the
+  // type/encoding metadata is the delimiter.
+  const auto comma = uri.find(',');
+  if (comma == std::string::npos)
+    return nullptr;
+  const std::string head = uri.substr(5, comma - 5); // skip "data:"
+  if (head.find("base64") == std::string::npos)
+    return nullptr;
+  const std::string payload = uri.substr(comma + 1);
+  gsize binLen = 0;
+  guchar* bin = g_base64_decode(payload.c_str(), &binLen);
+  if (!bin || binLen == 0) {
+    if (bin)
+      g_free(bin);
+    return nullptr;
+  }
+  GdkPixbufLoader* loader = gdk_pixbuf_loader_new();
+  GError* err = nullptr;
+  GdkTexture* texture = nullptr;
+  if (gdk_pixbuf_loader_write(loader, bin, binLen, &err) && gdk_pixbuf_loader_close(loader, &err)) {
+    GdkPixbuf* pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
+    if (pixbuf) {
+      texture = gdk_texture_new_for_pixbuf(pixbuf);
+    }
+  }
+  if (err) {
+    RNL_LOGW("Image") << "data: decode failed: " << err->message;
+    g_error_free(err);
+  }
+  g_object_unref(loader);
+  g_free(bin);
+  return texture;
+}
+
 #ifdef RNL_HAVE_LIBSOUP3
 // Process-wide SoupCache anchored under XDG_CACHE_HOME — clearable
 // from JS via `Image.clearDiskCache`. Kept as a separate global so
@@ -266,6 +308,21 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
     return;
   }
   currentUri_ = uri;
+
+  // data:image/...;base64,... — inlined assets from esbuild's
+  // `loader: 'dataurl'`. Decode synchronously; the payloads RN emits
+  // are small enough (icons, splash logos) that this stays cheap.
+  if (uri.rfind("data:", 0) == 0) {
+    GdkTexture* texture = decodeDataUri(uri);
+    if (texture) {
+      gtk_picture_set_paintable(GTK_PICTURE(widget_), GDK_PAINTABLE(texture));
+      g_object_unref(texture);
+    } else {
+      RNL_LOGW("Image") << "data: uri decode produced no texture (tag=" << tag_ << ")";
+      gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
+    }
+    return;
+  }
 
   // file:// loads synchronously via GdkTexture; http(s) goes through
   // libsoup's async fetch (when the build linked it).
