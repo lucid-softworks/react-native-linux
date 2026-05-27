@@ -155,6 +155,137 @@ if (typeof globalThis.performance === 'undefined') {
   globalThis.performance = {now: () => Date.now()};
 }
 
+// ───────────────────────────────────────────────────────────────────
+// fetch() — minimal whatwg-fetch surface, backed by rnLinux.fetch()
+// which delegates to libsoup-3 in our C++ host. Hermes doesn't ship
+// fetch; RN normally polyfills it on top of XMLHttpRequest. We have
+// neither, so atproto handle-resolution (akari's PDS detection) +
+// every other network call sees `fetch is undefined`.
+//
+// Body shape: only string requests / string responses for now.
+// arrayBuffer() returns a Uint8Array view of the UTF-8 encoding —
+// good enough for the JSON / XRPC traffic the smoke targets exercise.
+// Caller-shaped Headers, plain objects, and arrays-of-pairs are all
+// flattened to a plain {name: value} object before crossing the JSI
+// boundary.
+if (typeof globalThis.Headers === 'undefined') {
+  globalThis.Headers = class Headers {
+    constructor(init) {
+      this._m = new Map();
+      if (init) {
+        if (Array.isArray(init)) {
+          for (const pair of init) this._m.set(String(pair[0]).toLowerCase(), String(pair[1]));
+        } else if (init instanceof Headers) {
+          init.forEach((v, k) => this._m.set(k, v));
+        } else if (typeof init === 'object') {
+          for (const k of Object.keys(init)) this._m.set(k.toLowerCase(), String(init[k]));
+        }
+      }
+    }
+    get(n) {
+      return this._m.get(String(n).toLowerCase()) || null;
+    }
+    set(n, v) {
+      this._m.set(String(n).toLowerCase(), String(v));
+    }
+    append(n, v) {
+      const k = String(n).toLowerCase();
+      const prev = this._m.get(k);
+      this._m.set(k, prev ? prev + ', ' + String(v) : String(v));
+    }
+    has(n) {
+      return this._m.has(String(n).toLowerCase());
+    }
+    delete(n) {
+      this._m.delete(String(n).toLowerCase());
+    }
+    forEach(cb, thisArg) {
+      this._m.forEach((v, k) => cb.call(thisArg, v, k, this));
+    }
+    keys() {
+      return this._m.keys();
+    }
+    values() {
+      return this._m.values();
+    }
+    entries() {
+      return this._m.entries();
+    }
+  };
+}
+
+if (
+  typeof globalThis.fetch === 'undefined' &&
+  typeof rnLinux !== 'undefined' &&
+  typeof rnLinux.fetch === 'function'
+) {
+  const flattenHeaders = h => {
+    const out = {};
+    if (!h) return out;
+    if (h instanceof globalThis.Headers) {
+      h.forEach((v, k) => {
+        out[k] = v;
+      });
+    } else if (Array.isArray(h)) {
+      for (const pair of h) out[String(pair[0]).toLowerCase()] = String(pair[1]);
+    } else if (typeof h === 'object') {
+      for (const k of Object.keys(h)) out[k.toLowerCase()] = String(h[k]);
+    }
+    return out;
+  };
+  globalThis.fetch = function fetch(input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const method = (
+      (init && init.method) ||
+      (input && typeof input === 'object' && input.method) ||
+      'GET'
+    ).toUpperCase();
+    const headers = flattenHeaders((init && init.headers) || (input && input.headers));
+    const body = init && init.body != null ? String(init.body) : undefined;
+    return new Promise((resolve, reject) => {
+      rnLinux.fetch(
+        url,
+        method,
+        headers,
+        body,
+        result => {
+          // result = {status, statusText, url, headers, body}
+          const responseHeaders = new globalThis.Headers(result.headers || {});
+          const text = result.body || '';
+          const response = {
+            ok: result.status >= 200 && result.status < 300,
+            status: result.status,
+            statusText: result.statusText || '',
+            url: result.url || url,
+            headers: responseHeaders,
+            redirected: false,
+            type: 'basic',
+            text: () => Promise.resolve(text),
+            json: () => {
+              try {
+                return Promise.resolve(JSON.parse(text));
+              } catch (e) {
+                return Promise.reject(e);
+              }
+            },
+            arrayBuffer: () => {
+              // UTF-8 encode the body. Good enough for JSON / XRPC.
+              const buf = new Uint8Array(text.length);
+              for (let i = 0; i < text.length; i++) buf[i] = text.charCodeAt(i) & 0xff;
+              return Promise.resolve(buf.buffer);
+            },
+            clone: function () {
+              return response;
+            },
+          };
+          resolve(response);
+        },
+        err => reject(new Error(typeof err === 'string' ? err : 'fetch failed')),
+      );
+    });
+  };
+}
+
 // RN-style global error reporter. Apps and the LogBox boundary use
 // ErrorUtils.setGlobalHandler(fn) to subscribe to async / uncaught
 // errors. Our microtask + setTimeout shims already swallow throws (so

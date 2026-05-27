@@ -26,6 +26,10 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef RNL_FS_HAVE_SOUP
+#include <libsoup/soup.h>
+#endif
+
 namespace rnlinux {
 
 // Storage backing lives in vnext/src/storage/AsyncStorage.cpp. The
@@ -3819,6 +3823,154 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                  gdk_display_beep(d);
                return jsi::Value::undefined();
              });
+
+#ifdef RNL_FS_HAVE_SOUP
+  // ──────────────────────────────────────────────────────────────
+  // rnLinux.fetch(url, method, headersObj, body, onResult, onError)
+  //
+  // Backs globalThis.fetch (installed JS-side in runtime/shims.js).
+  // libsoup-3 handles HTTP(S) including the bsky.social / plc.directory
+  // calls atproto handle-resolution needs. Without this, every
+  // PDS-detection call returned null and akari's sign-in surfaced
+  // "Could not detect PDS server for this handle".
+  //
+  // The callback runs on the GLib main loop; we capture onResult /
+  // onError as shared_ptr<jsi::Function> and check state().runtime is
+  // still live before calling — guards against a JS reload mid-flight.
+  //
+  // Body is passed as a UTF-8 string today. Binary payloads would need
+  // an ArrayBuffer round-trip; the akari PDS calls are all GET/JSON
+  // so we defer that.
+  struct FetchCtx {
+    std::shared_ptr<jsi::Function> onResult;
+    std::shared_ptr<jsi::Function> onError;
+    std::string url;
+  };
+  auto onFetchDone = +[](GObject* source, GAsyncResult* res, gpointer user) {
+    std::unique_ptr<FetchCtx> ctx(static_cast<FetchCtx*>(user));
+    SoupMessage* msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    GError* err = nullptr;
+    GBytes* bytes = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &err);
+    auto& s = state();
+    if (!s.runtime)
+      return;
+    jsi::Runtime& rt = *s.runtime;
+    try {
+      if (!bytes) {
+        if (ctx->onError) {
+          ctx->onError->call(rt,
+                             jsi::String::createFromUtf8(rt, err ? err->message : "network error"));
+        }
+        if (err)
+          g_error_free(err);
+        return;
+      }
+      gsize len = 0;
+      const void* data = g_bytes_get_data(bytes, &len);
+      std::string body(static_cast<const char*>(data), len);
+
+      // Build the headers object — same lower-case-key shape that
+      // whatwg-fetch Headers expects.
+      jsi::Object headers = jsi::Object(rt);
+      SoupMessageHeaders* mh = msg ? soup_message_get_response_headers(msg) : nullptr;
+      if (mh) {
+        SoupMessageHeadersIter it;
+        soup_message_headers_iter_init(&it, mh);
+        const char* name = nullptr;
+        const char* value = nullptr;
+        while (soup_message_headers_iter_next(&it, &name, &value)) {
+          std::string key = name ? name : "";
+          for (auto& c : key)
+            c = static_cast<char>(g_ascii_tolower(c));
+          headers.setProperty(rt, key.c_str(), jsi::String::createFromUtf8(rt, value ? value : ""));
+        }
+      }
+
+      const guint status = msg ? soup_message_get_status(msg) : 0;
+      const char* reason = msg ? soup_message_get_reason_phrase(msg) : nullptr;
+      const char* finalUri = nullptr;
+      if (msg) {
+        GUri* uri = soup_message_get_uri(msg);
+        finalUri = uri ? g_uri_to_string(uri) : nullptr;
+      }
+
+      jsi::Object out(rt);
+      out.setProperty(rt, "status", jsi::Value(static_cast<int>(status)));
+      out.setProperty(rt, "statusText", jsi::String::createFromUtf8(rt, reason ? reason : ""));
+      out.setProperty(
+          rt, "url", jsi::String::createFromUtf8(rt, finalUri ? finalUri : ctx->url.c_str()));
+      out.setProperty(rt, "headers", headers);
+      out.setProperty(rt, "body", jsi::String::createFromUtf8(rt, body));
+      if (ctx->onResult)
+        ctx->onResult->call(rt, std::move(out));
+
+      g_bytes_unref(bytes);
+      rt.drainMicrotasks();
+    } catch (const std::exception& e) {
+      RNL_LOGW("rnLinux") << "fetch trampoline threw: " << e.what();
+    }
+  };
+
+  bindMethod(
+      rt,
+      rnLinux,
+      "fetch",
+      6,
+      [onFetchDone](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString())
+          return jsi::Value::undefined();
+        const auto url = args[0].asString(rt).utf8(rt);
+        const auto method =
+            (count >= 2 && args[1].isString()) ? args[1].asString(rt).utf8(rt) : std::string{"GET"};
+
+        SoupMessage* msg = soup_message_new(method.c_str(), url.c_str());
+        if (!msg) {
+          if (count >= 6 && args[5].isObject() && args[5].asObject(rt).isFunction(rt)) {
+            args[5].asObject(rt).asFunction(rt).call(
+                rt, jsi::String::createFromUtf8(rt, "soup_message_new failed (bad URL?)"));
+          }
+          return jsi::Value::undefined();
+        }
+
+        // Headers — flat {name: value} object from JS.
+        if (count >= 3 && args[2].isObject()) {
+          auto headers = args[2].asObject(rt);
+          auto names = headers.getPropertyNames(rt);
+          const size_t n = names.size(rt);
+          SoupMessageHeaders* mh = soup_message_get_request_headers(msg);
+          for (size_t i = 0; i < n; ++i) {
+            auto k = names.getValueAtIndex(rt, i).asString(rt).utf8(rt);
+            auto v = headers.getProperty(rt, k.c_str()).toString(rt).utf8(rt);
+            soup_message_headers_append(mh, k.c_str(), v.c_str());
+          }
+        }
+
+        // Body — UTF-8 string. Default content-type follows fetch
+        // semantics: caller-provided header wins; otherwise text/plain.
+        if (count >= 4 && args[3].isString()) {
+          auto body = args[3].asString(rt).utf8(rt);
+          GBytes* gb = g_bytes_new(body.data(), body.size());
+          SoupMessageHeaders* mh = soup_message_get_request_headers(msg);
+          const char* ct = soup_message_headers_get_one(mh, "content-type");
+          soup_message_set_request_body_from_bytes(msg, ct ? ct : "text/plain", gb);
+          g_bytes_unref(gb);
+        }
+
+        auto ctx = std::make_unique<FetchCtx>();
+        ctx->url = url;
+        if (count >= 5 && args[4].isObject() && args[4].asObject(rt).isFunction(rt))
+          ctx->onResult = std::make_shared<jsi::Function>(args[4].asObject(rt).asFunction(rt));
+        if (count >= 6 && args[5].isObject() && args[5].asObject(rt).isFunction(rt))
+          ctx->onError = std::make_shared<jsi::Function>(args[5].asObject(rt).asFunction(rt));
+
+        static SoupSession* session = soup_session_new();
+        soup_session_send_and_read_async(
+            session, msg, G_PRIORITY_DEFAULT, nullptr, onFetchDone, ctx.release());
+        g_object_unref(msg);
+        return jsi::Value::undefined();
+      });
+#endif // RNL_FS_HAVE_SOUP
 
   rt.global().setProperty(rt, "rnLinux", rnLinux);
   RNL_LOGI("rnLinux") << "JSI bindings installed";
