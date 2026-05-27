@@ -22,7 +22,9 @@ struct PendingTransaction {
 
 gboolean dispatchTransactionOnUiThread(gpointer data) {
   auto* pending = static_cast<PendingTransaction*>(data);
-  if (auto tx = pending->coordinator->pullTransaction()) {
+  auto tx = pending->coordinator->pullTransaction();
+  RNL_LOGD("SchedulerDelegate") << "pullTransaction → " << (tx ? "ok" : "empty");
+  if (tx) {
     pending->mountingManager->performTransaction(*tx);
   }
   // Empty pull is normal: multiple "queued" events coalesce into one
@@ -45,20 +47,21 @@ void LinuxSchedulerDelegate::schedulerDidFinishTransaction(
     RNL_LOGW("SchedulerDelegate") << "no mounting manager — dropping transaction";
     return;
   }
-  RNL_LOGD("SchedulerDelegate") << "transaction queued for UI thread";
+  RNL_LOGI("SchedulerDelegate") << "transaction queued for UI thread";
   auto* pending = new PendingTransaction{mountingManager_, coordinator};
-  // Use HIGH_IDLE (G_PRIORITY_HIGH_IDLE = 100) rather than default
-  // idle (200). When React commits in a tight chain — e.g. error-
-  // boundary dismiss re-mounts a 400+-node tree, useEffects fire, more
-  // commits land — the JS thread keeps pumping. Default-priority idle
-  // sources never get a turn because they sit behind GTK input + rAF
-  // timeouts; the mounting transaction backs up indefinitely and the
-  // user sees the stale (panel) GTK tree even though React already
-  // re-rendered with state.error=null.
-  g_idle_add_full(G_PRIORITY_HIGH_IDLE,
-                  dispatchTransactionOnUiThread,
-                  pending,
-                  /*notify=*/nullptr);
+  // Phase 5.8: this delegate fires from the JS worker thread.
+  // `g_main_context_invoke_full` is the GLib idiom for "run this on
+  // the main context's loop" from any thread — internally it adds an
+  // idle source that's GUARANTEED to fire on the main context (the
+  // one g_application_run iterates), unlike `g_idle_add` which uses
+  // the thread-default context (different per thread). Without this
+  // the queued transactions sit forever and the rendered tree never
+  // reaches GTK.
+  g_main_context_invoke_full(g_main_context_default(),
+                             G_PRIORITY_HIGH_IDLE,
+                             dispatchTransactionOnUiThread,
+                             pending,
+                             /*notify=*/nullptr);
 }
 
 void LinuxSchedulerDelegate::schedulerShouldRenderTransactions(

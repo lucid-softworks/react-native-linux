@@ -157,6 +157,13 @@ struct State {
   gulong localeMonitorEtcSignalId{0};
   gulong localeMonitorDefaultSignalId{0};
 
+  // Phase 5.8: every C++→JS callback (dispatchFabric*, fetch result,
+  // GIO/libsoup signals) posts through this executor instead of
+  // dereferencing `runtime` directly. The runtime lives on a worker
+  // pthread now, so a direct call from a GTK / libsoup handler would
+  // trap Hermes' pthread-binding guard.
+  RuntimeExecutor executor;
+
   int registerWidget(GtkWidget* w) {
     int id = nextId.fetch_add(1);
     nodes[id] = w;
@@ -292,22 +299,25 @@ void reportJsErrorToErrorUtils(jsi::Runtime& rt, const jsi::JSError& e) {
 
 void dispatchFabricClick(int tag) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricClickHandlers.find(tag);
-  if (it == s.fabricClickHandlers.end())
-    return;
-  try {
-    it->second->call(*s.runtime);
-    // React schedules state-update work on a microtask; drain so the
-    // resulting commit happens before this turn yields.
-    s.runtime->drainMicrotasks();
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.getMessage();
-    reportJsErrorToErrorUtils(*s.runtime, e);
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.what();
-  }
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricClickHandlers.find(tag);
+    if (it == s.fabricClickHandlers.end())
+      return;
+    try {
+      it->second->call(rt);
+      // React schedules state-update work on a microtask; drain so the
+      // resulting commit happens before this turn yields.
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.getMessage();
+      reportJsErrorToErrorUtils(rt, e);
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.what();
+    }
+  });
 }
 
 void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int)> lookup) {
@@ -316,6 +326,10 @@ void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int)> lookup) {
 
 void setReloadCallbackForJsi(std::function<void()> reload) {
   state().reload = std::move(reload);
+}
+
+void setRuntimeExecutorForJsi(RuntimeExecutor executor) {
+  state().executor = std::move(executor);
 }
 
 void registerAnimWidget(const std::string& nativeId, GtkWidget* widget) {
@@ -332,66 +346,78 @@ void unregisterAnimWidget(const std::string& nativeId) {
 
 void dispatchFabricChangeText(int tag, const std::string& text) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricChangeTextHandlers.find(tag);
-  if (it == s.fabricChangeTextHandlers.end())
-    return;
-  try {
-    it->second->call(*s.runtime, jsi::String::createFromUtf8(*s.runtime, text));
-    s.runtime->drainMicrotasks();
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.getMessage();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.what();
-  }
+  s.executor([tag, text](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricChangeTextHandlers.find(tag);
+    if (it == s.fabricChangeTextHandlers.end())
+      return;
+    try {
+      it->second->call(rt, jsi::String::createFromUtf8(rt, text));
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricSubmitEditing(int tag) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricSubmitEditingHandlers.find(tag);
-  if (it == s.fabricSubmitEditingHandlers.end())
-    return;
-  try {
-    it->second->call(*s.runtime);
-    s.runtime->drainMicrotasks();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric submitEditing handler threw: " << e.what();
-  }
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricSubmitEditingHandlers.find(tag);
+    if (it == s.fabricSubmitEditingHandlers.end())
+      return;
+    try {
+      it->second->call(rt);
+      rt.drainMicrotasks();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric submitEditing handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricKeyPress(int tag, const std::string& key) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricKeyPressHandlers.find(tag);
-  if (it == s.fabricKeyPressHandlers.end())
-    return;
-  try {
-    it->second->call(*s.runtime, jsi::String::createFromUtf8(*s.runtime, key));
-    s.runtime->drainMicrotasks();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric keyPress handler threw: " << e.what();
-  }
+  s.executor([tag, key](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricKeyPressHandlers.find(tag);
+    if (it == s.fabricKeyPressHandlers.end())
+      return;
+    try {
+      it->second->call(rt, jsi::String::createFromUtf8(rt, key));
+      rt.drainMicrotasks();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric keyPress handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricSwitchChange(int tag, bool value) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricSwitchHandlers.find(tag);
-  if (it == s.fabricSwitchHandlers.end())
-    return;
-  try {
-    it->second->call(*s.runtime, jsi::Value(value));
-    s.runtime->drainMicrotasks();
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.getMessage();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.what();
-  }
+  s.executor([tag, value](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricSwitchHandlers.find(tag);
+    if (it == s.fabricSwitchHandlers.end())
+      return;
+    try {
+      it->second->call(rt, jsi::Value(value));
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricScroll(int tag,
@@ -402,123 +428,135 @@ void dispatchFabricScroll(int tag,
                           double viewportWidth,
                           double viewportHeight) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricScrollHandlers.find(tag);
-  if (it == s.fabricScrollHandlers.end())
-    return;
-  jsi::Runtime& rt = *s.runtime;
-  try {
-    // Synthesize a nativeEvent that matches RN's shape so apps that
-    // copy-paste FlatList/ScrollView handlers don't have to learn a
-    // new event format.
-    jsi::Object offset(rt);
-    offset.setProperty(rt, "x", offsetX);
-    offset.setProperty(rt, "y", offsetY);
-    jsi::Object contentSize(rt);
-    contentSize.setProperty(rt, "width", contentWidth);
-    contentSize.setProperty(rt, "height", contentHeight);
-    jsi::Object layout(rt);
-    layout.setProperty(rt, "width", viewportWidth);
-    layout.setProperty(rt, "height", viewportHeight);
-    jsi::Object nativeEvent(rt);
-    nativeEvent.setProperty(rt, "contentOffset", offset);
-    nativeEvent.setProperty(rt, "contentSize", contentSize);
-    nativeEvent.setProperty(rt, "layoutMeasurement", layout);
-    jsi::Object event(rt);
-    event.setProperty(rt, "nativeEvent", nativeEvent);
-    it->second->call(rt, event);
-    // NOTE: deliberately no drainMicrotasks here. Scroll fires up to
-    // 60 Hz and FlatList's setScrollY only changes when the window
-    // window of items actually shifts — let React batch with the
-    // surrounding work instead of forcing a commit per pixel.
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.getMessage();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.what();
-  }
+  s.executor([tag, offsetX, offsetY, contentWidth, contentHeight, viewportWidth, viewportHeight](
+                 jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricScrollHandlers.find(tag);
+    if (it == s.fabricScrollHandlers.end())
+      return;
+    try {
+      // Synthesize a nativeEvent that matches RN's shape so apps that
+      // copy-paste FlatList/ScrollView handlers don't have to learn a
+      // new event format.
+      jsi::Object offset(rt);
+      offset.setProperty(rt, "x", offsetX);
+      offset.setProperty(rt, "y", offsetY);
+      jsi::Object contentSize(rt);
+      contentSize.setProperty(rt, "width", contentWidth);
+      contentSize.setProperty(rt, "height", contentHeight);
+      jsi::Object layout(rt);
+      layout.setProperty(rt, "width", viewportWidth);
+      layout.setProperty(rt, "height", viewportHeight);
+      jsi::Object nativeEvent(rt);
+      nativeEvent.setProperty(rt, "contentOffset", offset);
+      nativeEvent.setProperty(rt, "contentSize", contentSize);
+      nativeEvent.setProperty(rt, "layoutMeasurement", layout);
+      jsi::Object event(rt);
+      event.setProperty(rt, "nativeEvent", nativeEvent);
+      it->second->call(rt, event);
+      // NOTE: deliberately no drainMicrotasks here. Scroll fires up to
+      // 60 Hz and FlatList's setScrollY only changes when the window
+      // window of items actually shifts — let React batch with the
+      // surrounding work instead of forcing a commit per pixel.
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricFocus(int tag) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricFocusHandlers.find(tag);
-  if (it == s.fabricFocusHandlers.end())
-    return;
-  jsi::Runtime& rt = *s.runtime;
-  try {
-    jsi::Object nativeEvent(rt);
-    nativeEvent.setProperty(rt, "target", tag);
-    jsi::Object event(rt);
-    event.setProperty(rt, "nativeEvent", nativeEvent);
-    event.setProperty(rt, "target", tag);
-    it->second->call(rt, event);
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.getMessage();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.what();
-  }
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricFocusHandlers.find(tag);
+    if (it == s.fabricFocusHandlers.end())
+      return;
+    try {
+      jsi::Object nativeEvent(rt);
+      nativeEvent.setProperty(rt, "target", tag);
+      jsi::Object event(rt);
+      event.setProperty(rt, "nativeEvent", nativeEvent);
+      event.setProperty(rt, "target", tag);
+      it->second->call(rt, event);
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricBlur(int tag) {
   auto& s = state();
-  if (!s.runtime)
+  if (!s.executor)
     return;
-  auto it = s.fabricBlurHandlers.find(tag);
-  if (it == s.fabricBlurHandlers.end())
-    return;
-  jsi::Runtime& rt = *s.runtime;
-  try {
-    jsi::Object nativeEvent(rt);
-    nativeEvent.setProperty(rt, "target", tag);
-    jsi::Object event(rt);
-    event.setProperty(rt, "nativeEvent", nativeEvent);
-    event.setProperty(rt, "target", tag);
-    it->second->call(rt, event);
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.getMessage();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.what();
-  }
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricBlurHandlers.find(tag);
+    if (it == s.fabricBlurHandlers.end())
+      return;
+    try {
+      jsi::Object nativeEvent(rt);
+      nativeEvent.setProperty(rt, "target", tag);
+      jsi::Object event(rt);
+      event.setProperty(rt, "nativeEvent", nativeEvent);
+      event.setProperty(rt, "target", tag);
+      it->second->call(rt, event);
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.what();
+    }
+  });
 }
 
 void dispatchFabricLayout(int tag, float x, float y, float w, float h) {
   auto& s = state();
-  if (!s.runtime)
-    return;
-  auto it = s.fabricLayoutHandlers.find(tag);
-  if (it == s.fabricLayoutHandlers.end())
+  if (!s.executor)
     return;
   // Skip if this view's layout hasn't actually changed since the last
   // dispatch — a single React commit can fire updateLayoutMetrics
   // multiple times (Yoga relayout passes, state-driven re-runs), and
   // RN apps loop forever if onLayout keeps re-firing for the same
   // metrics (handler calls setState → re-render → re-layout → re-fire).
+  // The dedupe is intentionally on the *main* thread side: layout
+  // events fire at high rate (every Yoga pass) and we want to drop
+  // duplicates before they queue up on the worker.
   std::array<float, 4> next{x, y, w, h};
   auto& last = s.fabricLayoutLast[tag];
   if (last == next)
     return;
   last = next;
-  jsi::Runtime& rt = *s.runtime;
-  try {
-    jsi::Object layout(rt);
-    layout.setProperty(rt, "x", static_cast<double>(x));
-    layout.setProperty(rt, "y", static_cast<double>(y));
-    layout.setProperty(rt, "width", static_cast<double>(w));
-    layout.setProperty(rt, "height", static_cast<double>(h));
-    jsi::Object nativeEvent(rt);
-    nativeEvent.setProperty(rt, "layout", layout);
-    nativeEvent.setProperty(rt, "target", tag);
-    jsi::Object event(rt);
-    event.setProperty(rt, "nativeEvent", nativeEvent);
-    event.setProperty(rt, "target", tag);
-    it->second->call(rt, event);
-  } catch (const jsi::JSError& e) {
-    RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.getMessage();
-  } catch (const std::exception& e) {
-    RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.what();
-  }
+  s.executor([tag, x, y, w, h](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricLayoutHandlers.find(tag);
+    if (it == s.fabricLayoutHandlers.end())
+      return;
+    try {
+      jsi::Object layout(rt);
+      layout.setProperty(rt, "x", static_cast<double>(x));
+      layout.setProperty(rt, "y", static_cast<double>(y));
+      layout.setProperty(rt, "width", static_cast<double>(w));
+      layout.setProperty(rt, "height", static_cast<double>(h));
+      jsi::Object nativeEvent(rt);
+      nativeEvent.setProperty(rt, "layout", layout);
+      nativeEvent.setProperty(rt, "target", tag);
+      jsi::Object event(rt);
+      event.setProperty(rt, "nativeEvent", nativeEvent);
+      event.setProperty(rt, "target", tag);
+      it->second->call(rt, event);
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.what();
+    }
+  });
 }
 
 void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
@@ -3846,32 +3884,52 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
     std::shared_ptr<jsi::Function> onError;
     std::string url;
   };
+  // Pre-bundle the response into a thread-safe POD on the main /
+  // libsoup thread, then post the JSI work onto the JS worker.
+  // Building jsi::Object on the libsoup callback's thread would trap
+  // Hermes' pthread-binding guard — every member of the response
+  // (status, headers, body bytes) has to be flattened to plain C++
+  // types before crossing the queue boundary.
+  struct FetchResponsePayload {
+    bool ok = false;
+    std::string errorMessage;
+    guint status = 0;
+    std::string statusText;
+    std::string finalUrl;
+    std::vector<std::pair<std::string, std::string>> headers;
+    std::string body;
+  };
   auto onFetchDone = +[](GObject* source, GAsyncResult* res, gpointer user) {
     std::unique_ptr<FetchCtx> ctx(static_cast<FetchCtx*>(user));
     SoupMessage* msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
     GError* err = nullptr;
     GBytes* bytes = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &err);
-    auto& s = state();
-    if (!s.runtime)
-      return;
-    jsi::Runtime& rt = *s.runtime;
-    try {
-      if (!bytes) {
-        if (ctx->onError) {
-          ctx->onError->call(rt,
-                             jsi::String::createFromUtf8(rt, err ? err->message : "network error"));
-        }
-        if (err)
-          g_error_free(err);
-        return;
-      }
+
+    auto payload = std::make_shared<FetchResponsePayload>();
+    if (!bytes) {
+      payload->ok = false;
+      payload->errorMessage = err ? err->message : "network error";
+      if (err)
+        g_error_free(err);
+    } else {
+      payload->ok = true;
       gsize len = 0;
       const void* data = g_bytes_get_data(bytes, &len);
-      std::string body(static_cast<const char*>(data), len);
-
-      // Build the headers object — same lower-case-key shape that
-      // whatwg-fetch Headers expects.
-      jsi::Object headers = jsi::Object(rt);
+      payload->body.assign(static_cast<const char*>(data), len);
+      payload->status = msg ? soup_message_get_status(msg) : 0;
+      if (msg) {
+        const char* reason = soup_message_get_reason_phrase(msg);
+        if (reason)
+          payload->statusText = reason;
+        GUri* uri = soup_message_get_uri(msg);
+        char* finalUri = uri ? g_uri_to_string(uri) : nullptr;
+        if (finalUri) {
+          payload->finalUrl = finalUri;
+          g_free(finalUri);
+        }
+      }
+      if (payload->finalUrl.empty())
+        payload->finalUrl = ctx->url;
       SoupMessageHeaders* mh = msg ? soup_message_get_response_headers(msg) : nullptr;
       if (mh) {
         SoupMessageHeadersIter it;
@@ -3882,33 +3940,52 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           std::string key = name ? name : "";
           for (auto& c : key)
             c = static_cast<char>(g_ascii_tolower(c));
-          headers.setProperty(rt, key.c_str(), jsi::String::createFromUtf8(rt, value ? value : ""));
+          payload->headers.emplace_back(std::move(key), value ? value : "");
         }
       }
-
-      const guint status = msg ? soup_message_get_status(msg) : 0;
-      const char* reason = msg ? soup_message_get_reason_phrase(msg) : nullptr;
-      const char* finalUri = nullptr;
-      if (msg) {
-        GUri* uri = soup_message_get_uri(msg);
-        finalUri = uri ? g_uri_to_string(uri) : nullptr;
-      }
-
-      jsi::Object out(rt);
-      out.setProperty(rt, "status", jsi::Value(static_cast<int>(status)));
-      out.setProperty(rt, "statusText", jsi::String::createFromUtf8(rt, reason ? reason : ""));
-      out.setProperty(
-          rt, "url", jsi::String::createFromUtf8(rt, finalUri ? finalUri : ctx->url.c_str()));
-      out.setProperty(rt, "headers", headers);
-      out.setProperty(rt, "body", jsi::String::createFromUtf8(rt, body));
-      if (ctx->onResult)
-        ctx->onResult->call(rt, std::move(out));
-
       g_bytes_unref(bytes);
-      rt.drainMicrotasks();
-    } catch (const std::exception& e) {
-      RNL_LOGW("rnLinux") << "fetch trampoline threw: " << e.what();
     }
+
+    auto& s = state();
+    if (!s.executor) {
+      // Executor not yet set (start-up race) — silently drop the
+      // response. The corresponding fetch promise will reject via
+      // its own timeout / abort path.
+      return;
+    }
+    // Move ctx (jsi::Function refs) into the lambda so the worker
+    // thread owns them when it dereferences the callbacks. Once the
+    // lambda runs, ctx is destroyed on the worker, which is the
+    // right thread to release jsi::Function.
+    s.executor(
+        [ctx = std::shared_ptr<FetchCtx>(std::move(ctx)), payload](jsi::Runtime& rt) mutable {
+          try {
+            if (!payload->ok) {
+              if (ctx->onError) {
+                ctx->onError->call(rt, jsi::String::createFromUtf8(rt, payload->errorMessage));
+              }
+              return;
+            }
+
+            jsi::Object headers = jsi::Object(rt);
+            for (const auto& [key, value] : payload->headers) {
+              headers.setProperty(rt, key.c_str(), jsi::String::createFromUtf8(rt, value));
+            }
+
+            jsi::Object out(rt);
+            out.setProperty(rt, "status", jsi::Value(static_cast<int>(payload->status)));
+            out.setProperty(rt, "statusText", jsi::String::createFromUtf8(rt, payload->statusText));
+            out.setProperty(rt, "url", jsi::String::createFromUtf8(rt, payload->finalUrl));
+            out.setProperty(rt, "headers", headers);
+            out.setProperty(rt, "body", jsi::String::createFromUtf8(rt, payload->body));
+            if (ctx->onResult)
+              ctx->onResult->call(rt, std::move(out));
+
+            rt.drainMicrotasks();
+          } catch (const std::exception& e) {
+            RNL_LOGW("rnLinux") << "fetch trampoline threw: " << e.what();
+          }
+        });
   };
 
   bindMethod(

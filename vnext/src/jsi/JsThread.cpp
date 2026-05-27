@@ -138,6 +138,18 @@ void JsThread::postSync(Task task) {
   localCv.wait(g, [&] { return done; });
 }
 
+bool JsThread::isCurrentThread() const {
+  return std::this_thread::get_id() == thread_.get_id();
+}
+
+facebook::jsi::Runtime& JsThread::runtime() {
+  // Caller is responsible for thread safety — only valid when
+  // executing inside a task that we dispatched. The pointer-deref
+  // is intentionally undefended so a misuse fails loud (segfault)
+  // instead of silently returning a stale ref.
+  return *runtime_;
+}
+
 void JsThread::shutdown() {
   bool wasShutdown;
   {

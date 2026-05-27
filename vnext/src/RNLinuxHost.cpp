@@ -5,6 +5,7 @@
 #include "fabric/LinuxSchedulerDelegate.h"
 #include "jsi/BundleLoader.h"
 #include "jsi/HermesRuntimeFactory.h"
+#include "jsi/JsThread.h"
 #include "jsi/RnLinuxBindings.h"
 #include "react-native-linux/Logging.h"
 
@@ -31,7 +32,10 @@ namespace rnlinux {
 struct RNLinuxHost::Impl {
   std::shared_ptr<LinuxMountingManager> mountingManager;
   std::unique_ptr<LinuxSchedulerDelegate> schedulerDelegate;
-  std::unique_ptr<HermesRuntimeHolder> runtimeHolder;
+  // Hermes runs on its own pthread now (Phase 5.8). All JSI access
+  // goes through jsThread->post / postSync. The host never touches
+  // the runtime directly; even bundle eval is a postSync hop.
+  std::unique_ptr<JsThread> jsThread;
   std::function<void(facebook::jsi::Runtime&)> beforeBundleEval;
   std::shared_ptr<facebook::react::ContextContainer> contextContainer;
   std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry> descriptorProviders;
@@ -41,7 +45,6 @@ struct RNLinuxHost::Impl {
   std::shared_ptr<facebook::react::RuntimeScheduler> runtimeScheduler;
   std::unique_ptr<facebook::react::Scheduler> scheduler;
   std::unique_ptr<facebook::react::SurfaceHandler> rootSurface;
-  std::thread jsThread;
   std::atomic<bool> running{false};
 };
 
@@ -103,13 +106,46 @@ void RNLinuxHost::start() {
   }
   RNL_LOGI("RNLinuxHost") << "starting (bundle=" << config_.bundleUrl << ")";
 
-  // 1. Hermes runtime.
-  impl_->runtimeHolder = makeHermesRuntimeHolder();
+  // 1. Hermes runtime — constructed on its own worker pthread.
+  //    JsThread's factory runs once on the worker; the runtime stays
+  //    pinned to that thread for its entire lifetime, and every JSI
+  //    access from the host code is a post/postSync hop. The user-
+  //    visible win is that a heavy commit (akari's initial mount, a
+  //    big feed re-render) no longer blocks GTK paint / resize /
+  //    libsoup completion callbacks — those run on the main thread
+  //    while JS chews on the worker.
+  impl_->jsThread = std::make_unique<JsThread>("rnl-js", [] { return makeHermesRuntime(); });
+  impl_->jsThread->waitForReady();
+  RNL_LOGI("Hermes") << "runtime constructed";
 
-  // 1a. Install JSI bindings (rnLinux globals, etc.) before any bundle
-  //     code runs.
+  // 1a. Build the RuntimeExecutor early. Same instance flows into both
+  //     the Scheduler's toolbox (below) and our rnLinux JSI bindings —
+  //     every C++ async callback (dispatchFabric*, fetch result, timer
+  //     fire) posts through it, so a libsoup completion landing on the
+  //     main thread hops to the worker before touching the runtime.
+  //     When the call already comes from the worker (React's commit
+  //     machinery recursively scheduling more work), we invoke the
+  //     callback synchronously to preserve the "runs right now" contract
+  //     reconciler.updateContainer depends on — otherwise the first
+  //     commit queues a task to itself and never completes.
+  auto* jst = impl_->jsThread.get();
+  auto runtimeExecutor = [jst](std::function<void(facebook::jsi::Runtime&)>&& fn) {
+    if (!jst)
+      return;
+    if (jst->isCurrentThread()) {
+      fn(jst->runtime());
+    } else {
+      jst->post(std::move(fn));
+    }
+  };
+  setRuntimeExecutorForJsi(runtimeExecutor);
+
+  // 1b. Install JSI bindings (rnLinux globals, etc.) before any bundle
+  //     code runs. postSync so the host doesn't race the worker — by
+  //     the time start() returns the bindings ARE up and the bundle
+  //     can call into them.
   if (impl_->beforeBundleEval) {
-    impl_->beforeBundleEval(impl_->runtimeHolder->runtime());
+    impl_->jsThread->postSync([this](facebook::jsi::Runtime& rt) { impl_->beforeBundleEval(rt); });
   }
 
   // 2. Fabric Scheduler. Built before bundle eval so commit hooks
@@ -146,16 +182,7 @@ void RNLinuxHost::start() {
         };
   }
 
-  // RuntimeExecutor: hand the callback our jsi::Runtime synchronously.
-  // Works only because JS evaluation runs on this same thread today;
-  // when we add the JS thread (Phase 5.8) this becomes a real queue.
-  {
-    auto* runtime = &impl_->runtimeHolder->runtime();
-    toolbox.runtimeExecutor = [runtime](std::function<void(facebook::jsi::Runtime&)>&& fn) {
-      if (runtime)
-        fn(*runtime);
-    };
-  }
+  toolbox.runtimeExecutor = runtimeExecutor;
 
   // Stand up a RuntimeScheduler. Every EventBeat the factory hands out
   // needs a reference to it (0.81 moved the ownership model so the host
@@ -189,12 +216,14 @@ void RNLinuxHost::start() {
   // Install `globalThis.nativeFabricUIManager` and flag the runtime as
   // bridgeless. ReactFabric on the JS side reaches for these to drive
   // shadow-tree commits. Without this, surface.start() generates the
-  // "__fbBatchedBridge is undefined" warning we've been seeing.
+  // "__fbBatchedBridge is undefined" warning we've been seeing. postSync
+  // so this is in place before the bundle eval below tries to commit.
   {
-    auto& rt = impl_->runtimeHolder->runtime();
-    rt.global().setProperty(rt, "RN$Bridgeless", true);
-    facebook::react::UIManagerBinding::createAndInstallIfNeeded(rt,
-                                                                impl_->scheduler->getUIManager());
+    auto uiManager = impl_->scheduler->getUIManager();
+    impl_->jsThread->postSync([&uiManager](facebook::jsi::Runtime& rt) {
+      rt.global().setProperty(rt, "RN$Bridgeless", true);
+      facebook::react::UIManagerBinding::createAndInstallIfNeeded(rt, uiManager);
+    });
     RNL_LOGI("RNLinuxHost") << "nativeFabricUIManager installed";
   }
 
@@ -203,6 +232,11 @@ void RNLinuxHost::start() {
   //    and an app bundle (user code). Vendor is loaded once and
   //    survives reload(); the app bundle re-evaluates on every save
   //    so $RefreshReg$ + performReactRefresh can patch the live tree.
+  //
+  //    Eval is `post` (fire-and-forget) — there's no host code below
+  //    that depends on the bundle having finished evaluating, and
+  //    posting unblocks the main thread so GTK can present the window
+  //    before the 36 MB bundle finishes parsing.
   if (!config_.vendorBundleUrl.empty()) {
     const auto vendor = loadBundleSync(config_.vendorBundleUrl);
     if (!vendor.ok) {
@@ -212,9 +246,20 @@ void RNLinuxHost::start() {
     }
     RNL_LOGI("RNLinuxHost") << "vendor loaded (" << vendor.source.size() << " bytes from "
                             << vendor.sourceUrl << ")";
-    if (!impl_->runtimeHolder->evaluate(vendor.source, vendor.sourceUrl)) {
-      RNL_LOGE("RNLinuxHost") << "vendor bundle evaluation failed";
-    }
+    impl_->jsThread->post(
+        [source = vendor.source, url = vendor.sourceUrl](facebook::jsi::Runtime& rt) {
+          RNL_LOGI("Hermes") << "evaluate " << url << " (" << source.size() << " bytes)";
+          try {
+            auto buffer = std::make_shared<facebook::jsi::StringBuffer>(source);
+            rt.evaluateJavaScript(buffer, url);
+            rt.drainMicrotasks();
+          } catch (const facebook::jsi::JSError& e) {
+            RNL_LOGE("Hermes") << "vendor eval JS error: " << e.getMessage() << "\nstack:\n"
+                               << e.getStack();
+          } catch (const std::exception& e) {
+            RNL_LOGE("Hermes") << "vendor eval threw: " << e.what();
+          }
+        });
   }
 
   const auto bundle = loadBundleSync(config_.bundleUrl);
@@ -226,9 +271,19 @@ void RNLinuxHost::start() {
   RNL_LOGI("RNLinuxHost") << "bundle loaded (" << bundle.source.size() << " bytes from "
                           << bundle.sourceUrl << ")";
 
-  if (!impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl)) {
-    RNL_LOGE("RNLinuxHost") << "bundle evaluation failed; runtime still alive";
-  }
+  impl_->jsThread->post([source = bundle.source,
+                         url = bundle.sourceUrl](facebook::jsi::Runtime& rt) {
+    RNL_LOGI("Hermes") << "evaluate " << url << " (" << source.size() << " bytes)";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(source);
+      rt.evaluateJavaScript(buffer, url);
+      rt.drainMicrotasks();
+    } catch (const facebook::jsi::JSError& e) {
+      RNL_LOGE("Hermes") << "app eval JS error: " << e.getMessage() << "\nstack:\n" << e.getStack();
+    } catch (const std::exception& e) {
+      RNL_LOGE("Hermes") << "app eval threw: " << e.what();
+    }
+  });
 }
 
 void RNLinuxHost::stop() {
@@ -237,14 +292,15 @@ void RNLinuxHost::stop() {
   }
   RNL_LOGI("RNLinuxHost") << "stopping";
 
-  if (impl_->jsThread.joinable()) {
-    impl_->jsThread.join();
-  }
   // Drop any state that still references the runtime (rnLinux JSI
   // bindings — click handlers in particular) BEFORE the runtime is
   // destroyed. Otherwise jsi::Function destructors call into a dead
-  // runtime and crash on reload.
-  resetRnLinuxBindings();
+  // runtime and crash on reload. resetRnLinuxBindings touches the
+  // runtime to release its jsi::Function refs, so it must run on the
+  // JS thread.
+  if (impl_->jsThread) {
+    impl_->jsThread->postSync([](facebook::jsi::Runtime&) { resetRnLinuxBindings(); });
+  }
   // Inverse-order teardown: surface → scheduler → delegate → registry → runtime.
   if (impl_->rootSurface && impl_->scheduler) {
     // Unregistering an already-stopped surface is a no-op; unregistering
@@ -257,12 +313,14 @@ void RNLinuxHost::stop() {
   impl_->schedulerDelegate.reset();
   impl_->descriptorProviders.reset();
   impl_->contextContainer.reset();
-  impl_->runtimeHolder.reset();
+  // JsThread destructor joins the worker, which destroys the runtime
+  // on its own thread (Hermes pthread-binding requirement).
+  impl_->jsThread.reset();
 }
 
 void RNLinuxHost::reload() {
   RNL_LOGI("RNLinuxHost") << "reload requested (smooth)";
-  if (!impl_->runtimeHolder) {
+  if (!impl_->jsThread) {
     // Cold start: nothing to preserve, go through the normal start path.
     start();
     return;
@@ -280,17 +338,39 @@ void RNLinuxHost::reload() {
     return;
   }
   RNL_LOGI("RNLinuxHost") << "reload: re-evaluating bundle (" << bundle.source.size() << " bytes)";
-  impl_->runtimeHolder->evaluate(bundle.source, bundle.sourceUrl);
+  impl_->jsThread->post(
+      [source = bundle.source, url = bundle.sourceUrl](facebook::jsi::Runtime& rt) {
+        try {
+          auto buffer = std::make_shared<facebook::jsi::StringBuffer>(source);
+          rt.evaluateJavaScript(buffer, url);
+          rt.drainMicrotasks();
+        } catch (const facebook::jsi::JSError& e) {
+          RNL_LOGE("Hermes") << "reload eval JS error: " << e.getMessage();
+        } catch (const std::exception& e) {
+          RNL_LOGE("Hermes") << "reload eval threw: " << e.what();
+        }
+      });
 }
 
 void RNLinuxHost::reloadFromSource(std::string source, std::string sourceUrl) {
-  if (!impl_->runtimeHolder) {
+  if (!impl_->jsThread) {
     RNL_LOGW("RNLinuxHost") << "reloadFromSource: runtime not yet up";
     return;
   }
   RNL_LOGI("RNLinuxHost") << "reload (socket-push): " << source.size() << " bytes from "
                           << sourceUrl;
-  impl_->runtimeHolder->evaluate(source, sourceUrl);
+  impl_->jsThread->post(
+      [source = std::move(source), url = std::move(sourceUrl)](facebook::jsi::Runtime& rt) {
+        try {
+          auto buffer = std::make_shared<facebook::jsi::StringBuffer>(source);
+          rt.evaluateJavaScript(buffer, url);
+          rt.drainMicrotasks();
+        } catch (const facebook::jsi::JSError& e) {
+          RNL_LOGE("Hermes") << "reloadFromSource JS error: " << e.getMessage();
+        } catch (const std::exception& e) {
+          RNL_LOGE("Hermes") << "reloadFromSource threw: " << e.what();
+        }
+      });
 }
 
 void RNLinuxHost::setMountingManager(std::shared_ptr<LinuxMountingManager> m) {
@@ -362,21 +442,31 @@ void RNLinuxHost::startSurface(facebook::react::SurfaceHandler& surface) {
   // Our bundle (apps/playground/runtime/fabric.js) installs that hook
   // and uses nativeFabricUIManager to commit a shadow tree, so the
   // call no longer std::terminate's.
-  try {
-    surface.start();
-  } catch (const std::exception& e) {
-    RNL_LOGE("RNLinuxHost") << "surface.start() threw: " << e.what();
-    return;
-  } catch (...) {
-    RNL_LOGE("RNLinuxHost") << "surface.start() threw unknown exception";
-    return;
-  }
-  // surface.start() runs JS (RN$AppRegistry.runApplication, which then
-  // does reconciler.updateContainer → completeRoot). React schedules
-  // post-commit passive effects (useEffect) as microtasks; drain them
-  // now so the very first render's effects fire without waiting for
-  // the next JS-from-C++ entry-point.
-  impl_->runtimeHolder->runtime().drainMicrotasks();
+  // surface.start() runs JS (RN$AppRegistry.runApplication → reconciler
+  // updateContainer → completeRoot). That has to happen on the worker
+  // because everything reachable from runApplication mutates the JSI
+  // runtime; calling it from main would trap Hermes' pthread guard.
+  // postSync so the host can log "surface started" only after the
+  // initial render actually committed.
+  impl_->jsThread->postSync([&surface](facebook::jsi::Runtime& rt) {
+    try {
+      surface.start();
+    } catch (const facebook::jsi::JSError& e) {
+      RNL_LOGE("RNLinuxHost") << "surface.start() JS error: " << e.getMessage();
+      return;
+    } catch (const std::exception& e) {
+      RNL_LOGE("RNLinuxHost") << "surface.start() threw: " << e.what();
+      return;
+    } catch (...) {
+      RNL_LOGE("RNLinuxHost") << "surface.start() threw unknown exception";
+      return;
+    }
+    // React schedules post-commit passive effects (useEffect) as
+    // microtasks; drain them so the very first render's effects fire
+    // before this task returns instead of waiting for the next
+    // JS-from-C++ entry-point.
+    rt.drainMicrotasks();
+  });
   RNL_LOGI("RNLinuxHost") << "surface started";
 }
 

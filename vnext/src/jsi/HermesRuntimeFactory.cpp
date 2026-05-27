@@ -76,4 +76,19 @@ std::unique_ptr<HermesRuntimeHolder> makeHermesRuntimeHolder() {
   return std::make_unique<HermesRuntimeHolderImpl>();
 }
 
+std::unique_ptr<facebook::jsi::Runtime> makeHermesRuntime() {
+  // Same RuntimeConfig as the holder — withMicrotaskQueue + the 16×
+  // register pool. We can't share construction with the holder because
+  // the holder owns its runtime via unique_ptr<HermesRuntime> (the
+  // concrete subclass), and Hermes' API returns the same subclass that
+  // implicitly upcasts to jsi::Runtime. The duplication is small
+  // enough that hoisting it into a shared helper isn't worth a third
+  // header.
+  auto config = ::hermes::vm::RuntimeConfig::Builder()
+                    .withMicrotaskQueue(true)
+                    .withMaxNumRegisters(2 * 1024 * 1024)
+                    .build();
+  return facebook::hermes::makeHermesRuntime(config);
+}
+
 } // namespace rnlinux

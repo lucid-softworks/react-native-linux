@@ -67,6 +67,18 @@ class JsThread {
   // PANICS if called from the worker itself (would deadlock).
   void postSync(Task task);
 
+  // True iff the calling thread is the worker. Used by the React
+  // RuntimeExecutor wrapper to decide between sync-invoke
+  // (already on the worker, preserve commit semantics) and post
+  // (cross-thread hop).
+  bool isCurrentThread() const;
+
+  // Direct runtime accessor — UNSAFE except from inside a task
+  // running on the worker. Exposes the runtime so a synchronous
+  // RuntimeExecutor invocation can hand it back to the caller
+  // without going through the queue.
+  facebook::jsi::Runtime& runtime();
+
   // Stop the worker, drain the queue, destroy the runtime, join the
   // thread. Idempotent.
   void shutdown();

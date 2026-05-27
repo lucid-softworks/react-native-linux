@@ -29,4 +29,9 @@ class HermesRuntimeHolder {
 
 std::unique_ptr<HermesRuntimeHolder> makeHermesRuntimeHolder();
 
+// Construct just the runtime — used by JsThread which owns its own
+// runtime instance and the construction must happen on the worker
+// thread (Hermes binds the runtime to its constructor's pthread).
+std::unique_ptr<facebook::jsi::Runtime> makeHermesRuntime();
+
 } // namespace rnlinux

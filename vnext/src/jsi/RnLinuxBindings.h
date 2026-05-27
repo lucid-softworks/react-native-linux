@@ -11,6 +11,11 @@ class Runtime;
 
 namespace rnlinux {
 
+// RuntimeExecutor shape matching facebook::react::RuntimeExecutor —
+// avoids pulling the React renderer header into every consumer of
+// these bindings.
+using RuntimeExecutor = std::function<void(std::function<void(facebook::jsi::Runtime&)>&&)>;
+
 // Install `globalThis.rnLinux` on the given JSI runtime. The bindings let a
 // JS bundle (running on this runtime) construct and manipulate GTK widgets
 // directly — the "JSI bridge" lightning path that gets React onto the
@@ -49,6 +54,17 @@ void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int tag)> lookup);
 // overlay's "Reload" button). Set once from RNLinuxApplication after
 // the host is constructed.
 void setReloadCallbackForJsi(std::function<void()> reload);
+
+// Hand the bindings the host's RuntimeExecutor. Every C++→JS callback
+// (input dispatch, fetch result, timer fire) goes through it now —
+// the runtime lives on a worker pthread (Phase 5.8), so direct
+// `runtime_->call(...)` from a GTK / libsoup callback would land
+// on the wrong thread and trap Hermes' pthread-binding guard.
+//
+// Must be called before installRnLinuxBindings so the install-time
+// JSI work (which IS on the worker) sees the executor when it
+// captures it into closures.
+void setRuntimeExecutorForJsi(RuntimeExecutor executor);
 
 // Maintains a global nativeId-string → widget map for the Animated
 // native driver. ViewComponentView calls these from its updateProps as
