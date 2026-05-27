@@ -1,11 +1,14 @@
 // Minimal Linux TextInput shadow node + descriptor.
 //
 // RN's stock TextInput shadow nodes are split per-platform
-// (iostextinput / androidtextinput / …); each pulls in platform-
-// specific extras (TextInputTraits etc.). For our MVP we register a
-// cross-platform "TextInput" using BaseTextInputProps directly —
-// that gives us placeholder / value / maxLength / placeholderTextColor
-// out of the box, plus the ViewProps + BaseTextProps families.
+// (iostextinput / androidtextinput / …). We use the iOS-flavoured
+// TextInputProps as our parameterisation: it bundles
+// BaseTextInputProps (placeholder / value / maxLength /
+// placeholderTextColor) with a TextInputTraits struct that includes
+// `secureTextEntry`, `keyboardType`, `autoCorrect`,
+// `enablesReturnKeyAutomatically`, etc. Going through TextInputProps
+// lets RN's stock RawProps parser populate these from JS — otherwise
+// we'd have to write a custom converter per prop.
 //
 // The class is a final ConcreteViewShadowNode, marked as a leaf with
 // MeasurableYogaNode so Yoga lets the Linux component view declare
@@ -13,7 +16,7 @@
 
 #pragma once
 
-#include <react/renderer/components/textinput/BaseTextInputProps.h>
+#include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/view/ConcreteViewShadowNode.h>
 #include <react/renderer/components/view/ViewEventEmitter.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
@@ -24,7 +27,7 @@ extern const char TextInputComponentName[];
 
 class TextInputShadowNode final
     : public facebook::react::ConcreteViewShadowNode<TextInputComponentName,
-                                                     facebook::react::BaseTextInputProps,
+                                                     facebook::react::TextInputProps,
                                                      facebook::react::ViewEventEmitter> {
  public:
   using ConcreteViewShadowNode::ConcreteViewShadowNode;

@@ -165,6 +165,11 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/scrollview/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/image/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/textinput/BaseTextInputProps.cpp
+  # iOS-flavoured TextInputProps adds TextInputTraits (secureTextEntry,
+  # keyboardType, autoCorrect, …). We use the iOS variant for our
+  # TextInputShadowNode parameterisation since BaseTextInputProps alone
+  # doesn't expose those.
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/textinput/platform/ios/react/renderer/components/iostextinput/TextInputProps.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager/platform/cxx/react/renderer/imagemanager/*.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/legacyviewmanagerinterop/*.cpp
@@ -237,6 +242,11 @@ target_include_directories(react_native_rn_renderer
     # generic-Linux/desktop implementation we want.
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/scrollview/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/text/platform/cxx
+    # iOS-flavoured TextInputProps brings TextInputTraits
+    # (secureTextEntry, keyboardType, autoCorrect, …). The cross-
+    # platform BaseTextInputProps doesn't include any of these, so we
+    # use the iOS variant for our TextInputShadowNode parameterisation.
+    ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/textinput/platform/ios
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/components/modal/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/utils/platform/cxx
     ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/imagemanager

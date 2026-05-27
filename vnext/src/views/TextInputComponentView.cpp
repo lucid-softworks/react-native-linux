@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
-#include <react/renderer/components/textinput/BaseTextInputProps.h>
+#include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/graphics/HostPlatformColor.h>
 #include <string>
 
@@ -165,7 +165,7 @@ void TextInputComponentView::onTextChanged(GtkWidget* editable, gpointer userDat
 
 void TextInputComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
                                          facebook::react::Props const& newProps) {
-  const auto& tp = static_cast<const facebook::react::BaseTextInputProps&>(newProps);
+  const auto& tp = static_cast<const facebook::react::TextInputProps&>(newProps);
 
   // Placeholder text + colour. GtkText draws the placeholder via a
   // child "placeholder" CSS node — we style it with a per-widget
@@ -196,6 +196,11 @@ void TextInputComponentView::updateProps(facebook::react::Props const& /*oldProp
 
   // maxLength: 0/unset means no limit. GtkText takes a positive int.
   gtk_text_set_max_length(GTK_TEXT(widget_), tp.maxLength > 0 ? tp.maxLength : 0);
+
+  // secureTextEntry lives on TextInputProps.traits. GtkText draws the
+  // masked-character glyph (•) when visibility is off, matching the
+  // iOS/Android contract for password fields.
+  gtk_text_set_visibility(GTK_TEXT(widget_), tp.traits.secureTextEntry ? FALSE : TRUE);
 
   // value: set only when the props differ from the current entry —
   // we suppress the signal during programmatic writes so we don't
