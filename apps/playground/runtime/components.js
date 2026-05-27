@@ -30,7 +30,20 @@ const View = React.forwardRef(function View(props, ref) {
 });
 
 const ScrollView = React.forwardRef(function ScrollView(props, ref) {
-  return React.createElement('scrollview', {...props, ref}, props.children);
+  // RN's ScrollView splits styling between the outer scrolling
+  // viewport (`style`) and the inner content wrapper
+  // (`contentContainerStyle`). Akari's auth screen relies on
+  // `contentContainerStyle: { flexGrow: 1, justifyContent: 'center',
+  // alignItems: 'center' }` to centre its content vertically and
+  // horizontally — dropping that prop pins everything to the
+  // viewport's top-left. Wrap the children in an inner View with the
+  // content-container style so the flex declarations land somewhere
+  // Yoga can act on.
+  const {contentContainerStyle, children, ...rest} = props;
+  const inner = contentContainerStyle
+    ? React.createElement('view', {style: contentContainerStyle}, children)
+    : children;
+  return React.createElement('scrollview', {...rest, ref}, inner);
 });
 
 // <Image source={{uri: 'file:///path/to/img.png'}} resizeMode="cover" />
