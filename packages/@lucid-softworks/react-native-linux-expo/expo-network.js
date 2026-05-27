@@ -91,16 +91,23 @@ async function getCellularGenerationAsync() {
 // share one GNetworkMonitor subscription.
 const _stateSubs = new Set();
 let _nativeWired = false;
+// Cached current state — `useNetworkState`'s `getSnapshot` returns
+// THIS reference between changes so React's `Object.is` bail-out
+// avoids a re-render on every render pass. Rotated when the
+// native listener fires.
+let _currentState = null;
 
 function _ensureNativeWired() {
   if (_nativeWired) return;
   if (typeof rnLinux === 'undefined' || typeof rnLinux.networkSetStateListener !== 'function') {
     return;
   }
+  _currentState = _fresh();
   rnLinux.networkSetStateListener(state => {
+    _currentState = state || _fresh();
     for (const fn of _stateSubs) {
       try {
-        fn(state);
+        fn(_currentState);
       } catch (_) {}
     }
   });
@@ -114,19 +121,34 @@ function _teardownNativeIfIdle() {
   }
   rnLinux.networkSetStateListener(null);
   _nativeWired = false;
+  _currentState = null;
 }
 
 // React hook — subscribes to the live network-changed signal so
 // the consumer re-renders when the system gains/loses
 // connectivity (wifi associate, ethernet cable plug, NM toggle).
+//
+// `useSyncExternalStore` avoids the subscribe-after-mount race the
+// old `useState + useEffect(subscribe)` shape had — a network
+// change between initial render and effect commit would otherwise
+// be missed, which the previous implementation papered over with
+// a redundant `setState(_fresh())` inside the effect.
+function _netSubscribe(cb) {
+  _stateSubs.add(cb);
+  _ensureNativeWired();
+  return () => {
+    _stateSubs.delete(cb);
+    _teardownNativeIfIdle();
+  };
+}
+function _netGetSnapshot() {
+  if (!_currentState) {
+    _currentState = _fresh();
+  }
+  return _currentState;
+}
 function useNetworkState() {
-  const [state, setState] = React.useState(_fresh);
-  React.useEffect(() => {
-    const sub = addNetworkStateListener(setState);
-    setState(_fresh());
-    return () => sub.remove();
-  }, []);
-  return state;
+  return React.useSyncExternalStore(_netSubscribe, _netGetSnapshot, _netGetSnapshot);
 }
 
 // Listener API — real. Subscribes to GNetworkMonitor's

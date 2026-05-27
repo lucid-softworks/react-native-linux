@@ -109,35 +109,53 @@ function addEventListener(listener) {
   return () => sub.remove();
 }
 
+// Shared cached state — getSnapshot returns the same reference
+// between changes so React's bail-out fires correctly. The
+// `addEventListener` machinery fires once on subscribe (initial
+// reading) and then on each network change.
+const _defaultNetInfoState = {
+  type: NetInfoStateType.unknown,
+  isConnected: null,
+  isInternetReachable: null,
+  details: null,
+};
+let _cachedNetInfoState = _defaultNetInfoState;
+
+function _niSubscribe(cb) {
+  const unsubscribe = addEventListener(state => {
+    _cachedNetInfoState = state;
+    cb();
+  });
+  return unsubscribe;
+}
+function _niGetSnapshot() {
+  return _cachedNetInfoState;
+}
 function useNetInfo(_configuration) {
   const React = require('react');
-  const [state, setState] = React.useState({
-    type: NetInfoStateType.unknown,
-    isConnected: null,
-    isInternetReachable: null,
-    details: null,
-  });
-  React.useEffect(() => {
-    const unsubscribe = addEventListener(setState);
-    return unsubscribe;
-  }, []);
-  return state;
+  return React.useSyncExternalStore(_niSubscribe, _niGetSnapshot, _niGetSnapshot);
 }
 
 function useNetInfoInstance(isPaused, _configuration) {
   const React = require('react');
-  const [state, setState] = React.useState({
-    type: NetInfoStateType.unknown,
-    isConnected: null,
-    isInternetReachable: null,
-    details: null,
-  });
-  const refreshFn = React.useCallback(() => fetch().then(setState), []);
-  React.useEffect(() => {
-    if (isPaused) return;
-    const unsubscribe = addEventListener(setState);
-    return unsubscribe;
-  }, [isPaused]);
+  // Pause control means subscription comes and goes — drop the cb
+  // when paused so the snapshot freezes on the last known value.
+  const subscribe = React.useCallback(
+    cb => {
+      if (isPaused) return () => {};
+      return _niSubscribe(cb);
+    },
+    [isPaused],
+  );
+  const state = React.useSyncExternalStore(subscribe, _niGetSnapshot, _niGetSnapshot);
+  const refreshFn = React.useCallback(
+    () =>
+      fetch().then(s => {
+        _cachedNetInfoState = s;
+        return s;
+      }),
+    [],
+  );
   return {netInfo: state, refresh: refreshFn};
 }
 

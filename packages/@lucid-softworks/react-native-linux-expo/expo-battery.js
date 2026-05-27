@@ -183,57 +183,90 @@ function addLowPowerModeListener(listener) {
 }
 
 // React hooks — subscribe to the listener bus so the component
-// re-renders when battery state actually changes. Each hook
-// fetches the initial value at mount, then watches for deltas.
+// re-renders when battery state actually changes.
+//
+// `useSyncExternalStore` is the right shape: the snapshot getters
+// read the already-cached `_lastLevel` / `_lastState` /
+// `_lastLowPower` (kept fresh by the polling trampoline above).
+// Avoids the `useState + useEffect(subscribe)` race where the
+// initial render captures whatever the value was BEFORE the effect
+// subscribed; the previous version papered over that with a
+// redundant `getBatteryLevelAsync().then(setV)` inside the effect.
+function _levelSubscribe(cb) {
+  const sub = addBatteryLevelListener(() => cb());
+  return () => sub.remove();
+}
+function _levelGetSnapshot() {
+  return _lastLevel;
+}
 function useBatteryLevel() {
-  const [v, setV] = React.useState(-1);
-  React.useEffect(() => {
-    getBatteryLevelAsync().then(setV);
-    const sub = addBatteryLevelListener(({batteryLevel}) => setV(batteryLevel));
-    return () => sub.remove();
-  }, []);
-  return v;
+  return React.useSyncExternalStore(_levelSubscribe, _levelGetSnapshot, _levelGetSnapshot);
 }
 
+function _stateSubscribe(cb) {
+  const sub = addBatteryStateListener(() => cb());
+  return () => sub.remove();
+}
+function _stateGetSnapshot() {
+  return _lastState;
+}
 function useBatteryState() {
-  const [v, setV] = React.useState(BatteryState.UNKNOWN);
-  React.useEffect(() => {
-    getBatteryStateAsync().then(setV);
-    const sub = addBatteryStateListener(({batteryState}) => setV(batteryState));
-    return () => sub.remove();
-  }, []);
-  return v;
+  return React.useSyncExternalStore(_stateSubscribe, _stateGetSnapshot, _stateGetSnapshot);
 }
 
-function usePowerState() {
-  const [v, setV] = React.useState({
-    batteryLevel: -1,
-    batteryState: BatteryState.UNKNOWN,
-    lowPowerMode: false,
-  });
-  React.useEffect(() => {
-    getPowerStateAsync().then(setV);
-    // Three listeners patch into the same composed state object —
-    // beats one per-call recomputation because addBatteryStateListener
-    // already filters out unchanged ticks.
-    const subs = [
-      addBatteryLevelListener(({batteryLevel}) => setV(s => ({...s, batteryLevel}))),
-      addBatteryStateListener(({batteryState}) => setV(s => ({...s, batteryState}))),
-      addLowPowerModeListener(({lowPowerMode}) => setV(s => ({...s, lowPowerMode}))),
-    ];
-    return () => subs.forEach(s => s.remove());
-  }, []);
-  return v;
+function _lowPowerSubscribe(cb) {
+  const sub = addLowPowerModeListener(() => cb());
+  return () => sub.remove();
 }
-
+function _lowPowerGetSnapshot() {
+  return _lastLowPower;
+}
 function useLowPowerMode() {
-  const [v, setV] = React.useState(false);
-  React.useEffect(() => {
-    isLowPowerModeEnabledAsync().then(setV);
-    const sub = addLowPowerModeListener(({lowPowerMode}) => setV(lowPowerMode));
-    return () => sub.remove();
-  }, []);
-  return v;
+  return React.useSyncExternalStore(_lowPowerSubscribe, _lowPowerGetSnapshot, _lowPowerGetSnapshot);
+}
+
+// usePowerState — composite of all three. Cache the composite
+// object so getSnapshot returns the same reference between
+// updates; rotate it when any of the three underlying values
+// actually changes. Without this getSnapshot returns a fresh
+// object every call and useSyncExternalStore's Object.is bail-out
+// loops infinitely.
+let _cachedPowerState = {
+  batteryLevel: _lastLevel,
+  batteryState: _lastState,
+  lowPowerMode: _lastLowPower,
+};
+function _powerRotateIfDirty() {
+  if (
+    _cachedPowerState.batteryLevel !== _lastLevel ||
+    _cachedPowerState.batteryState !== _lastState ||
+    _cachedPowerState.lowPowerMode !== _lastLowPower
+  ) {
+    _cachedPowerState = {
+      batteryLevel: _lastLevel,
+      batteryState: _lastState,
+      lowPowerMode: _lastLowPower,
+    };
+  }
+}
+function _powerSubscribe(cb) {
+  const wrap = () => {
+    _powerRotateIfDirty();
+    cb();
+  };
+  const subs = [
+    addBatteryLevelListener(wrap),
+    addBatteryStateListener(wrap),
+    addLowPowerModeListener(wrap),
+  ];
+  return () => subs.forEach(s => s.remove());
+}
+function _powerGetSnapshot() {
+  _powerRotateIfDirty();
+  return _cachedPowerState;
+}
+function usePowerState() {
+  return React.useSyncExternalStore(_powerSubscribe, _powerGetSnapshot, _powerGetSnapshot);
 }
 
 const api = {
