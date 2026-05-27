@@ -1,6 +1,6 @@
 {
   "name": "@lucid-softworks/react-native-linux-cli",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Linux platform plugin for @react-native-community/cli",
   "license": "MIT",
   "author": "Lucid Softworks <hello@lucidsoft.works> (https://lucidsoft.works)",
