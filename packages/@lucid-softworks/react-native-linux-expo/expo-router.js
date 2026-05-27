@@ -85,6 +85,32 @@ const RouterContext = React.createContext({
 const NavigationContext = React.createContext(null);
 const ThemeContext = React.createContext(DefaultTheme);
 
+// File-system routing context. Each <Stack> / <Tabs> bumps this with
+// the segment its parent matched on, so a nested <Stack.Screen
+// name="sign-in" /> inside app/(auth)/_layout.tsx resolves to
+// `(auth)/sign-in`, not just `/sign-in`.
+//
+// Real expo-router builds this tree from a babel-time
+// `require.context('app', ...)` walk. The akari smoke harness
+// generates the equivalent (route-table.tsx) at bundle time; the
+// playground's other entries don't set globalThis.__expoRouterRoutes
+// at all, so the lookup just returns undefined and the existing
+// `component={...}` path still works.
+const RouteBaseContext = React.createContext('');
+
+function lookupRoute(base, name) {
+  const routes = typeof globalThis !== 'undefined' ? globalThis.__expoRouterRoutes : null;
+  if (!routes) return null;
+  const prefix = base ? base + '/' + name : '/' + name;
+  // `name` itself may already contain slashes (e.g. `oauth/callback`).
+  // Try the "this is a directory with its own _layout" form first,
+  // then the "this is a leaf file" form.
+  const layoutKey = prefix + '/_layout';
+  if (routes[layoutKey]) return {component: routes[layoutKey], childBase: prefix};
+  if (routes[prefix]) return {component: routes[prefix], childBase: prefix};
+  return null;
+}
+
 function parseHref(href) {
   if (typeof href !== 'string') {
     return {pathname: '/', params: {}};
@@ -160,7 +186,8 @@ function makeRouter(initial = '/') {
 
 function Stack({children, screenOptions}) {
   const ctx = makeRouter('/');
-  const screens = collectScreens(children, Stack.Screen);
+  const base = React.useContext(RouteBaseContext);
+  const screens = collectScreens(children, Stack.Screen, base);
   const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || 'index';
   const match = screens.find(s => s.name === seg) ?? screens[0];
   const headerShown = match?.options?.headerShown ?? screenOptions?.headerShown ?? true;
@@ -202,7 +229,8 @@ const stackStyles = {
 
 function Tabs({children, screenOptions}) {
   const ctx = makeRouter('/');
-  const screens = collectScreens(children, Tabs.Screen);
+  const base = React.useContext(RouteBaseContext);
+  const screens = collectScreens(children, Tabs.Screen, base);
   const seg = (ctx.pathname || '/').replace(/^\//, '').split('/')[0] || screens[0]?.name;
   const active = screens.find(s => s.name === seg) ?? screens[0];
   const activeColor =
@@ -265,18 +293,30 @@ const tabsStyles = {
 // ────────────────────────────────────────────────────────────────
 // Helpers
 
-function collectScreens(children, Type) {
+function collectScreens(children, Type, base) {
   const out = [];
   React.Children.forEach(children, child => {
     if (!child) return;
     if (child.type === Type) {
+      // `component` is OUR extension — real expo-router resolves the
+      // component from a same-named file under `app/`. Honour the
+      // explicit prop first; if missing, ask the file-system route
+      // table (populated at bundle time, see lookupRoute).
+      let component = child.props.component;
+      let childBase = (base || '') + (child.props.name ? '/' + child.props.name : '');
+      if (!component && !child.props.children) {
+        const fs = lookupRoute(base, child.props.name);
+        if (fs) {
+          component = fs.component;
+          childBase = fs.childBase;
+        }
+      }
       out.push({
         name: child.props.name,
         options: child.props.options ?? {},
-        // `component` is OUR extension — real expo-router resolves the
-        // component from a same-named file under `app/`.
-        component: child.props.component,
+        component,
         children: child.props.children,
+        childBase,
       });
     }
   });
@@ -304,10 +344,22 @@ function renderScreenBody(match) {
     );
   }
   if (match.component) {
-    return React.createElement(match.component);
+    // Push the resolved file-system path so nested <Stack> instances
+    // know where they sit. Plain `component={...}` Screens land here
+    // too (childBase = base + '/' + name) which is fine — the route
+    // table lookup will just miss if no such entry exists.
+    return React.createElement(
+      RouteBaseContext.Provider,
+      {value: match.childBase || ''},
+      React.createElement(match.component),
+    );
   }
   if (match.children) {
-    return match.children;
+    return React.createElement(
+      RouteBaseContext.Provider,
+      {value: match.childBase || ''},
+      match.children,
+    );
   }
   return React.createElement(
     View,
