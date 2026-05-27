@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(react_native_linux
-  VERSION 0.0.1 # x-release-please-version
+  VERSION 0.1.0 # x-release-please-version
   DESCRIPTION "React Native for Linux native runtime"
   LANGUAGES C CXX)
 
