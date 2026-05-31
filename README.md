@@ -36,14 +36,14 @@ by and structurally modeled after
 
 ## What doesn't yet
 
-| Surface                            | Status                                                                                    |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| `react-native-safe-area-context`   | ⚠ shim returns zero insets; `SafeAreaProvider` is a passthrough `<View>`                  |
-| `expo-camera` / `expo-location`    | ❌ expo-modules-core has no Linux native registry; `requireNativeModule()` throws         |
-| Nested `<Text>` inside `<Text>`    | ❌ inner element renders as a U+FFFC object-replacement char                              |
-| `async () => {…}` arrow functions  | ❌ Hermes 0.12 silently no-ops the body; use `async function () {…}` declarations instead |
-| Multi-instance / per-app isolation | ❌ single GtkApplication, single Hermes runtime                                           |
-| Full vnext `cmake --build` in CI   | ❌ configure-only — a few Fabric headers are still stubbed                                |
+| Surface                            | Status                                                                                                           |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `react-native-safe-area-context`   | ⚠ shim returns zero insets; `SafeAreaProvider` is a passthrough `<View>`                                         |
+| `expo-camera` / `expo-location`    | ❌ expo-modules-core has no Linux native registry; `requireNativeModule()` throws                                |
+| Nested `<Text>` inside `<Text>`    | ❌ inner element renders as a U+FFFC object-replacement char                                                     |
+| `async () => {…}` arrow functions  | ❌ Hermes 0.12 silently no-ops the body; use `async function () {…}` declarations instead                        |
+| Multi-instance / per-app isolation | ❌ single GtkApplication, single Hermes runtime                                                                  |
+| vnext unit-test binary in CI       | ❌ Hermes' bundled llvh gtest collides with upstream googletest; tests build locally via a Hermes-free configure |
 
 ## Goals
 

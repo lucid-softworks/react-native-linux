@@ -58,6 +58,8 @@ Honest gaps for arbitrary RN apps to drop in:
 - [x] vnext/CMakeLists.txt, presets, dep modules, pkg-config exports
 - [x] First green build on Ubuntu 24.04 aarch64 (Lima)
 - [x] Pango + libsoup3 (soft dep) + Hermes via FetchContent
+- [x] CI hard-gates on `cmake --build vnext/build --target react_native_linux` (no more "configure-only" carve-out)
+- [ ] CI hard-gates on `ctest --label-regex vnext` — blocked on Hermes' bundled llvh `gtest` colliding with upstream googletest; the tests target stays off in CI for now
 
 ### 5.2 — Host / instance plumbing
 
