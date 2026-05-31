@@ -2861,6 +2861,56 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                return jsi::Value(s.location->isAvailable());
              });
 
+  // Async variant — spawns a worker thread for the
+  // `g_bus_get_sync` + activation probe. The first call blocks for
+  // 500–2000 ms on a fresh GeoClue install (D-Bus name activation
+  // wakes up the service), enough to skip frames on the JS thread.
+  // Subsequent calls hit a cached bus connection and return fast,
+  // but the JS side stays on the async API uniformly so cold-start
+  // permission-check flows don't pin the worker.
+  //
+  // Callback shape: `cb(available: bool)`. No error channel —
+  // unavailable is the normal "service not installed" reply.
+  bindMethod(
+      rt,
+      rnLinux,
+      "locationIsAvailableAsync",
+      1,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
+          return jsi::Value::undefined();
+        }
+        auto cb = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        auto& s = state();
+        if (!s.location) {
+          s.location =
+              std::make_unique<rnlinux::location::LocationClient>(rnlinux::applicationId());
+        }
+        if (!s.executor) {
+          // Without an executor we can't safely hop back to JS; fall
+          // back to the sync path so the callback still fires.
+          const bool available = s.location->isAvailable();
+          cb->call(rt, jsi::Value(available));
+          return jsi::Value::undefined();
+        }
+        // LocationClient is held in state() so the worker keeps a
+        // raw pointer; the unique_ptr only ever resets on JS reload
+        // via resetRnLinuxBindings, which itself joins / drops
+        // pending workers before tearing down the runtime.
+        auto* client = s.location.get();
+        std::thread([client, cb = std::move(cb)]() {
+          const bool available = client->isAvailable();
+          state().executor([cb = std::move(cb), available](jsi::Runtime& rt) {
+            try {
+              cb->call(rt, jsi::Value(available));
+            } catch (const std::exception& e) {
+              RNL_LOGE("rnLinux.location") << "isAvailable cb threw: " << e.what();
+            }
+          });
+        }).detach();
+        return jsi::Value::undefined();
+      });
+
   bindMethod(
       rt,
       rnLinux,
@@ -2937,6 +2987,103 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           s.locationOnError.reset();
         }
         return jsi::Value(ok);
+      });
+
+  // Async variant of locationStartWatch — the D-Bus setup inside
+  // LocationClient::startWatch (first-call `g_bus_get_sync`, the
+  // demo-agent spawn, the CreateClient + SetDesktopId + Start round-
+  // trip) totals 1–3 s on a cold GeoClue. Spawn a worker so the JS
+  // commit chain doesn't stall waiting for permission negotiation.
+  //
+  // Callback shape: `cb(ok: bool)`. onFix / onError stay the same
+  // shape as the sync binding — they always hop through the executor
+  // (LocationClient fires them on the GTK main thread).
+  bindMethod(
+      rt,
+      rnLinux,
+      "locationStartWatchAsync",
+      3,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 3 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt) ||
+            !args[2].isObject() || !args[2].asObject(rt).isFunction(rt)) {
+          return jsi::Value::undefined();
+        }
+        auto& s = state();
+        if (!s.location) {
+          s.location =
+              std::make_unique<rnlinux::location::LocationClient>(rnlinux::applicationId());
+        }
+        if (!s.executor) {
+          return jsi::Value::undefined();
+        }
+        s.locationOnFix = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        if (args[1].isObject() && args[1].asObject(rt).isFunction(rt)) {
+          s.locationOnError = std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        } else {
+          s.locationOnError.reset();
+        }
+        auto cb = std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt));
+        auto* client = s.location.get();
+        std::thread([client, cb = std::move(cb)]() {
+          const bool ok = client->startWatch(
+              // onFix — same hop-through-executor shape as the sync
+              // binding; identical body so callers don't need to
+              // distinguish.
+              [](const rnlinux::location::LocationFix& fix) {
+                auto& st = state();
+                if (!st.executor || !st.locationOnFix)
+                  return;
+                st.executor([fix](jsi::Runtime& jrt) {
+                  auto& st = state();
+                  if (!st.locationOnFix)
+                    return;
+                  try {
+                    jsi::Object obj(jrt);
+                    obj.setProperty(jrt, "latitude", jsi::Value(fix.latitude));
+                    obj.setProperty(jrt, "longitude", jsi::Value(fix.longitude));
+                    obj.setProperty(jrt, "accuracy", jsi::Value(fix.accuracy));
+                    obj.setProperty(jrt, "altitude", jsi::Value(fix.altitude));
+                    obj.setProperty(jrt, "speed", jsi::Value(fix.speed));
+                    obj.setProperty(jrt, "heading", jsi::Value(fix.heading));
+                    obj.setProperty(
+                        jrt, "timestamp", jsi::Value(static_cast<double>(fix.timestampMs)));
+                    st.locationOnFix->call(jrt, obj);
+                    jrt.drainMicrotasks();
+                  } catch (const std::exception& e) {
+                    RNL_LOGE("rnLinux.location") << "fix handler threw: " << e.what();
+                  }
+                });
+              },
+              [](const std::string& msg) {
+                auto& st = state();
+                if (!st.executor || !st.locationOnError)
+                  return;
+                st.executor([msg](jsi::Runtime& jrt) {
+                  auto& st = state();
+                  if (!st.locationOnError)
+                    return;
+                  try {
+                    st.locationOnError->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                    jrt.drainMicrotasks();
+                  } catch (const std::exception& e) {
+                    RNL_LOGE("rnLinux.location") << "err handler threw: " << e.what();
+                  }
+                });
+              });
+          state().executor([cb = std::move(cb), ok](jsi::Runtime& rt) {
+            auto& st = state();
+            if (!ok) {
+              st.locationOnFix.reset();
+              st.locationOnError.reset();
+            }
+            try {
+              cb->call(rt, jsi::Value(ok));
+            } catch (const std::exception& e) {
+              RNL_LOGE("rnLinux.location") << "startWatchAsync cb threw: " << e.what();
+            }
+          });
+        }).detach();
+        return jsi::Value::undefined();
       });
 
   bindMethod(rt,

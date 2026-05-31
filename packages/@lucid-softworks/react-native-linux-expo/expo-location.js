@@ -106,7 +106,23 @@ function _fanErr(msg) {
 
 function _ensureWatch() {
   if (_watchActive || !_hasNative) return;
-  _watchActive = rnLinux.locationStartWatch(_fanFix, _fanErr);
+  // Prefer the async start when available — first-call D-Bus setup
+  // can take 1-3 s on a cold GeoClue; the async path runs it on a
+  // worker thread and the callback fires once the watch is live.
+  // Sync fallback keeps older C++ builds working.
+  if (typeof rnLinux.locationStartWatchAsync === 'function') {
+    _watchActive = true; // optimistic — callback flips false on error
+    rnLinux.locationStartWatchAsync(_fanFix, _fanErr, ok => {
+      _watchActive = ok;
+      if (!ok) {
+        // _fanErr already fired through the onError channel inside
+        // startWatch; this just keeps the local flag honest so a
+        // retry path can call _ensureWatch again.
+      }
+    });
+  } else {
+    _watchActive = rnLinux.locationStartWatch(_fanFix, _fanErr);
+  }
 }
 
 function _maybeStop() {
@@ -158,6 +174,16 @@ async function requestBackgroundPermissionsAsync() {
 
 async function hasServicesEnabledAsync() {
   if (!_hasNative) return false;
+  // First-call `locationIsAvailable` does `g_bus_get_sync` + a
+  // GeoClue activation probe (500-2000 ms on a cold install). Route
+  // through the async binding when available so callers like
+  // `if (await Location.hasServicesEnabledAsync()) …` don't pin
+  // the JS thread on cold start.
+  if (typeof rnLinux.locationIsAvailableAsync === 'function') {
+    return new Promise(resolve => {
+      rnLinux.locationIsAvailableAsync(available => resolve(Boolean(available)));
+    });
+  }
   return Boolean(rnLinux.locationIsAvailable());
 }
 
