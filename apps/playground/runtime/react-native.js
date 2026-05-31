@@ -343,12 +343,16 @@ const KeyboardAvoidingView = React.forwardRef(function KeyboardAvoidingView(prop
 });
 
 // RefreshControl is the pull-to-refresh affordance on mobile
-// ScrollViews. Desktop has no pull gesture, so this is a no-op shim:
-// the component renders nothing, swallows props (onRefresh, refreshing,
-// tintColor, colors). ScrollView passes it via the `refreshControl`
-// prop which our scrollview host doesn't currently honor either.
-// Future: route to a Ctrl+R-style reload or hook the edge-reached
-// signal of GtkScrolledWindow.
+// ScrollViews. Desktop has no touch pull gesture, but GtkScrolledWindow
+// emits an `edge-overshot` signal when the user yanks the scrollbar
+// past the top with a wheel or trackpad — the closest analogue, and
+// the same UX as iOS rubber-band-to-refresh. We render nothing here;
+// the ScrollView shim picks the props out of `refreshControl` and
+// forwards `onRefresh`/`refreshing` as top-level props, and the
+// fabricHostConfig binds them through `rnLinux.fabricOnRefresh` +
+// `rnLinux.scrollViewSetRefreshing`. Visual styling props
+// (tintColor, colors, title*) are intentionally ignored — desktop
+// shows the standard GtkScrolledWindow scrollbar rubber-band.
 function RefreshControl(_props) {
   return null;
 }

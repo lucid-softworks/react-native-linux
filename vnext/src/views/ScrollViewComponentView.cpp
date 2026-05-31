@@ -10,8 +10,20 @@
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/core/LayoutMetrics.h>
 #include <string>
+#include <unordered_map>
 
 namespace rnlinux {
+
+namespace {
+// Tag → live ScrollViewComponentView lookup. Populated in the ctor,
+// cleared in the dtor. JS reaches in through the static
+// setRefreshing(tag, bool) entry point so the JSI binding doesn't
+// need to know about LinuxComponentViewRegistry.
+std::unordered_map<int, ScrollViewComponentView*>& scrollViewRegistry() {
+  static std::unordered_map<int, ScrollViewComponentView*> m;
+  return m;
+}
+} // namespace
 
 ScrollViewComponentView::ScrollViewComponentView(Tag tag)
     : LinuxComponentView(tag) {
@@ -56,6 +68,32 @@ ScrollViewComponentView::ScrollViewComponentView(Tag tag)
   GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scrolledWindow_));
   g_signal_connect(vadj, "value-changed", G_CALLBACK(+onAdj), this);
   g_signal_connect(hadj, "value-changed", G_CALLBACK(+onAdj), this);
+
+  // edge-overshot fires when the user tries to scroll past one of the
+  // edges — same gesture-feel as iOS' "rubber band" past the top.
+  // We only care about GTK_POS_TOP to drive RefreshControl.onRefresh.
+  // Dispatch is gated on !refreshing_ so a sustained gesture only
+  // fires the JS callback once per cycle; the app flips refreshing
+  // back to false when its load completes, which re-arms.
+  auto onOvershot = [](GtkScrolledWindow* /*sw*/, GtkPositionType pos, gpointer ud) {
+    if (pos != GTK_POS_TOP)
+      return;
+    auto* self = static_cast<ScrollViewComponentView*>(ud);
+    if (self->refreshing_)
+      return;
+    self->refreshing_ = true;
+    dispatchFabricRefresh(self->tag_);
+  };
+  g_signal_connect(scrolledWindow_, "edge-overshot", G_CALLBACK(+onOvershot), this);
+
+  scrollViewRegistry()[tag] = this;
+}
+
+void ScrollViewComponentView::setRefreshing(int tag, bool refreshing) {
+  auto it = scrollViewRegistry().find(tag);
+  if (it == scrollViewRegistry().end())
+    return;
+  it->second->refreshing_ = refreshing;
 }
 
 void ScrollViewComponentView::emitScroll() {
@@ -76,7 +114,9 @@ void ScrollViewComponentView::emitScroll() {
   dispatchFabricScroll(tag_, offsetX, offsetY, contentW, contentH, viewportW, viewportH);
 }
 
-ScrollViewComponentView::~ScrollViewComponentView() = default;
+ScrollViewComponentView::~ScrollViewComponentView() {
+  scrollViewRegistry().erase(tag_);
+}
 
 void ScrollViewComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
                                           facebook::react::Props const& newProps) {

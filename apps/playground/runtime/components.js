@@ -39,11 +39,26 @@ const ScrollView = React.forwardRef(function ScrollView(props, ref) {
   // viewport's top-left. Wrap the children in an inner View with the
   // content-container style so the flex declarations land somewhere
   // Yoga can act on.
-  const {contentContainerStyle, children, ...rest} = props;
+  const {contentContainerStyle, children, refreshControl, ...rest} = props;
   const inner = contentContainerStyle
     ? React.createElement('view', {style: contentContainerStyle}, children)
     : children;
-  return React.createElement('scrollview', {...rest, ref}, inner);
+  // RefreshControl is a JSX element (the canonical RN pattern:
+  //   <ScrollView refreshControl={<RefreshControl onRefresh={…}/>}>).
+  // The element itself renders nothing (see react-native.js); we
+  // pick onRefresh + refreshing off it and forward them as host
+  // props, where the fabricHostConfig syncs them through
+  // rnLinux.fabricOnRefresh + rnLinux.scrollViewSetRefreshing.
+  const hostProps = {...rest, ref};
+  if (refreshControl && refreshControl.props) {
+    if (typeof refreshControl.props.onRefresh === 'function') {
+      hostProps.onRefresh = refreshControl.props.onRefresh;
+    }
+    if (refreshControl.props.refreshing != null) {
+      hostProps.refreshing = !!refreshControl.props.refreshing;
+    }
+  }
+  return React.createElement('scrollview', hostProps, inner);
 });
 
 // <Image source={{uri: 'file:///path/to/img.png'}} resizeMode="cover" />

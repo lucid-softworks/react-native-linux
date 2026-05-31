@@ -35,6 +35,13 @@ class ScrollViewComponentView final : public LinuxComponentView {
   // GtkScrolledWindow knows the scrollable extent.
   void postLayoutPass() override;
 
+  // RefreshControl bridge — JS calls this via the
+  // `rnLinux.scrollViewSetRefreshing(tag, bool)` binding to mirror
+  // its `refreshing` prop into the C++ view. While `refreshing_` is
+  // true, top-edge overshoots are swallowed so onRefresh fires at
+  // most once per cycle.
+  static void setRefreshing(int tag, bool refreshing);
+
  private:
   // Cull children whose rect doesn't intersect the visible viewport
   // by toggling gtk_widget_set_child_visible. Currently disabled in
@@ -62,6 +69,11 @@ class ScrollViewComponentView final : public LinuxComponentView {
   // natural (which would be the full FlatList content height and
   // collapse scrolling).
   GtkWidget* scrolledWindow_ = nullptr;
+
+  // True between the user overshooting the top edge and JS flipping
+  // refreshing back to false. Read on every edge-overshot tick to
+  // suppress repeat dispatches mid-cycle.
+  bool refreshing_ = false;
 };
 
 } // namespace rnlinux

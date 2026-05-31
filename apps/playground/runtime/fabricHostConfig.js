@@ -181,6 +181,7 @@ function buildFabricProps(type, props) {
     if (k === 'onClick' || k === 'style') continue;
     if (k === 'onChangeText') continue;
     if (k === 'onScroll') continue;
+    if (k === 'onRefresh' || k === 'refreshing') continue;
     if (k === 'onSubmitEditing' || k === 'onKeyPress') continue;
     // Skip undefined values so the C++ prop converter falls back to
     // its declared default instead of seeing a present-but-undefined
@@ -303,6 +304,19 @@ function syncHoverHandlers(tag, props) {
 function syncScrollHandler(tag, props) {
   const handler = props && typeof props.onScroll === 'function' ? props.onScroll : null;
   rnLinux.fabricOnScroll(tag, handler);
+}
+
+// RefreshControl bridge. The ScrollView shim flattens its
+// `refreshControl={<RefreshControl onRefresh refreshing />}` prop into
+// top-level `onRefresh` + `refreshing` (see components.js). Here we
+// (a) bind the handler against the Fabric tag and (b) mirror
+// `refreshing` into the C++ view so a sustained gesture only fires
+// onRefresh once per cycle.
+function syncRefreshHandler(tag, props) {
+  const onRefresh = props && typeof props.onRefresh === 'function' ? props.onRefresh : null;
+  rnLinux.fabricOnRefresh(tag, onRefresh ? () => onRefresh() : null);
+  const refreshing = !!(props && props.refreshing);
+  rnLinux.scrollViewSetRefreshing(tag, refreshing);
 }
 
 function syncFocusHandlers(tag, props) {
@@ -519,6 +533,7 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncScrollHandler(tag, props);
+      syncRefreshHandler(tag, props);
       syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'ScrollView', type);
     }
@@ -694,7 +709,10 @@ const hostConfig = {
       syncKeyPressHandler(currentInstance.tag, newProps);
       syncFocusHandlers(currentInstance.tag, newProps);
     }
-    if (type === 'scrollview') syncScrollHandler(currentInstance.tag, newProps);
+    if (type === 'scrollview') {
+      syncScrollHandler(currentInstance.tag, newProps);
+      syncRefreshHandler(currentInstance.tag, newProps);
+    }
     if (type === 'switch') syncSwitchHandler(currentInstance.tag, newProps);
     // onLayout lives on every host type; rebind on every commit so the
     // freshest callback is in the registry.

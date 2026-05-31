@@ -12,6 +12,7 @@
 #include "../print/Print.h"
 #include "../securestore/SecureStore.h"
 #include "../views/ImageComponentView.h"
+#include "../views/ScrollViewComponentView.h"
 #include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
@@ -82,6 +83,13 @@ struct State {
   // GtkAdjustment value-changed and routes through dispatchFabricScroll.
   // Keyed by Fabric tag.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricScrollHandlers;
+
+  // RefreshControl onRefresh handlers. The C++ view subscribes to
+  // GtkScrolledWindow's "edge-overshot" signal (top edge only) and
+  // dispatches a single fire per refresh cycle; the JS app flips
+  // `refreshing` back to false when its async work completes, which
+  // re-arms the next fire via scrollViewSetRefreshing(tag, false).
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricRefreshHandlers;
 
   // Switch onValueChange handlers. The C++ view subscribes to GtkSwitch
   // notify::active and routes through dispatchFabricSwitchChange.
@@ -279,6 +287,7 @@ void resetRnLinuxBindings() {
   state().fabricSubmitEditingHandlers.clear();
   state().fabricKeyPressHandlers.clear();
   state().fabricScrollHandlers.clear();
+  state().fabricRefreshHandlers.clear();
   state().fabricLayoutHandlers.clear();
   state().fabricLayoutLast.clear();
   state().fabricFocusHandlers.clear();
@@ -525,6 +534,26 @@ void dispatchFabricScroll(int tag,
       RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.getMessage();
     } catch (const std::exception& e) {
       RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchFabricRefresh(int tag) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricRefreshHandlers.find(tag);
+    if (it == s.fabricRefreshHandlers.end())
+      return;
+    try {
+      it->second->call(rt);
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric refresh handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric refresh handler threw: " << e.what();
     }
   });
 }
@@ -1580,6 +1609,47 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         }
         state().fabricSwitchHandlers[tag] =
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // RefreshControl onRefresh handler — registered by the ScrollView
+  // shim when its child <RefreshControl onRefresh={…}/> exists.
+  // No arguments; the JS handler is a bare callback that flips its
+  // own `refreshing` state to true.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnRefresh",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricRefreshHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricRefreshHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // Flip the per-ScrollView refreshing flag. JS calls this whenever
+  // its RefreshControl.refreshing prop changes — true after onRefresh
+  // fires + the app is loading, false once the load completes. The
+  // C++ view gates the next dispatchFabricRefresh on this flag so a
+  // sustained overshoot only fires once per cycle.
+  bindMethod(
+      rt,
+      rnLinux,
+      "scrollViewSetRefreshing",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        const int tag = static_cast<int>(args[0].asNumber());
+        const bool refreshing = args[1].getBool();
+        rnlinux::ScrollViewComponentView::setRefreshing(tag, refreshing);
         return jsi::Value::undefined();
       });
 

@@ -120,6 +120,13 @@ void dispatchFabricScroll(int tag,
                           double viewportWidth,
                           double viewportHeight);
 
+// RefreshControl onRefresh dispatcher — fires when the user
+// overshoots the top edge of a ScrollView (analogue of mobile pull-
+// to-refresh). Single-shot per cycle: ScrollViewComponentView gates
+// on its own `refreshing_` flag and won't redispatch until JS calls
+// `rnLinux.scrollViewSetRefreshing(tag, false)`.
+void dispatchFabricRefresh(int tag);
+
 // TextInput focus / blur dispatchers — fire when GtkText receives /
 // loses focus. Paper's TextInput.Outlined wires its label-animation
 // state directly off these events.

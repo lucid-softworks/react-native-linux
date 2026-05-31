@@ -130,10 +130,24 @@ export interface ButtonProps extends Omit<PressableProps, 'children'> {
   fontWeight?: TextProps['fontWeight'];
 }
 
+export interface RefreshControlProps {
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  tintColor?: Color;
+  colors?: Color[];
+  title?: string;
+  titleColor?: Color;
+  enabled?: boolean;
+  progressBackgroundColor?: Color;
+  progressViewOffset?: number;
+}
+
 export interface ScrollViewProps extends ViewProps {
   horizontal?: boolean;
   showsHorizontalScrollIndicator?: boolean;
   showsVerticalScrollIndicator?: boolean;
+  refreshControl?: JSX.Element;
+  onScroll?: (e: {nativeEvent: {contentOffset: {x: number; y: number}}}) => void;
 }
 
 export interface ImageSource {
@@ -166,6 +180,7 @@ export const TextInput: (props: TextInputProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
 export const Pressable: (props: PressableProps) => JSX.Element;
 export const Button: (props: ButtonProps) => JSX.Element;
+export const RefreshControl: (props: RefreshControlProps) => JSX.Element | null;
 
 // RN-style StyleSheet helper. `create` is essentially identity at
 // runtime; the value-add is the TypeScript inference on the keys.
