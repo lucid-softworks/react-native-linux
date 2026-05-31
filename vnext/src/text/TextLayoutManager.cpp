@@ -13,7 +13,9 @@
 
 #include "PangoMarkup.h"
 
+#include <atomic>
 #include <cairo/cairo.h>
+#include <glib.h>
 #include <pango/pangocairo.h>
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 #include <react/renderer/textlayoutmanager/TextMeasureCache.h>
@@ -25,7 +27,44 @@ TextMeasurement measureUncached(const AttributedString& attributedString,
                                 const ParagraphAttributes& paragraphAttributes,
                                 const LayoutConstraints& layoutConstraints,
                                 TextMeasurement::Attachments attachments);
+
+// Cache hit-rate audit. measure() bumps `calls` on every entry, the
+// cache-miss callback bumps `misses` when it actually runs Pango.
+// Periodically (every 256 calls) we log the rate so we can validate
+// that the textMeasureCache is doing real work — a hit rate near 0
+// would mean the cache key isn't stable across reconciler passes.
+//
+// std::atomic so a future thread-safe Yoga measure path stays sound;
+// the relaxed ordering is enough for a stat that doesn't gate any
+// program decision.
+//
+// Goes through g_message so it surfaces in the same stderr stream as
+// the rnlinux logger; rn-renderer can't link against react_native_
+// linux (cycle) so we can't reach RNL_LOGI from here.
+std::atomic<uint64_t>& measureCalls() {
+  static std::atomic<uint64_t> v{0};
+  return v;
 }
+std::atomic<uint64_t>& measureMisses() {
+  static std::atomic<uint64_t> v{0};
+  return v;
+}
+void maybeLogCacheStats() {
+  const auto calls = measureCalls().load(std::memory_order_relaxed);
+  if (calls == 0 || (calls & 0xff) != 0) {
+    return; // every 256 calls
+  }
+  const auto misses = measureMisses().load(std::memory_order_relaxed);
+  const auto hits = calls - misses;
+  const auto rateBp = calls > 0 ? (hits * 10000ULL / calls) : 0; // basis points
+  g_message("[TextLayoutManager.cache] calls=%lu hits=%lu misses=%lu hit_rate=%lu.%lu%%",
+            (unsigned long)calls,
+            (unsigned long)hits,
+            (unsigned long)misses,
+            (unsigned long)(rateBp / 100),
+            (unsigned long)((rateBp / 10) % 10));
+}
+} // namespace
 
 TextLayoutManager::TextLayoutManager(const ContextContainer::Shared& contextContainer)
     : contextContainer_(contextContainer)
@@ -35,6 +74,8 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributed
                                            const ParagraphAttributes& paragraphAttributes,
                                            const TextLayoutContext& /*layoutContext*/,
                                            const LayoutConstraints& layoutConstraints) const {
+  measureCalls().fetch_add(1, std::memory_order_relaxed);
+  maybeLogCacheStats();
   const auto& attributedString = attributedStringBox.getValue();
 
   TextMeasurement::Attachments attachments;
@@ -69,6 +110,7 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox& attributed
   // The cache miss path is unchanged from below.
   TextMeasureCacheKey cacheKey{attributedString, paragraphAttributes, layoutConstraints};
   return textMeasureCache_.get(cacheKey, [&]() {
+    measureMisses().fetch_add(1, std::memory_order_relaxed);
     return measureUncached(attributedString, paragraphAttributes, layoutConstraints, attachments);
   });
 }
