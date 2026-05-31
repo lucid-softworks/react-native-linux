@@ -109,6 +109,55 @@ module.exports = {
 `target_link_libraries(... PRIVATE ...)` your app needs. The template's
 `linux/CMakeLists.txt` includes that file automatically.
 
+## Expo modules
+
+Third-party Expo packages (`expo-camera`, `expo-haptics`,
+`expo-secure-store`, …) consume their native side through
+`expo-modules-core`'s `requireNativeModule(name)`. Our umbrella shim
+(`packages/@lucid-softworks/react-native-linux-expo/expo-modules-core.js`)
+provides this lookup and exposes a `registerExpoModule(name, impl)`
+entry point.
+
+The convention for a Linux backend that wants to surface under an
+Expo module name:
+
+```js
+// In packages/@lucid-softworks/react-native-linux-expo/expo-myfeature.js
+const api = {
+  doThingAsync,
+  someConstants,
+};
+
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoMyFeature', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
+module.exports = api;
+```
+
+The `try` / `catch` makes the shim importable in isolation (in-tree
+unit tests don't pre-load `expo-modules-core`); in the umbrella
+bundle, `vendor.js` always loads `expo-modules-core` first so the
+production path always hits the `try` branch.
+
+26 in-tree shims register today — see the `registerExpoModule(...)`
+sites in
+`packages/@lucid-softworks/react-native-linux-expo/expo-*.js` for the
+full list. Consumers can also register modules from app code:
+
+```js
+import {registerExpoModule} from 'expo-modules-core';
+import * as MyImpl from './my-linux-impl';
+
+registerExpoModule('ExpoSomeUpstreamName', MyImpl);
+```
+
+— useful when an upstream Expo package uses a non-PascalCase name
+or when an app wants to override a shim with its own implementation.
+
 ## Threading rules
 
 - TurboModule methods are called on the **JS thread**. Don't block — offload
