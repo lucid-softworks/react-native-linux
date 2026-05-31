@@ -47,7 +47,6 @@ Honest gaps for arbitrary RN apps to drop in:
 
 - Inline nested `<Text>` for mixed-style runs (Fabric collapses our intermediate Text shadow nodes; one Paragraph per outer `<Text>` today).
 - `tintColor` on Image (needs a custom GdkPaintable subclass).
-- `numberOfLines` / `ellipsizeMode` plumbed from Paragraph props (TextLayoutManager already accepts them).
 - `Animated.useNativeDriver` — flag is currently ignored, but the underlying native-driver code path exists; just needs a flag check in `animated.js`'s `timing()`.
 - `RefreshControl` / `KeyboardAvoidingView` — not wired yet. (`Switch`, `ActivityIndicator`, `SafeAreaView` landed; `Switch` / `ActivityIndicator` now have `MeasurableYogaNode` + `measureContent` so they don't collapse to 0×0 in flex layouts.)
 - TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
@@ -156,7 +155,7 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [x] HTTP image loading via libsoup-3 async fetch (process-wide SoupSession, dedup-by-uri via g_object_set_data tag)
 - [x] AsyncStorage (`@react-native-async-storage/async-storage` import works) — full API as Promise-returning wrappers over synchronous rnLinux.storage\* JSI bindings
 - [~] Inline `<Text>` styling — only one fontSize/color/etc. per Paragraph; mixed-style runs collapse
-- [~] `numberOfLines` / `ellipsizeMode` — TextLayoutManager accepts them, host config doesn't pass them through yet
+- [x] `numberOfLines` / `ellipsizeMode` — forwarded from `ParagraphAttributes` to `gtk_label_set_lines` / `gtk_label_set_ellipsize` in `ParagraphComponentView::updateProps`; `numberOfLines={1} + ellipsizeMode='tail'` flips wrap off so Pango ellipsizes the single line at the bound
 - [x] Window resize / maximize — viewport widget with a custom GtkLayoutManager (natural=(0,0), allocate-child-to-full-size) breaks the GtkFixed-children-bbox propagation; resize/maximize/restore push real (w, h) into `resizeRootSurface()` on every tick
 - [ ] `tintColor` on Image (needs a custom GdkPaintable that colour-tints)
 - [x] `Switch` → `GtkSwitch` (shadow node implements `measureContent` so flex siblings don't overlap)
@@ -236,12 +235,11 @@ In priority order toward "drop a real RN app in and have it work":
 
 1. **Try a real app harness** — pull a non-trivial Expo screen or `react-native-paper` showcase into `apps/`. The "honest gaps" list below is best-guess; running real code reveals the actual blockers. **This re-orders everything else, so do it first.**
 2. **TurboModule manager** — replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules — required for anything beyond first-party shims (NetInfo, the @react-native-community packages, …).
-3. **`numberOfLines` / `ellipsizeMode`** — forward from ParagraphAttributes (TextLayoutManager already honours them) to GtkLabel's `set_lines` / `set_ellipsize`. Text-heavy apps look very wrong without this.
-4. **Inline nested `<Text>` styling** — Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates. Read BaseTextShadowNode's `dynamic_cast` path; probably a `LeafYogaNode` / `Trait::FormsView` thing. RN apps mix bold/colored fragments inside one `<Text>` constantly.
-5. **`RefreshControl`** — GtkScrolledWindow's "edge-reached" signal. A few hundred lines.
-6. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
-7. **`tintColor`** — custom GdkPaintable that delegates to source paintable but masks with a colour. Common in icon-heavy UIs.
-8. **Long-press, real Fabric EventEmitter, keyboard events** — once the simpler components are landing, gesture coverage starts mattering for parity.
+3. **Inline nested `<Text>` styling** — Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates. Read BaseTextShadowNode's `dynamic_cast` path; probably a `LeafYogaNode` / `Trait::FormsView` thing. RN apps mix bold/colored fragments inside one `<Text>` constantly.
+4. **`RefreshControl`** — GtkScrolledWindow's "edge-reached" signal. A few hundred lines.
+5. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
+6. **`tintColor`** — custom GdkPaintable that delegates to source paintable but masks with a colour. Common in icon-heavy UIs.
+7. **Long-press, real Fabric EventEmitter, keyboard events** — once the simpler components are landing, gesture coverage starts mattering for parity.
 
 Resize lag and FPS perf are real but second-order: the app needs to RUN before being smooth matters. The perf scaffolding from earlier sessions (CSS cache, opacity cache, set_size_request diff, paint-only transforms, FlatList virtualization, Hermes stack bump, TurboVNC) gives a healthy floor; bare-metal Linux is the final unblock for 60 FPS regardless.
 
