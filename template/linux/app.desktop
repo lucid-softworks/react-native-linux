@@ -1,9 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Hello RN Linux
-Comment=React Native sample application
-Exec=rn-linux-app
-Icon=rn-linux-app
+Name=__RNL_APP_NAME__
+Comment=React Native application
+Exec=__RNL_EXECUTABLE__
+Icon=__RNL_EXECUTABLE__
 Terminal=false
 Categories=Development;
 StartupNotify=true
+StartupWMClass=__RNL_APP_ID__

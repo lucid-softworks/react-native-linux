@@ -1,10 +1,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
-#include <string>
-
 #include <react-native-linux/RNLinuxApplication.h>
 #include <react-native-linux/RNLinuxHost.h>
+#include <string>
 
 namespace {
 
@@ -24,13 +23,17 @@ std::string resolveBundleUrl() {
   return "http://" + host + ":" + port + "/index.bundle?platform=linux&dev=true&minify=false";
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   rnlinux::RNLinuxHost::Config cfg;
-  cfg.applicationId = "HelloRnLinux";
+  // `init-linux` substitutes these from the consumer's package.json.
+  // RNL_APP_ID is the reverse-DNS GApplication identifier; RNL_APP_NAME
+  // is the title that shows up in the GtkWindow title bar and the
+  // .desktop file's Name= line.
+  cfg.applicationId = "__RNL_APP_ID__";
   cfg.bundleUrl = resolveBundleUrl();
-  cfg.windowTitle = "Hello RN Linux";
+  cfg.windowTitle = "__RNL_APP_NAME__";
   cfg.initialWidth = 960;
   cfg.initialHeight = 640;
 
