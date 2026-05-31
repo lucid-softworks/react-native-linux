@@ -45,6 +45,13 @@ const componentsMod = {View, ScrollView, Image, Text, TextInput, Pressable, Butt
 const reactNativeMod = require('./react-native');
 const asyncStorageMod = require('./async-storage');
 const deviceInfoMod = require('./device-info');
+// expo-modules-core MUST load BEFORE any other expo-* shim — third-
+// party packages from npm reach for `globalThis.expo` at module-load
+// time (via expo-modules-core's `ensureNativeModulesAreInstalled`),
+// and load order determines whether the global exists when they look.
+// In-tree shims also rely on registerExpoModule being live so they
+// can declare themselves under `globalThis.expo.modules.<Name>`.
+const expoModulesCoreMod = require('@lucid-softworks/react-native-linux-expo/expo-modules-core');
 const expoMod = require('@lucid-softworks/react-native-linux-expo/expo');
 const expoStatusBarMod = require('@lucid-softworks/react-native-linux-expo/expo-status-bar');
 const expoFontMod = require('@lucid-softworks/react-native-linux-expo/expo-font');
@@ -100,6 +107,7 @@ globalThis.__rnv = {
   reactNative: reactNativeMod,
   asyncStorage: asyncStorageMod,
   deviceInfo: deviceInfoMod,
+  expoModulesCore: expoModulesCoreMod,
   expo: expoMod,
   expoStatusBar: expoStatusBarMod,
   expoFont: expoFontMod,

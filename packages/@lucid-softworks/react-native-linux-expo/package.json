@@ -20,6 +20,7 @@
     "expo-constants.js",
     "expo-font.js",
     "expo-linking.js",
+    "expo-modules-core.js",
     "expo-router.js",
     "expo-splash-screen.js",
     "expo-status-bar.js",

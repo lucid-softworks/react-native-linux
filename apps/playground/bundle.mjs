@@ -225,6 +225,7 @@ const appOpts = {
     'react-native',
     '@react-native-async-storage/async-storage',
     'react-native-device-info',
+    'expo-modules-core',
     'expo',
     'expo-status-bar',
     'expo-font',
@@ -276,6 +277,7 @@ const appOpts = {
       '  if (id === "react-native") return rnv.reactNative;\n' +
       '  if (id === "@react-native-async-storage/async-storage") return rnv.asyncStorage;\n' +
       '  if (id === "react-native-device-info") return rnv.deviceInfo;\n' +
+      '  if (id === "expo-modules-core") return rnv.expoModulesCore;\n' +
       '  if (id === "expo") return rnv.expo;\n' +
       '  if (id === "expo-status-bar") return rnv.expoStatusBar;\n' +
       '  if (id === "expo-font") return rnv.expoFont;\n' +
