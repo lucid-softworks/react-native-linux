@@ -29,7 +29,23 @@ pnpm react-native run-linux
 ```
 
 `init-linux` writes a `linux/` directory to your project with a minimal CMake
-project and a `main.cpp` that boots `RNLinuxApplication`. `run-linux`:
+project and a `main.cpp` that boots `RNLinuxApplication`. The generated
+`main.cpp` + `app.desktop` are templated with values derived from your
+`package.json`:
+
+- `applicationId` — the reverse-DNS GApplication id. Defaults to
+  `app.lucidsoft.<PascalCasedName>` (e.g. `hello-world` →
+  `app.lucidsoft.HelloWorld`). Override with `rnLinux.applicationId` in
+  `package.json` when you need an explicit value (`com.acme.MyApp`).
+- `windowTitle` — PascalCased package name (`hello-world` → `HelloWorld`).
+- Executable name — sanitized package name (`hello-world`).
+
+Two installed apps with different `applicationId` get disjoint on-disk
+state (AsyncStorage JSON, SecureStore keyring entries, FileSystem
+documentDirectory / cacheDirectory) — see
+`docs/design-multi-instance.md`.
+
+`run-linux`:
 
 1. Configures CMake (`cmake -B linux/build -G Ninja`).
 2. Builds with Ninja.
