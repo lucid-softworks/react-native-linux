@@ -124,7 +124,7 @@ Honest gaps for arbitrary RN apps to drop in:
 - [x] esbuild bundler + per-file swc transform; tsx entry; sourcemaps inline
 - [x] react-refresh global hook (`__REACT_DEVTOOLS_GLOBAL_HOOK__`) injected before reconciler loads; rewritten via esbuild `define` so the bare-identifier check inside react-reconciler's strict-mode IIFE sees it
 - [x] Hermes bytecode pre-compile for the vendor bundle (≈10 ms cold-start vendor eval)
-- [ ] Metro WebSocket client (we use the HMR socket instead — same outcome)
+- [~] Metro WebSocket client — intentionally not built; the HMR socket above already gives the same outcome (live-reload over a Unix socket). Revisit if a workflow needs Metro's broader devtools-protocol surface.
 - [ ] Hermes inspector port
 - [x] Cmd/Ctrl+R reload keybinding at the GTK level — `GtkShortcutController` in `RNLinuxApplication::onActivate` binds both `Ctrl+R` and `Cmd+R` (Mac VNC) to `host->reload()`.
 - [x] Performance overlay (FPS) — `apps/playground/FpsOverlay.tsx` reads from a `requestAnimationFrame` chain and renders FPS / frame-ms / drops over the demo with a color-coded threshold (red/yellow/green).
