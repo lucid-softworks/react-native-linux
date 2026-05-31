@@ -1,0 +1,77 @@
+EXAMPLE                                   STATUS        NOTES
+----------------------------------------  ------------  ----------------------------------------
+blank                                     PASS          
+stickersmash                              BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-apollo                               BUNDLE_FAIL   Error: Build failed with 3 errors:
+with-auth0                                BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-aws-storage-upload                   BUNDLE_FAIL   Error: Build failed with 3 errors:
+with-better-auth                          BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-camera                               BUNDLE_FAIL   Error: Build failed with 3 errors:
+with-clerk                                BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-convex                               BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-custom-font                          PASS          
+with-drawer-navigation                    BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-facebook-auth                        BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-firebase-saml-login                  BUNDLE_FAIL   Error: Build failed with 3 errors:
+with-firebase-storage-upload              BUNDLE_FAIL   Error: Build failed with 5 errors:
+with-formdata-image-upload                BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-github-remote-build-cache-provider   PASS          
+with-google-vision                        PASS          
+with-graphql                              SKIPPED       no App / index / app entry
+with-html                                 SKIPPED       no App / index / app entry
+with-icons                                BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-legend-state-supabase                BUNDLE_FAIL   Error: Build failed with 10 errors:
+with-libsql                               BUNDLE_FAIL   Error: Build failed with 1 error:
+with-maestro                              BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-magic                                BUNDLE_FAIL   Error: Build failed with 1 error:
+with-maps                                 BUNDLE_FAIL   Error: Build failed with 1 error:
+with-moti                                 BUNDLE_FAIL   Error: Build failed with 1 error:
+with-nextjs                               PASS          
+with-openai                               BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-pdf                                  BUNDLE_FAIL   Error: Build failed with 1 error:
+with-processing                           BUNDLE_FAIL   Error: Build failed with 1 error:
+with-react-compiler                       PASS          
+with-react-flow                           SKIPPED       no App / index / app entry
+with-react-navigation                     BUNDLE_FAIL   Error: Build failed with 8 errors:
+with-react-router                         BUNDLE_FAIL   Error: Build failed with 1 error:
+with-react-strict-dom                     SKIPPED       no App / index / app entry
+with-react-three-fiber                    BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-reanimated                           PASS          
+with-router-ai                            SKIPPED       no App / index / app entry
+with-router-menus                         SKIPPED       no App / index / app entry
+with-router-tv                            SKIPPED       no App / index / app entry
+with-router-uniwind                       SKIPPED       no App / index / app entry
+with-router                               SKIPPED       no App / index / app entry
+with-rsc                                  BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-s3                                   BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-satori                               BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-sentry                               BUNDLE_FAIL   Error: Build failed with 1 error:
+with-shadcn                               SKIPPED       no App / index / app entry
+with-skia                                 BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-socket-io                            BUNDLE_FAIL   Error: Build failed with 1 error:
+with-splash-screen                        BUNDLE_FAIL   Error: Build failed with 1 error:
+with-sqlite                               BUNDLE_FAIL   Error: Build failed with 1 error:
+with-storybook                            PASS          
+with-stripe                               BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-styled-components                    BUNDLE_FAIL   Error: Build failed with 1 error:
+with-svg                                  BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-tailwindcss                          SKIPPED       no App / index / app entry
+with-tfjs-camera                          BUNDLE_FAIL   Error: Build failed with 3 errors:
+with-three                                BUNDLE_FAIL   Error: Build failed with 3 errors:
+with-tinybase                             BUNDLE_FAIL   Error: Build failed with 5 errors:
+with-tv                                   PASS          
+with-typescript                           PASS          
+with-victory-native                       BUNDLE_FAIL   Error: Build failed with 2 errors:
+with-video-background                     BUNDLE_FAIL   Error: Build failed with 1 error:
+with-webbrowser-redirect                  BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-webgpu                               SKIPPED       no App / index / app entry
+with-webrtc                               BUNDLE_FAIL   Error: Build failed with 1 error:
+with-workbox                              BOOT_FAIL     [smoke] launching /workspaces/react-native-linux/apps/playgr
+with-yarn-workspaces                      SKIPPED       no App / index / app entry
+with-zustand                              BUNDLE_FAIL   Error: Build failed with 2 errors:
+
+TOTALS: 69 examples
+  PASS        : 10
+  BUNDLE_FAIL : 32
+  BOOT_FAIL   : 14
+  SKIPPED     : 13
