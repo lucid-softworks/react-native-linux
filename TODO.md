@@ -48,7 +48,7 @@ Honest gaps for arbitrary RN apps to drop in:
 - `Animated.useNativeDriver` — flag is currently ignored, but the underlying native-driver code path exists; just needs a flag check in `animated.js`'s `timing()`.
 - `RefreshControl` / `KeyboardAvoidingView` — not wired yet. (`Switch`, `ActivityIndicator`, `SafeAreaView` landed; `Switch` / `ActivityIndicator` now have `MeasurableYogaNode` + `measureContent` so they don't collapse to 0×0 in flex layouts.)
 - TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
-- Clipboard / real Linking / Alert / AT-SPI2 accessibility.
+- AT-SPI2 accessibility (`AccessibilityInfo` still a stub).
 
 ## Phase 5 — Native runtime (`vnext/`)
 
@@ -166,12 +166,12 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [ ] `Modal` as a separate `GtkWindow` with `transient-for` instead of in-window overlay
 - [x] `FlatList` virtualization — JS-side windowing via onScroll. Renders ~14 visible items + spacers preserving total scroll extent. Multi-column path skips windowing (item-size estimate ambiguous).
 - [~] `Animated.useNativeDriver` — C++ side (`rnLinux.setNativeProp`) + JS dispatcher (`animated.js`) exist for opacity + transform.translateX/Y; honoring the `useNativeDriver: true` flag in `timing()` is the remaining hookup, plus per-frame batching so multiple property writes flush as one GTK invalidation
-- [ ] `Linking.openURL` — `g_app_info_launch_default_for_uri`
-- [ ] `Clipboard` — `gdk_clipboard_set_text`
-- [ ] Real Dimensions backed by `gdk_monitor_*`
-- [ ] Real Appearance (`gtk-application-prefer-dark-theme` / `AdwStyleManager`)
+- [x] `Linking.openURL` / `canOpenURL` — `g_app_info_launch_default_for_uri` + `g_app_info_get_default_for_uri_scheme`
+- [x] `Clipboard` — `gdk_clipboard_set_text` via `expo-clipboard`'s GdkClipboard backing (the RN-core `Clipboard` shim re-exports it). Cross-app reads + image/HTML round-trip still on the gap list.
+- [x] `Dimensions` — `rnLinux.getWindowDimensions` returns live surface size + GDK scale; `setOnDimensionsChange` notifies on resize. `Dimensions.get('screen')` degrades to `'window'` (TODO: real `gdk_monitor_get_geometry` for multi-monitor apps).
+- [x] `Appearance` — reads `RN_LINUX_COLOR_SCHEME` env var first, then `GtkSettings::gtk-application-prefer-dark-theme` (drives GNOME / libadwaita's system "Appearance" panel).
+- [x] `Alert` → `GtkAlertDialog` via `rnLinux.showAlert(title, message, labels, onPicked)`. `Alert.prompt` lands as a button-only fallback — real text-input prompts need a custom dialog.
 - [ ] `AccessibilityInfo` via AT-SPI2
-- [ ] `Alert` → `GtkAlertDialog`
 
 ## Expo module backlog (real backends, not stubs)
 
