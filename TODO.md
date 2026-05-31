@@ -141,8 +141,8 @@ Now that Hermes runs on its own pthread, every blocking native module that's rea
 - [x] **Print / PDF export** — landed in 636f6bee. `printExportPdf` JSI binding spawns `std::thread` for `exportToPdf`; cairo + Pango layout runs on worker, hops back via `state().executor` for the jsi callback. `exportToPdf` helper stays synchronous — off-threading lives in the binding layer.
 - [x] **Crypto digest** — landed in 7a4258cf. New `rnLinux.cryptoDigestAsync(algo, b64, cb)` spawns a `std::thread` for SHA + base64 work; expo-crypto shim routes ≥ 1 MB payloads through it, smaller calls stay on the sync `cryptoDigest`. Feature-gated so older C++ builds keep working.
 - [x] **Download read loop** — landed in 6a6197ef. `onSoupSendFinish` hands the body-read to a detached `std::thread`; progress + completion hop back via `g_idle_add(G_PRIORITY_DEFAULT_IDLE)`. Cancellation unchanged — every `g_input_stream_read` still checks `ctx->cancellable`.
-- [ ] **Per-view `updateProps` profiling** (`vnext/src/fabric/LinuxMountingManager.cpp:23–86`) — current profile rolls per-transaction times; can't drill into which component made a commit slow. Add per-view timing + log outliers >5 ms.
-- [ ] **Pango text-measure cache hit rate** (`vnext/src/text/TextLayoutManager.cpp:78–148`) — cache exists; verify >90 % hit rate on a feed scroll; pre-warm common app text if low.
+- [x] **Per-view `updateProps` profiling** — landed in b4f1a0c6. `handleUpdate` times each `view->updateProps()` into a static map keyed by `componentName`; on every 60-tx roll-up the top 6 buckets by total time are logged alongside the existing avg/max line.
+- [x] **Pango text-measure cache hit rate** — landed in a2a3c74d. Two atomics (`measureCalls`/`measureMisses`) in `TextLayoutManager::measure()` + the cache-miss callback; every 256 calls `g_message()` logs calls/hits/misses/hit_rate. `g_message` instead of `RNL_LOGI` to avoid a `react_native_rn_renderer`→`react_native_linux` link cycle.
 
 ## Phase 9 — Component coverage
 
