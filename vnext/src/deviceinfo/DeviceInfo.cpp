@@ -1,5 +1,7 @@
 #include "DeviceInfo.h"
 
+#include "react-native-linux/AppContext.h"
+
 #include <arpa/inet.h>
 #include <cstdio>
 #include <cstring>
@@ -394,10 +396,12 @@ DeviceInfo gather() {
     if (d.applicationName.empty())
       d.applicationName = slurp("/proc/self/comm");
   }
-  // Bundle id: use the rDNS-style id the playground main.cpp picks.
-  // For library use, callers usually set this themselves; until then
-  // we mirror applicationName so the field is non-empty.
-  d.bundleId = d.applicationName;
+  // Bundle id: the reverse-DNS GApplication id the consumer's
+  // package.json maps to via the CLI's init-linux substitution. Falls
+  // back to applicationName when no app has registered (in-tree tests
+  // that touch DeviceInfo before RNLinuxApplication runs).
+  const std::string& appId = rnlinux::applicationId();
+  d.bundleId = appId.empty() ? d.applicationName : appId;
   d.startupTime = selfStartTimeMs();
   if (d.startupTime > 0)
     d.firstInstallTime = d.startupTime;

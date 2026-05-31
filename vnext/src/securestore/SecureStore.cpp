@@ -1,5 +1,6 @@
 #include "SecureStore.h"
 
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <gio/gio.h>
@@ -131,11 +132,15 @@ namespace {
 
 // Compose the entry label shown in keyring browsers (seahorse,
 // kwalletmanager). The scope makes it obvious which app+service
-// owns an entry without having to inspect attributes.
+// owns an entry without having to inspect attributes; the app id
+// (set by `RNLinuxApplication` from cfg.applicationId) prefixes the
+// label so two installed apps don't share a generic "rn-linux-secure-
+// store" namespace in the user's keyring.
 std::string makeLabel(const std::string& key, const std::string& service) {
+  const std::string& appId = rnlinux::applicationId();
   if (service.empty())
-    return "rn-linux-secure-store: " + key;
-  return "rn-linux-secure-store [" + service + "]: " + key;
+    return appId + " [secure-store]: " + key;
+  return appId + " [secure-store " + service + "]: " + key;
 }
 
 gboolean storeIn(const char* collection,

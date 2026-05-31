@@ -1,5 +1,6 @@
 #include "FileSystem.h"
 
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <atomic>
@@ -123,7 +124,7 @@ const Constants& constants(const std::string& appId) {
   static std::once_flag once;
   static Constants c;
   std::call_once(once, [&]() {
-    const std::string app = appId.empty() ? "react-native-linux" : appId;
+    const std::string app = appId.empty() ? rnlinux::applicationId() : appId;
     const std::string docDir = xdgDataHome() + "/" + app + "/";
     const std::string cacheDir = xdgCacheHome() + "/" + app + "/";
     const std::string bundleDir = exeDirectory() + "/assets/";

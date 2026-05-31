@@ -1,5 +1,6 @@
 #include "KeepAwake.h"
 
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <gio/gio.h>
@@ -186,7 +187,7 @@ bool activate(const std::string& tag,
   // unambiguously. `mode` is "block" (hard inhibit) or "delay"
   // (soft — system can proceed after a timeout); logind rejects
   // anything else so we clamp.
-  const std::string whoArg = who.empty() ? std::string{"react-native-linux"} : who;
+  const std::string whoArg = who.empty() ? rnlinux::applicationId() : who;
   const std::string modeArg = (mode == "delay") ? std::string{"delay"} : std::string{"block"};
   GError* err = nullptr;
   GUnixFDList* fdList = nullptr;

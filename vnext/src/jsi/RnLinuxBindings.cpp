@@ -12,6 +12,7 @@
 #include "../print/Print.h"
 #include "../securestore/SecureStore.h"
 #include "../views/ImageComponentView.h"
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <array>
@@ -3178,7 +3179,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
       "fsConstants",
       0,
       [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
-        const auto& c = rnlinux::filesystem::constants("rn-linux-playground");
+        const auto& c = rnlinux::filesystem::constants(rnlinux::applicationId());
         jsi::Object o(rt);
         o.setProperty(
             rt, "documentDirectory", jsi::String::createFromUtf8(rt, c.documentDirectory));

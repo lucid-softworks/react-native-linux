@@ -1,5 +1,6 @@
 #include "Notifications.h"
 
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <glib.h>
@@ -116,7 +117,7 @@ bool fire(const std::string& id, const std::string& title, const std::string& bo
     RNL_LOGE("rnLinux.notif") << "notify_notification_new returned null";
     return false;
   }
-  notify_notification_set_app_name(n, "react-native-linux");
+  notify_notification_set_app_name(n, rnlinux::applicationId().c_str());
 
   // Attach category action buttons. The daemon shows them inline on
   // the bubble (gnome-shell renders as a button row; mako / dunst
@@ -161,7 +162,8 @@ bool fire(const std::string& id, const std::string& title, const std::string& bo
 
 bool ensureInit(const std::string& appName) {
   std::call_once(initOnce_, [&]() {
-    if (notify_init(appName.empty() ? "react-native-linux" : appName.c_str())) {
+    const std::string name = appName.empty() ? rnlinux::applicationId() : appName;
+    if (notify_init(name.c_str())) {
       initOk_ = true;
     } else {
       RNL_LOGE("rnLinux.notif") << "notify_init failed";
@@ -174,7 +176,7 @@ bool present(const std::string& id,
              const std::string& title,
              const std::string& body,
              const std::string& categoryId) {
-  if (!ensureInit("react-native-linux"))
+  if (!ensureInit(rnlinux::applicationId()))
     return false;
   if (!categoryId.empty()) {
     state().entryCategory[id] = categoryId;
@@ -208,7 +210,7 @@ bool schedule(const std::string& id,
               const std::string& title,
               const std::string& body,
               const std::string& categoryId) {
-  if (!ensureInit("react-native-linux"))
+  if (!ensureInit(rnlinux::applicationId()))
     return false;
   if (delayMs < 0)
     delayMs = 0;
