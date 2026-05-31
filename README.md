@@ -13,26 +13,29 @@ by and structurally modeled after
 
 ## What works today
 
-| Surface                             | Status                                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------------------------- |
-| `<View>` (GtkFixed)                 | ✅ flex layout, padding, margin, backgroundColor, borderRadius, opacity                |
-| `<Text>` / `<Paragraph>` (GtkLabel) | ✅ font / color / alignment / numberOfLines; Yoga padding pushed in as CSS             |
-| `<Image>` (GtkPicture)              | ✅ http(s) / file:// / data: sources via libsoup3, resizeMode                          |
-| `<ScrollView>` (GtkScrolledWindow)  | ✅ vertical + horizontal scroll, onScroll                                              |
-| `<TextInput>` (GtkText)             | ✅ value, placeholder, onChangeText, onSubmitEditing, onKeyPress, onFocus/Blur         |
-| `<Switch>` (GtkSwitch)              | ✅ value, onValueChange, disabled, tint colors                                         |
-| `<ActivityIndicator>` (GtkSpinner)  | ✅ animating, size                                                                     |
-| `<FlatList>` / `<SectionList>`      | ✅ via the upstream JS impl on top of ScrollView                                       |
-| `<Pressable>` / `<Button>`          | ✅ onPress, function-children render prop                                              |
-| `<Modal>`                           | ✅ overlay + backdrop                                                                  |
-| `transform`                         | ✅ translate / scale / rotate / matrix / origin (CSS transforms on GtkFixed children)  |
-| `onLayout`                          | ✅ dispatched from `LinuxComponentView::updateLayoutMetrics`                           |
-| `Animated` (JS driver)              | ✅ timing / sequence / parallel / loop                                                 |
-| `Animated` (native driver)          | ✅ translateX/Y/scale/scaleX/Y/opacity drive `gtk_fixed_set_child_transform` per frame |
-| Fast Refresh                        | ✅ HMR socket auto-reloads the app bundle; React state preserved across refreshes      |
-| `AsyncStorage`                      | ✅ shimmed with a JSON file under `XDG_CONFIG_HOME`                                    |
-| `react-native-device-info`          | ✅ all Windows-supported methods return real values from `/sys`, `/proc`, `/etc`       |
-| `react-native-paper` (V3)           | ✅ Card, TextInput.Outlined, Switch, Snackbar mount and interact                       |
+| Surface                             | Status                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `<View>` (GtkFixed)                 | ✅ flex layout, padding, margin, backgroundColor, borderRadius, opacity                                                                                                                                      |
+| `<Text>` / `<Paragraph>` (GtkLabel) | ✅ font / color / alignment / numberOfLines; Yoga padding pushed in as CSS                                                                                                                                   |
+| `<Image>` (GtkPicture)              | ✅ http(s) / file:// / data: sources via libsoup3, resizeMode, **tintColor** via custom GdkPaintable + color matrix                                                                                          |
+| `<ScrollView>` (GtkScrolledWindow)  | ✅ vertical + horizontal scroll, onScroll                                                                                                                                                                    |
+| `<TextInput>` (GtkText)             | ✅ value, placeholder, onChangeText, onSubmitEditing, onKeyPress, onFocus/Blur                                                                                                                               |
+| `<Switch>` (GtkSwitch)              | ✅ value, onValueChange, disabled, tint colors                                                                                                                                                               |
+| `<ActivityIndicator>` (GtkSpinner)  | ✅ animating, size                                                                                                                                                                                           |
+| `<FlatList>` / `<SectionList>`      | ✅ via the upstream JS impl on top of ScrollView                                                                                                                                                             |
+| `<Pressable>` / `<Button>`          | ✅ onPress, **onLongPress**, **onHoverIn / onHoverOut** (also `onMouseEnter` / `onMouseLeave` aliases), function-children render prop                                                                        |
+| `<Modal>`                           | ✅ overlay + backdrop                                                                                                                                                                                        |
+| `transform`                         | ✅ translate / scale / rotate / matrix / origin (CSS transforms on GtkFixed children)                                                                                                                        |
+| `onLayout`                          | ✅ dispatched from `LinuxComponentView::updateLayoutMetrics`                                                                                                                                                 |
+| `Animated` (JS driver)              | ✅ timing / sequence / parallel / loop                                                                                                                                                                       |
+| `Animated` (native driver)          | ✅ translateX/Y/scale/scaleX/Y/opacity drive `gtk_fixed_set_child_transform` per frame                                                                                                                       |
+| Fast Refresh                        | ✅ HMR socket auto-reloads the app bundle; React state preserved across refreshes                                                                                                                            |
+| `async () => …` in user code        | ✅ esbuild lowers async / async-generator to generators so Hermes 0.12 accepts the bundle                                                                                                                    |
+| `AsyncStorage`                      | ✅ JSON file at `$XDG_CONFIG_HOME/<applicationId>/async-storage.json` — per-app sandbox                                                                                                                      |
+| Per-app identity                    | ✅ `applicationId` baked at build time from consumer's `package.json`; AsyncStorage / SecureStore / KeepAwake / Notifications / FileSystem / DeviceInfo / Camera / Location / Image-cache all derive from it |
+| `expo-modules-core` shim            | ✅ 26 in-tree shims register through `globalThis.expo.modules`; `requireNativeModule(name)` resolves transparently for third-party Expo packages                                                             |
+| `react-native-device-info`          | ✅ all Windows-supported methods return real values from `/sys`, `/proc`, `/etc`                                                                                                                             |
+| `react-native-paper` (V3)           | ✅ Card, TextInput.Outlined, Switch, Snackbar mount and interact                                                                                                                                             |
 
 ## What doesn't yet
 
