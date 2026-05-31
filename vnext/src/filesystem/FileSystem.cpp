@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/types.h>
+#include <thread>
 #include <unistd.h>
 #include <unordered_map>
 
@@ -371,6 +372,106 @@ void finishCtx(DownloadCtx* ctx) {
   delete ctx;
 }
 
+// Heap-alloced container for the read-loop's main-thread completion
+// hop. The worker thread populates the fields and hands the struct
+// to `g_idle_add` so libsoup's lifecycle (the SoupSession + the
+// jsi::Function refs hanging off ctx) stay on the main thread.
+struct DownloadFinish {
+  DownloadCtx* ctx;
+  std::string errMsg; // empty on success
+  int64_t bytesThisCall;
+  int64_t totalBytes;
+  bool firedFinalProgress;
+};
+
+gboolean onDownloadDone(gpointer userData) {
+  auto* fin = static_cast<DownloadFinish*>(userData);
+  auto* ctx = fin->ctx;
+  if (!fin->errMsg.empty()) {
+    if (ctx->onError)
+      ctx->onError(fin->errMsg);
+  } else {
+    // Final progress tick so consumers see the bytesWritten == total
+    // edge even when the last chunk landed inside the throttle window.
+    if (!fin->firedFinalProgress && ctx->onProgress)
+      ctx->onProgress(ctx->resumeFromBytes + fin->bytesThisCall, fin->totalBytes);
+    if (ctx->onSuccess)
+      ctx->onSuccess(ctx->destPath, 200, fin->bytesThisCall);
+  }
+  finishCtx(ctx);
+  delete fin;
+  return G_SOURCE_REMOVE;
+}
+
+// Throttled progress callback that hops to the main thread. The
+// worker schedules these via g_idle_add(G_PRIORITY_DEFAULT_IDLE) so
+// progress reports don't preempt the read loop itself.
+struct DownloadProgressHop {
+  DownloadCtx* ctx;
+  int64_t written;
+  int64_t total;
+};
+
+gboolean onDownloadProgress(gpointer userData) {
+  auto* p = static_cast<DownloadProgressHop*>(userData);
+  if (p->ctx->onProgress)
+    p->ctx->onProgress(p->written, p->total);
+  delete p;
+  return G_SOURCE_REMOVE;
+}
+
+void readBodyLoop(DownloadCtx* ctx, GInputStream* body, int64_t totalBytes) {
+  std::ios_base::openmode mode =
+      std::ios::binary | (ctx->resumeFromBytes > 0 ? std::ios_base::openmode{std::ios::app}
+                                                   : std::ios_base::openmode{std::ios::trunc});
+  std::ofstream out(ctx->destPath, mode);
+  auto* fin = new DownloadFinish{ctx, {}, 0, totalBytes, false};
+  if (!out.is_open()) {
+    fin->errMsg = std::string("download: cannot open ") + ctx->destPath;
+    g_object_unref(body);
+    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, onDownloadDone, fin, nullptr);
+    return;
+  }
+  // 256 KiB chunks — large enough that syscall overhead amortizes,
+  // small enough to keep the worker responsive for cancellation
+  // checks. Progress fires every ~200ms; tighter than that floods
+  // JS for very fast transfers.
+  int64_t bytesThisCall = 0;
+  int64_t lastProgressBytes = 0;
+  gint64 lastProgressUs = g_get_monotonic_time();
+  char buf[256 * 1024];
+  for (;;) {
+    GError* readErr = nullptr;
+    gssize n = g_input_stream_read(body, buf, sizeof(buf), ctx->cancellable, &readErr);
+    if (n < 0) {
+      const bool cancelled =
+          readErr && readErr->domain == G_IO_ERROR && readErr->code == G_IO_ERROR_CANCELLED;
+      fin->errMsg = cancelled ? std::string{"cancelled"}
+                              : std::string{readErr && readErr->message ? readErr->message
+                                                                        : "stream read error"};
+      if (readErr)
+        g_error_free(readErr);
+      break;
+    }
+    if (n == 0)
+      break;
+    out.write(buf, n);
+    bytesThisCall += n;
+    gint64 nowUs = g_get_monotonic_time();
+    if (ctx->onProgress && (nowUs - lastProgressUs > 200000 || bytesThisCall == n)) {
+      lastProgressUs = nowUs;
+      lastProgressBytes = bytesThisCall;
+      auto* p = new DownloadProgressHop{ctx, ctx->resumeFromBytes + bytesThisCall, totalBytes};
+      g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, onDownloadProgress, p, nullptr);
+    }
+  }
+  out.close();
+  g_object_unref(body);
+  fin->bytesThisCall = bytesThisCall;
+  fin->firedFinalProgress = (bytesThisCall == lastProgressBytes);
+  g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, onDownloadDone, fin, nullptr);
+}
+
 void onSoupSendFinish(GObject* source, GAsyncResult* result, gpointer userData) {
   auto* ctx = static_cast<DownloadCtx*>(userData);
   GError* err = nullptr;
@@ -402,63 +503,11 @@ void onSoupSendFinish(GObject* source, GAsyncResult* result, gpointer userData) 
       }
     }
   }
-  // Append on resume, truncate on fresh. Atomicity isn't possible
-  // for partial downloads — that's why the caller passes resumeFrom.
-  std::ios_base::openmode mode =
-      std::ios::binary | (ctx->resumeFromBytes > 0 ? std::ios_base::openmode{std::ios::app}
-                                                   : std::ios_base::openmode{std::ios::trunc});
-  std::ofstream out(ctx->destPath, mode);
-  if (!out.is_open()) {
-    if (ctx->onError)
-      ctx->onError(std::string("download: cannot open ") + ctx->destPath);
-    g_object_unref(body);
-    finishCtx(ctx);
-    return;
-  }
-  // 256 KiB chunks — large enough that syscall overhead amortizes,
-  // small enough to keep the JS thread responsive for multi-MB
-  // downloads. Progress fires every ~200ms; tighter than that
-  // floods JS for very fast transfers.
-  int64_t bytesThisCall = 0;
-  int64_t lastProgressBytes = 0;
-  gint64 lastProgressUs = g_get_monotonic_time();
-  char buf[256 * 1024];
-  for (;;) {
-    GError* readErr = nullptr;
-    gssize n = g_input_stream_read(body, buf, sizeof(buf), ctx->cancellable, &readErr);
-    if (n < 0) {
-      const bool cancelled =
-          readErr && readErr->domain == G_IO_ERROR && readErr->code == G_IO_ERROR_CANCELLED;
-      if (ctx->onError)
-        ctx->onError(cancelled ? std::string{"cancelled"}
-                               : std::string{readErr && readErr->message ? readErr->message
-                                                                         : "stream read error"});
-      if (readErr)
-        g_error_free(readErr);
-      g_object_unref(body);
-      finishCtx(ctx);
-      return;
-    }
-    if (n == 0)
-      break;
-    out.write(buf, n);
-    bytesThisCall += n;
-    gint64 nowUs = g_get_monotonic_time();
-    if (ctx->onProgress && (nowUs - lastProgressUs > 200000 || bytesThisCall == n)) {
-      lastProgressUs = nowUs;
-      lastProgressBytes = bytesThisCall;
-      ctx->onProgress(ctx->resumeFromBytes + bytesThisCall, totalBytes);
-    }
-  }
-  g_object_unref(body);
-  // Final progress tick so consumers see the bytesWritten == total
-  // edge even when the last chunk landed inside the throttle window.
-  if (ctx->onProgress && bytesThisCall != lastProgressBytes) {
-    ctx->onProgress(ctx->resumeFromBytes + bytesThisCall, totalBytes);
-  }
-  if (ctx->onSuccess)
-    ctx->onSuccess(ctx->destPath, 200, bytesThisCall);
-  finishCtx(ctx);
+  // Hand off the read loop to a worker thread so multi-MB transfers
+  // don't pin the main loop. Progress + completion hop back via
+  // g_idle_add so the jsi callbacks (which assume main-thread
+  // execution under our current threading model) stay on it.
+  std::thread([ctx, body, totalBytes]() { readBodyLoop(ctx, body, totalBytes); }).detach();
 }
 
 } // namespace
