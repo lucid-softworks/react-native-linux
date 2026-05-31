@@ -2479,6 +2479,61 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return obj;
       });
 
+  // Dimensions.get('screen') backing — returns the geometry of the
+  // monitor the app's window currently lives on (gdk_monitor_get_geometry).
+  // Responsive RN apps that switch between phone / tablet / desktop
+  // layouts use Dimensions.get('screen').width to make the decision,
+  // not the window size — otherwise resizing the window would flip the
+  // layout out from under the user. With a real monitor read,
+  // useMediaQuery / breakpoint hooks pick the right layout for the
+  // user's display instead of the playground window's transient size.
+  bindMethod(
+      rt,
+      rnLinux,
+      "getScreenDimensions",
+      0,
+      [rootView](jsi::Runtime& rt, const jsi::Value&, const jsi::Value*, size_t) -> jsi::Value {
+        int w = 0, h = 0;
+        int scale = 1;
+        GdkDisplay* display = nullptr;
+        GdkMonitor* monitor = nullptr;
+        if (rootView) {
+          display = gtk_widget_get_display(rootView);
+          GtkNative* nat = gtk_widget_get_native(rootView);
+          GdkSurface* surface = nat ? gtk_native_get_surface(nat) : nullptr;
+          // Prefer the monitor the window is actually on — handles
+          // multi-monitor desktops where the user dragged the window
+          // across to a different display.
+          if (display && surface) {
+            monitor = gdk_display_get_monitor_at_surface(display, surface);
+          }
+        }
+        if (!display) {
+          display = gdk_display_get_default();
+        }
+        if (!monitor && display) {
+          // Fall back to the first listed monitor for headless /
+          // pre-mount queries.
+          GListModel* monitors = gdk_display_get_monitors(display);
+          if (monitors && g_list_model_get_n_items(monitors) > 0) {
+            monitor = GDK_MONITOR(g_list_model_get_item(monitors, 0));
+          }
+        }
+        if (monitor) {
+          GdkRectangle geom{};
+          gdk_monitor_get_geometry(monitor, &geom);
+          w = geom.width;
+          h = geom.height;
+          scale = gdk_monitor_get_scale_factor(monitor);
+        }
+        jsi::Object obj(rt);
+        obj.setProperty(rt, "width", jsi::Value(static_cast<double>(w)));
+        obj.setProperty(rt, "height", jsi::Value(static_cast<double>(h)));
+        obj.setProperty(rt, "scale", jsi::Value(static_cast<double>(scale)));
+        obj.setProperty(rt, "fontScale", jsi::Value(1.0));
+        return obj;
+      });
+
   // Registers / clears the JS-side `useWindowDimensions` listener.
   // The C++ side fires `dispatchDimensionsChange` from
   // RNLinuxHost::resizeRootSurface — JS hands us a single fan-out

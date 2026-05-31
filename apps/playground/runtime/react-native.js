@@ -84,11 +84,12 @@ const Platform = {
   },
 };
 
-// Dimensions.get('window'|'screen') queries the active surface via
-// rnLinux.getWindowDimensions. 'screen' degrades to 'window' because
-// GTK doesn't surface a separate "screen" rect from JS-accessible
-// state in a windowed app (multi-monitor display info would require
-// reading the GdkMonitor list).
+// Dimensions.get('window') queries the active surface via
+// rnLinux.getWindowDimensions. 'screen' queries the monitor the
+// window is on via rnLinux.getScreenDimensions
+// (gdk_display_get_monitor_at_surface → gdk_monitor_get_geometry).
+// Responsive RN apps that switch layouts on `Dimensions.get('screen').width`
+// see the real monitor extent instead of the transient window size.
 
 const _zeroDim = {width: 0, height: 0, scale: 1, fontScale: 1};
 
@@ -98,6 +99,7 @@ const _zeroDim = {width: 0, height: 0, scale: 1, fontScale: 1};
 // resize and we run the whole list inline.
 const _dimChangeListeners = new Set();
 let _currentDim = _zeroDim;
+let _currentScreenDim = _zeroDim;
 let _dimNativeWired = false;
 
 function _refreshDim() {
@@ -106,20 +108,34 @@ function _refreshDim() {
   return d || _zeroDim;
 }
 
+function _refreshScreenDim() {
+  if (typeof rnLinux === 'undefined' || !rnLinux.getScreenDimensions) {
+    // Pre-binding (or older host without the screen binding) — fall
+    // back to the window dims so callers still get a usable shape.
+    return _refreshDim();
+  }
+  const d = rnLinux.getScreenDimensions();
+  return d && d.width > 0 ? d : _refreshDim();
+}
+
 function _ensureNativeWired() {
   if (_dimNativeWired) return;
   if (typeof rnLinux === 'undefined' || !rnLinux.setOnDimensionsChange) return;
   _dimNativeWired = true;
   _currentDim = _refreshDim();
+  _currentScreenDim = _refreshScreenDim();
   rnLinux.setOnDimensionsChange(next => {
     _currentDim = next || _refreshDim();
+    // Re-read screen on resize too — the user may have dragged the
+    // window across to a different-sized monitor.
+    _currentScreenDim = _refreshScreenDim();
     // Snapshot iteration — subscriber `remove` calls during dispatch
     // are common (useEffect cleanup on unmount) and would otherwise
     // invalidate the Set iterator.
     const snapshot = Array.from(_dimChangeListeners);
     for (const fn of snapshot) {
       try {
-        fn({window: _currentDim, screen: _currentDim});
+        fn({window: _currentDim, screen: _currentScreenDim});
       } catch (e) {
         if (typeof rnLinux !== 'undefined') {
           rnLinux.log('error', '[Dimensions] listener threw: ' + (e && e.message));
@@ -136,6 +152,10 @@ const Dimensions = {
     // Always read fresh — `useWindowDimensions` below caches into
     // useState, but external `Dimensions.get` callers expect the
     // current value, not whatever we last cached.
+    if (kind === 'screen') {
+      _currentScreenDim = _refreshScreenDim();
+      return _currentScreenDim;
+    }
     _currentDim = _refreshDim();
     return _currentDim;
   },
