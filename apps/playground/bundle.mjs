@@ -357,6 +357,20 @@ const appOpts = {
     'expo-gl',
     'expo-three',
     'expo-processing',
+    '@magic-sdk/react-native',
+    '@magic-sdk/react-native-bare',
+    '@react-three/fiber',
+    '@react-three/fiber/native',
+    '@react-three/drei',
+    'react-native-get-random-values',
+    '@supabase/supabase-js',
+    'aws-amplify',
+    '@aws-amplify/core',
+    '@aws-amplify/auth',
+    '@aws-amplify/storage',
+    '@tensorflow/tfjs',
+    '@tensorflow/tfjs-react-native',
+    '@tensorflow-models/mobilenet',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -466,6 +480,17 @@ const appOpts = {
       '  if (id === "expo-gl") return rnv.expoGlThree.expoGl;\n' +
       '  if (id === "expo-three") return rnv.expoGlThree.expoThree;\n' +
       '  if (id === "expo-processing") return rnv.expoGlThree.expoProcessing;\n' +
+      '  if (id === "@magic-sdk/react-native" || id === "@magic-sdk/react-native-bare") return rnv.misc.magicSdk;\n' +
+      '  if (id === "@react-three/fiber" || id === "@react-three/fiber/native" || id === "@react-three/drei") return rnv.misc.reactThreeFiber;\n' +
+      '  if (id === "react-native-get-random-values") return rnv.misc.reactNativeGetRandomValues;\n' +
+      '  if (id === "@supabase/supabase-js") return rnv.misc.supabase;\n' +
+      '  if (id === "aws-amplify") return rnv.misc.amplify;\n' +
+      '  if (id === "@aws-amplify/core") return rnv.misc.ampCore;\n' +
+      '  if (id === "@aws-amplify/auth") return rnv.misc.ampAuth;\n' +
+      '  if (id === "@aws-amplify/storage") return rnv.misc.ampStorage;\n' +
+      '  if (id === "@tensorflow/tfjs") return rnv.misc.tfjs;\n' +
+      '  if (id === "@tensorflow/tfjs-react-native") return rnv.misc.tfjsReactNative;\n' +
+      '  if (id === "@tensorflow-models/mobilenet") return rnv.misc.mobilenet;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.

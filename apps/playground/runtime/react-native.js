@@ -579,6 +579,130 @@ const PixelRatio = {
 // unchanged (our fabricHostConfig.js normalizeColor handles strings).
 const processColor = c => c;
 
+// LogBox — the warning-rollup overlay. Real impl filters duplicate
+// warnings + shows an in-app overlay. RN apps frequently call
+// `LogBox.ignoreLogs([...])` from their root to silence noisy
+// dependency warnings. We don't ship the overlay yet, so the
+// methods are no-ops; importing it is enough to satisfy the call
+// without breaking the rest of the boot path.
+const LogBox = {
+  ignoreLogs: () => {},
+  ignoreAllLogs: () => {},
+  install: () => {},
+  uninstall: () => {},
+};
+
+// Settings — iOS-only key/value store. RN apps that gate features
+// on iOS sometimes still call Settings.get/set on every platform;
+// returning undefined is the documented Android behaviour we mirror.
+const Settings = {
+  get: () => undefined,
+  set: () => {},
+  watchKeys: () => 0,
+  clearWatch: () => {},
+};
+
+// ToastAndroid / Vibration — present-but-noop on desktop so cross-
+// platform code paths don't ReferenceError.
+const ToastAndroid = {SHORT: 0, LONG: 1, show: () => {}, showWithGravity: () => {}};
+const Vibration = {vibrate: () => {}, cancel: () => {}};
+
+// Share — the in-app share sheet. Real backing for desktop is
+// xdg-desktop-portal OpenURI; until then resolve the promise so
+// callers get a clean "dismissed" path.
+const Share = {
+  share: () => Promise.resolve({action: 'dismissed'}),
+  sharedAction: 'sharedAction',
+  dismissedAction: 'dismissed',
+};
+
+// findNodeHandle — Pre-Fabric ref-to-tag conversion. With our
+// Fabric reconciler the public instance already carries a `_nativeTag`;
+// fall back to null when the input doesn't have one so callers don't
+// crash on `null.value`.
+function findNodeHandle(componentOrHandle) {
+  if (componentOrHandle == null) return null;
+  if (typeof componentOrHandle === 'number') return componentOrHandle;
+  return componentOrHandle._nativeTag || null;
+}
+
+// UIManager — legacy bridge for measure / configureNextLayoutAnimation.
+// Most reads are now via Fabric refs; provide enough surface that
+// imports + simple calls don't throw.
+const UIManager = {
+  measure: (_node, cb) => cb && cb(0, 0, 0, 0, 0, 0),
+  measureInWindow: (_node, cb) => cb && cb(0, 0, 0, 0),
+  measureLayout: (_node, _ref, _fail, cb) => cb && cb(0, 0, 0, 0),
+  dispatchViewManagerCommand: () => {},
+  configureNextLayoutAnimation: () => {},
+  hasViewManagerConfig: () => false,
+  getViewManagerConfig: () => null,
+  setLayoutAnimationEnabledExperimental: () => {},
+};
+
+const LayoutAnimation = {
+  configureNext: () => {},
+  create: (duration, type, prop) => ({
+    duration,
+    type,
+    property: prop,
+    create: {},
+    update: {},
+    delete: {},
+  }),
+  Types: {
+    spring: 'spring',
+    linear: 'linear',
+    easeInEaseOut: 'easeInEaseOut',
+    easeIn: 'easeIn',
+    easeOut: 'easeOut',
+    keyboard: 'keyboard',
+  },
+  Properties: {opacity: 'opacity', scaleX: 'scaleX', scaleXY: 'scaleXY', scaleY: 'scaleY'},
+  Presets: {
+    easeInEaseOut: {duration: 300, create: {}, update: {}, delete: {}},
+    linear: {duration: 500, create: {}, update: {}, delete: {}},
+    spring: {duration: 700, create: {}, update: {}, delete: {}},
+  },
+};
+
+const InteractionManager = {
+  runAfterInteractions: cb => {
+    if (typeof cb === 'function') cb();
+    return {then: () => {}, cancel: () => {}, done: () => {}};
+  },
+  createInteractionHandle: () => 0,
+  clearInteractionHandle: () => {},
+  setDeadline: () => {},
+};
+
+const BackHandler = {
+  addEventListener: () => ({remove: () => {}}),
+  removeEventListener: () => {},
+  exitApp: () => {},
+};
+
+const PermissionsAndroid = {
+  request: () => Promise.resolve('granted'),
+  requestMultiple: () => Promise.resolve({}),
+  check: () => Promise.resolve(true),
+  PERMISSIONS: {},
+  RESULTS: {GRANTED: 'granted', DENIED: 'denied', NEVER_ASK_AGAIN: 'never_ask_again'},
+};
+
+const StatusBar = function (props) {
+  // Render-prop component that doesn't actually render anything;
+  // exists so apps that mount <StatusBar barStyle="dark-content"/>
+  // don't ReferenceError. Plain function form for Hermes lazy-parse
+  // compatibility (no class declaration).
+  return null;
+};
+StatusBar.setBarStyle = () => {};
+StatusBar.setBackgroundColor = () => {};
+StatusBar.setHidden = () => {};
+StatusBar.setTranslucent = () => {};
+StatusBar.setNetworkActivityIndicatorVisible = () => {};
+
 module.exports = {
   // Components
   View,
@@ -620,4 +744,16 @@ module.exports = {
   AppState,
   DeviceEventEmitter,
   NativeEventEmitter,
+  LogBox,
+  Settings,
+  ToastAndroid,
+  Vibration,
+  Share,
+  findNodeHandle,
+  UIManager,
+  LayoutAnimation,
+  InteractionManager,
+  BackHandler,
+  PermissionsAndroid,
+  StatusBar,
 };

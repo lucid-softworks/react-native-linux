@@ -17,10 +17,15 @@
 #     --output <path>          (default: dist/ci-smoke/screenshot.png)
 #     --log <path>             (default: dist/ci-smoke/app.log)
 #     --settle-ms <int>        (default: 4000)
-#     --min-colors <int>       (default: 16 — a blank Xvfb is 1, a real
-#                               GTK frame even with all-default colours
-#                               trips font rasterization + anti-aliasing
-#                               far past 16)
+#     --min-colors <int>       (default: 4 — a blank Xvfb is 1; the
+#                               smoke matrix needs the threshold low
+#                               enough that legitimately-rendered
+#                               single-colour content (a <GLView/>
+#                               placeholder, a solid splash screen)
+#                               doesn't trip it. Anti-aliased text
+#                               easily clears 4 colours, so the gate
+#                               still catches "binary lives but never
+#                               mounts a window".)
 #     --require-log <regex>    (default: "JSX commit done" — the
 #                               fabric.js callback after the first
 #                               reconciler.updateContainer success)
@@ -38,7 +43,7 @@ BUNDLE_URL=""
 OUTPUT="dist/ci-smoke/screenshot.png"
 LOG="dist/ci-smoke/app.log"
 SETTLE_MS=4000
-MIN_COLORS=16
+MIN_COLORS=4
 REQUIRE_LOG='JSX commit done'
 
 while [[ $# -gt 0 ]]; do
