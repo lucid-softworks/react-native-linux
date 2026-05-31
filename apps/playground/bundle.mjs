@@ -288,6 +288,14 @@ const appOpts = {
     'zustand',
     'zustand/shallow',
     'expo-sqlite',
+    '@react-navigation/native',
+    '@react-navigation/native-stack',
+    '@react-navigation/stack',
+    '@react-navigation/drawer',
+    '@react-navigation/bottom-tabs',
+    '@react-navigation/material-top-tabs',
+    '@react-navigation/material-bottom-tabs',
+    '@react-navigation/elements',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -348,6 +356,17 @@ const appOpts = {
       '  if (id === "zustand") return rnv.zustand;\n' +
       '  if (id === "zustand/shallow") return {shallow: rnv.zustand.shallow};\n' +
       '  if (id === "expo-sqlite") return rnv.expoSqlite;\n' +
+      // Every @react-navigation/* package routes through the same
+      // minimal shim — the navigator factories cover stack / native-
+      // stack / drawer / bottom-tabs / material-* with one impl.
+      '  if (id === "@react-navigation/native") return rnv.rnNavigation;\n' +
+      '  if (id === "@react-navigation/native-stack") return {createNativeStackNavigator: rnv.rnNavigation.createNativeStackNavigator};\n' +
+      '  if (id === "@react-navigation/stack") return {createStackNavigator: rnv.rnNavigation.createStackNavigator};\n' +
+      '  if (id === "@react-navigation/drawer") return {createDrawerNavigator: rnv.rnNavigation.createDrawerNavigator};\n' +
+      '  if (id === "@react-navigation/bottom-tabs") return {createBottomTabNavigator: rnv.rnNavigation.createBottomTabNavigator};\n' +
+      '  if (id === "@react-navigation/material-top-tabs") return {createMaterialTopTabNavigator: rnv.rnNavigation.createMaterialTopTabNavigator};\n' +
+      '  if (id === "@react-navigation/material-bottom-tabs") return {createMaterialBottomTabNavigator: rnv.rnNavigation.createMaterialBottomTabNavigator};\n' +
+      '  if (id === "@react-navigation/elements") return {};\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.
