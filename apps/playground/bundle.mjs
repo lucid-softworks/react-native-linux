@@ -60,16 +60,6 @@ const refreshTransformPlugin = {
       const isShimPackage = args.path.includes(
         '/packages/@lucid-softworks/react-native-linux-expo/',
       );
-      // Third-party RN libraries that ship class-component code Hermes
-      // 0.12 hard-rejects (`class extends X.Y` in expression position).
-      // react-native-paper is the canonical example; add other libraries
-      // here as they trip the same parser bug. Routing through swc with
-      // ES5 target lowers classes to prototype-based assignments that
-      // Hermes 0.12 accepts.
-      const isClassHeavyLib =
-        /\/node_modules\/(react-native-paper|react-native-vector-icons|@callstack\/[^/]+)\//.test(
-          args.path,
-        );
       // Read once so we can both Flow-detect and class-detect without
       // hitting disk twice. Cheap: file fits in cache, swc handles
       // hundreds of files per second.
@@ -78,7 +68,25 @@ const refreshTransformPlugin = {
         if (source === null) source = readFileSync(args.path, 'utf8');
         return source;
       };
-      if (!inUserCode && !isNativeSpec && !isShimPackage && !isClassHeavyLib) return null;
+      // Third-party RN libraries that ship class-component code Hermes
+      // 0.12 hard-rejects: `class extends X.Y` in expression position
+      // (esbuild's `return _a = class extends import_react.PureComponent`
+      // around static-field initializers). The source typically has
+      // `class Foo extends PureComponent` — a simple identifier — but
+      // esbuild rewrites `PureComponent` to `import_react.PureComponent`
+      // during CJS bundling, producing the member-expression that
+      // Hermes can't parse. Detect by content (any `class … extends …`
+      // in a node_modules file) rather than by package name so new
+      // libraries pick up the same handling. Routing matched files
+      // through swc with ES5 target lowers classes to prototype-based
+      // assignments Hermes accepts.
+      const inNodeModules = args.path.includes('/node_modules/');
+      const looksClassHeavy =
+        inNodeModules &&
+        !isShimPackage &&
+        !isNativeSpec &&
+        /\bclass\b\s+\w*\s*\bextends\b/.test(lazySource());
+      if (!inUserCode && !isNativeSpec && !isShimPackage && !looksClassHeavy) return null;
 
       // RN's Native* spec files are usually Flow-flavoured (// @flow,
       // `interface Spec extends TurboModule`, `(expr: ?Type)` casts).
@@ -103,12 +111,12 @@ const refreshTransformPlugin = {
               refresh: inUserCode,
             },
           },
-          // ES5 for the umbrella shim package AND any
-          // class-heavy library we route through here (forces classes
-          // → function-constructors so Hermes' lazy-parse drop and its
+          // ES5 for the umbrella shim package AND any class-heavy
+          // library we route through here (forces classes →
+          // function-constructors so Hermes' lazy-parse drop and its
           // class-expression-in-assignment parser bug don't bite);
           // ES2020 elsewhere keeps async/arrow ergonomic for user code.
-          target: isShimPackage || isClassHeavyLib ? 'es5' : 'es2020',
+          target: isShimPackage || looksClassHeavy ? 'es5' : 'es2020',
         },
       });
       return {contents: result.code, loader: 'js'};
