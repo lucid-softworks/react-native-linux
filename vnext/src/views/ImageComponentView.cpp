@@ -21,6 +21,7 @@
 #include <cstring>
 #include <ctime>
 #include <glib/gstdio.h>
+#include <thread>
 
 namespace {
 
@@ -64,23 +65,12 @@ bool isHttpScheme(const std::string& uri) {
   return uri.rfind("http://", 0) == 0 || uri.rfind("https://", 0) == 0;
 }
 
-// data:[<mime>][;base64],<payload>
-// esbuild's `loader: 'dataurl'` rewrites bundled image assets into this
-// form, so akari's AppLogo (a 4 kB PNG) lands here at import time. We
-// decode + feed GdkPixbufLoader, then hand the pixbuf to GdkTexture
-// for GtkPicture. base64 is what RN's image asset registry emits in
-// practice; uri-encoded payloads are rare enough we don't decode them
-// today.
-GdkTexture* decodeDataUri(const std::string& uri) {
-  // Parse "data:<mime>;base64,<payload>" — the comma after the
-  // type/encoding metadata is the delimiter.
-  const auto comma = uri.find(',');
-  if (comma == std::string::npos)
-    return nullptr;
-  const std::string head = uri.substr(5, comma - 5); // skip "data:"
-  if (head.find("base64") == std::string::npos)
-    return nullptr;
-  const std::string payload = uri.substr(comma + 1);
+// Decode the base64 payload of a data: URI into a freshly-owned
+// GdkPixbuf. Caller takes ownership and unrefs.
+// Runs the gdk_pixbuf_loader write + close cycle which is CPU-bound
+// and gives meaningful latency on > 16 KB payloads (50 ms+ for full-
+// page splash images, even sub-MB hero shots).
+GdkPixbuf* decodeDataUriPayload(const std::string& payload) {
   gsize binLen = 0;
   guchar* bin = g_base64_decode(payload.c_str(), &binLen);
   if (!bin || binLen == 0) {
@@ -90,11 +80,13 @@ GdkTexture* decodeDataUri(const std::string& uri) {
   }
   GdkPixbufLoader* loader = gdk_pixbuf_loader_new();
   GError* err = nullptr;
-  GdkTexture* texture = nullptr;
+  GdkPixbuf* pixbuf = nullptr;
   if (gdk_pixbuf_loader_write(loader, bin, binLen, &err) && gdk_pixbuf_loader_close(loader, &err)) {
-    GdkPixbuf* pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
-    if (pixbuf) {
-      texture = gdk_texture_new_for_pixbuf(pixbuf);
+    GdkPixbuf* raw = gdk_pixbuf_loader_get_pixbuf(loader);
+    if (raw) {
+      // get_pixbuf returns a borrowed ref tied to the loader; ref so
+      // we can outlive the g_object_unref(loader) below.
+      pixbuf = static_cast<GdkPixbuf*>(g_object_ref(raw));
     }
   }
   if (err) {
@@ -103,7 +95,90 @@ GdkTexture* decodeDataUri(const std::string& uri) {
   }
   g_object_unref(loader);
   g_free(bin);
-  return texture;
+  return pixbuf;
+}
+
+// data:[<mime>][;base64],<payload>
+// esbuild's `loader: 'dataurl'` rewrites bundled image assets into this
+// form, so akari's AppLogo (a 4 kB PNG) lands here at import time. We
+// decode + feed GdkPixbufLoader, then hand the pixbuf to GdkTexture
+// for GtkPicture. base64 is what RN's image asset registry emits in
+// practice; uri-encoded payloads are rare enough we don't decode them
+// today.
+//
+// Returns nullptr (and leaves payload empty) if the URI isn't a
+// recognized base64-encoded data URI. On success, `payload` holds the
+// payload string ready to feed `decodeDataUriPayload`.
+bool extractDataUriPayload(const std::string& uri, std::string& payload) {
+  // Parse "data:<mime>;base64,<payload>" — the comma after the
+  // type/encoding metadata is the delimiter.
+  const auto comma = uri.find(',');
+  if (comma == std::string::npos)
+    return false;
+  const std::string head = uri.substr(5, comma - 5); // skip "data:"
+  if (head.find("base64") == std::string::npos)
+    return false;
+  payload = uri.substr(comma + 1);
+  return true;
+}
+
+// Forward declaration — applyPaintable lives further down so it can
+// reach the tinted-paintable qdata helper that's defined alongside
+// the SoupSession setup. The async-decode completion below needs it
+// to wrap the freshly-loaded texture in the same tint wrapper any
+// sync apply would.
+void applyPaintable(GtkPicture* picture, GdkPaintable* raw);
+
+// Payload size above which we route the decode to a worker thread.
+// 16 KB is the typical edge between "icons / splash logos" (sub-ms
+// decode, drop-through path) and "real images" (50 ms+, blocks the
+// mount commit chain). Base64 inflates by ~33 %, so 16 KB of payload
+// ≈ 12 KB of raw image data.
+constexpr gsize kDataUriAsyncThreshold = 16 * 1024;
+
+// Heap-allocated context handed from the decode worker back to the
+// main-thread completion callback. We ref the GtkPicture so it stays
+// alive through the decode; the completion checks the current-uri
+// qdata to skip apply if updateProps moved on to a different source.
+struct DataUriDecode {
+  GtkPicture* picture; // ref held
+  std::string uri;
+  GdkPixbuf* pixbuf; // set by worker, consumed by main
+};
+
+gboolean onDataUriDecodeFinish(gpointer userData) {
+  auto* ctx = static_cast<DataUriDecode*>(userData);
+  // Supersession check — applyPaintable would otherwise stomp a
+  // newer source the view moved on to during the decode.
+  const char* current =
+      static_cast<const char*>(g_object_get_data(G_OBJECT(ctx->picture), "rnl-current-uri"));
+  bool stillCurrent = current && ctx->uri == current;
+  if (stillCurrent && ctx->pixbuf) {
+    GdkTexture* texture = gdk_texture_new_for_pixbuf(ctx->pixbuf);
+    if (texture) {
+      applyPaintable(ctx->picture, GDK_PAINTABLE(texture));
+      g_object_unref(texture);
+    }
+  }
+  if (ctx->pixbuf)
+    g_object_unref(ctx->pixbuf);
+  g_object_unref(ctx->picture);
+  delete ctx;
+  return G_SOURCE_REMOVE;
+}
+
+// Spawn a detached thread that decodes the data URI, then hand the
+// result back to the GTK main loop for paintable application.
+void startDataUriDecodeAsync(GtkPicture* picture, std::string uri, std::string payload) {
+  auto* ctx = new DataUriDecode{
+      static_cast<GtkPicture*>(g_object_ref(picture)),
+      std::move(uri),
+      nullptr,
+  };
+  std::thread([ctx, payload = std::move(payload)]() {
+    ctx->pixbuf = decodeDataUriPayload(payload);
+    g_idle_add_full(G_PRIORITY_HIGH_IDLE, onDataUriDecodeFinish, ctx, nullptr);
+  }).detach();
 }
 
 // Tint colour qdata key on the GtkPicture. The async fetch callbacks
@@ -386,16 +461,38 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
   currentUri_ = uri;
 
   // data:image/...;base64,... — inlined assets from esbuild's
-  // `loader: 'dataurl'`. Decode synchronously; the payloads RN emits
-  // are small enough (icons, splash logos) that this stays cheap.
+  // `loader: 'dataurl'`. Small payloads (typical RN icons / splash
+  // logos) decode inline; large ones spawn a worker thread so the
+  // mount commit chain doesn't stall on `gdk_pixbuf_loader_write`.
   if (uri.rfind("data:", 0) == 0) {
-    GdkTexture* texture = decodeDataUri(uri);
-    if (texture) {
-      applyPaintable(GTK_PICTURE(widget_), GDK_PAINTABLE(texture));
-      g_object_unref(texture);
-    } else {
-      RNL_LOGW("Image") << "data: uri decode produced no texture (tag=" << tag_ << ")";
+    std::string payload;
+    if (!extractDataUriPayload(uri, payload)) {
+      RNL_LOGW("Image") << "data: uri is not a recognized base64 payload (tag=" << tag_ << ")";
       gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
+      return;
+    }
+    // Track the in-flight uri so the async completion can detect
+    // supersession by a later updateProps that picked a different
+    // source. The http path uses the same qdata slot — see
+    // startHttpFetch.
+    g_object_set_data_full(G_OBJECT(widget_), "rnl-current-uri", g_strdup(uri.c_str()), g_free);
+    if (payload.size() < kDataUriAsyncThreshold) {
+      GdkPixbuf* pixbuf = decodeDataUriPayload(payload);
+      if (pixbuf) {
+        GdkTexture* texture = gdk_texture_new_for_pixbuf(pixbuf);
+        applyPaintable(GTK_PICTURE(widget_), GDK_PAINTABLE(texture));
+        if (texture)
+          g_object_unref(texture);
+        g_object_unref(pixbuf);
+      } else {
+        RNL_LOGW("Image") << "data: uri decode produced no pixbuf (tag=" << tag_ << ")";
+        gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
+      }
+    } else {
+      // Clear the paintable so the box stays empty until the worker
+      // lands; matches the http(s) "fetch in flight" idiom.
+      gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
+      startDataUriDecodeAsync(GTK_PICTURE(widget_), uri, std::move(payload));
     }
     return;
   }
