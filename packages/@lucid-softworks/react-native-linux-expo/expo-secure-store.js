@@ -158,5 +158,15 @@ const api = {
   WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
+// Register through expo-modules-core's `globalThis.expo.modules`
+// registry so third-party packages doing
+// `requireNativeModule('ExpoSecureStore')` resolve here transparently.
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoSecureStore', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
 module.exports = api;
 module.exports.default = api;
