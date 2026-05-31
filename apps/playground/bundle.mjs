@@ -60,6 +60,16 @@ const refreshTransformPlugin = {
       const isShimPackage = args.path.includes(
         '/packages/@lucid-softworks/react-native-linux-expo/',
       );
+      // Third-party RN libraries that ship class-component code Hermes
+      // 0.12 hard-rejects (`class extends X.Y` in expression position).
+      // react-native-paper is the canonical example; add other libraries
+      // here as they trip the same parser bug. Routing through swc with
+      // ES5 target lowers classes to prototype-based assignments that
+      // Hermes 0.12 accepts.
+      const isClassHeavyLib =
+        /\/node_modules\/(react-native-paper|react-native-vector-icons|@callstack\/[^/]+)\//.test(
+          args.path,
+        );
       // Read once so we can both Flow-detect and class-detect without
       // hitting disk twice. Cheap: file fits in cache, swc handles
       // hundreds of files per second.
@@ -68,7 +78,7 @@ const refreshTransformPlugin = {
         if (source === null) source = readFileSync(args.path, 'utf8');
         return source;
       };
-      if (!inUserCode && !isNativeSpec && !isShimPackage) return null;
+      if (!inUserCode && !isNativeSpec && !isShimPackage && !isClassHeavyLib) return null;
 
       // RN's Native* spec files are usually Flow-flavoured (// @flow,
       // `interface Spec extends TurboModule`, `(expr: ?Type)` casts).
@@ -93,10 +103,12 @@ const refreshTransformPlugin = {
               refresh: inUserCode,
             },
           },
-          // ES5 for the umbrella shim package (forces classes →
-          // function-constructors so Hermes' lazy-parse drop doesn't
-          // bite); ES2020 elsewhere keeps async/arrow ergonomic.
-          target: isShimPackage ? 'es5' : 'es2020',
+          // ES5 for the umbrella shim package AND any
+          // class-heavy library we route through here (forces classes
+          // → function-constructors so Hermes' lazy-parse drop and its
+          // class-expression-in-assignment parser bug don't bite);
+          // ES2020 elsewhere keeps async/arrow ergonomic for user code.
+          target: isShimPackage || isClassHeavyLib ? 'es5' : 'es2020',
         },
       });
       return {contents: result.code, loader: 'js'};
