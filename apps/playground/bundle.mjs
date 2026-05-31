@@ -296,6 +296,7 @@ const appOpts = {
     '@react-navigation/material-top-tabs',
     '@react-navigation/material-bottom-tabs',
     '@react-navigation/elements',
+    'moti',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -367,6 +368,7 @@ const appOpts = {
       '  if (id === "@react-navigation/material-top-tabs") return {createMaterialTopTabNavigator: rnv.rnNavigation.createMaterialTopTabNavigator};\n' +
       '  if (id === "@react-navigation/material-bottom-tabs") return {createMaterialBottomTabNavigator: rnv.rnNavigation.createMaterialBottomTabNavigator};\n' +
       '  if (id === "@react-navigation/elements") return {};\n' +
+      '  if (id === "moti") return rnv.moti;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.

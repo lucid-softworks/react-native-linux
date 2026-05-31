@@ -91,6 +91,7 @@ const expoVectorIconsMod = require('@lucid-softworks/react-native-linux-expo/exp
 const zustandMod = require('@lucid-softworks/react-native-linux-expo/zustand');
 const expoSqliteMod = require('@lucid-softworks/react-native-linux-expo/expo-sqlite');
 const rnNavigationMod = require('@lucid-softworks/react-native-linux-expo/react-navigation-native');
+const motiMod = require('@lucid-softworks/react-native-linux-expo/moti');
 // expo-router-entry is registered lazily — importing it has the side
 // effect of calling registerRootComponent. We pull it in only when an
 // app actually requires "expo-router/entry"; lazy-require via a
@@ -160,6 +161,7 @@ globalThis.__rnv = {
   zustand: zustandMod,
   expoSqlite: expoSqliteMod,
   rnNavigation: rnNavigationMod,
+  moti: motiMod,
   expoRouterEntry,
   expoApplication: expoApplicationMod,
   expoCrypto: expoCryptoMod,
