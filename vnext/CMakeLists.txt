@@ -108,6 +108,7 @@ set(RNL_SOURCES
   src/RNLinuxHost.cpp
   src/Logging.cpp
   src/CrashHandler.cpp
+  src/AppContext.cpp
   src/fabric/LinuxComponentDescriptorRegistry.cpp
   src/fabric/LinuxSchedulerDelegate.cpp
   src/fabric/LinuxMountingManager.cpp

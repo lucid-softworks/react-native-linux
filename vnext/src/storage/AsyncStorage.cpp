@@ -4,12 +4,16 @@
 // keys, kilobyte values); if an app stashes megabytes here we'd
 // switch to a real sqlite or LMDB backend.
 //
-// File location: $XDG_CONFIG_HOME/react-native-linux/async-storage.json
-// (defaults to ~/.config/react-native-linux/).
+// File location: $XDG_CONFIG_HOME/<applicationId>/async-storage.json
+// (defaults to ~/.config/<applicationId>/). `applicationId` is set
+// at startup by RNLinuxApplication from the build-time RNL_APP_ID
+// the CLI bakes in (docs/design-multi-instance.md Phase 2) — two
+// installed apps get disjoint storage that way.
 //
 // The four entry points (declared as extern in RnLinuxBindings.cpp)
 // are called from the rnLinux.storage* JSI bindings.
 
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <cstdlib>
@@ -36,14 +40,15 @@ std::unordered_map<std::string, std::string>& storageMap() {
 }
 
 std::string storagePath() {
+  const std::string& appId = rnlinux::applicationId();
   const char* xdg = std::getenv("XDG_CONFIG_HOME");
   std::string dir;
   if (xdg && *xdg) {
-    dir = std::string{xdg} + "/react-native-linux";
+    dir = std::string{xdg} + "/" + appId;
   } else if (const char* home = std::getenv("HOME"); home && *home) {
-    dir = std::string{home} + "/.config/react-native-linux";
+    dir = std::string{home} + "/.config/" + appId;
   } else {
-    dir = "/tmp/react-native-linux";
+    dir = "/tmp/" + appId;
   }
   g_mkdir_with_parents(dir.c_str(), 0700);
   return dir + "/async-storage.json";

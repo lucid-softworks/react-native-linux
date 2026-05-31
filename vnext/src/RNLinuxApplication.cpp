@@ -2,6 +2,7 @@
 
 #include "fabric/LinuxMountingManager.h"
 #include "jsi/RnLinuxBindings.h"
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/CrashHandler.h"
 #include "react-native-linux/Logging.h"
 #include "react-native-linux/TurboModuleRegistry.h"
@@ -432,6 +433,11 @@ RNLinuxApplication::RNLinuxApplication(RNLinuxHost::Config config)
   // itself crashes during ctor / GTK init.
   installCrashHandler();
   impl_->config = std::move(config);
+  // Publish the per-app id so modules that need per-app sandboxing
+  // (AsyncStorage's XDG dir, SecureStore's service ID, etc.) can pick
+  // it up via `rnlinux::applicationId()`. Must run before the JS
+  // worker thread or any GTK callback touches storage paths.
+  setApplicationId(impl_->config.applicationId);
 }
 
 RNLinuxApplication::~RNLinuxApplication() {
