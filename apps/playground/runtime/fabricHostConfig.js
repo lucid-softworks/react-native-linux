@@ -306,6 +306,33 @@ function syncScrollHandler(tag, props) {
   rnLinux.fabricOnScroll(tag, handler);
 }
 
+// PanResponder native handler binder. Reads the three
+// onPanResponder*Native props produced by the PanResponder shim
+// and registers them against the per-tag pan registries the C++
+// GtkGestureDrag dispatches into. Unlike the click/long-press
+// handlers we don't wrap through makeSyntheticEvent —
+// dispatchFabricPan* already emits the full
+// `{nativeEvent, gestureState}` shape RN consumers read, so passing
+// it straight through skips a needless allocation per move (these
+// fire at pointer rate, sometimes >> 60 Hz).
+function syncPanHandlers(tag, props) {
+  const grant =
+    props && typeof props.onPanResponderGrantNative === 'function'
+      ? props.onPanResponderGrantNative
+      : null;
+  const move =
+    props && typeof props.onPanResponderMoveNative === 'function'
+      ? props.onPanResponderMoveNative
+      : null;
+  const release =
+    props && typeof props.onPanResponderReleaseNative === 'function'
+      ? props.onPanResponderReleaseNative
+      : null;
+  rnLinux.fabricOnPanStart(tag, grant);
+  rnLinux.fabricOnPanMove(tag, move);
+  rnLinux.fabricOnPanRelease(tag, release);
+}
+
 // RefreshControl bridge. The ScrollView shim flattens its
 // `refreshControl={<RefreshControl onRefresh refreshing />}` prop into
 // top-level `onRefresh` + `refreshing` (see components.js). Here we
@@ -519,6 +546,7 @@ const hostConfig = {
       syncClickHandler(tag, props);
       syncLongPressHandler(tag, props);
       syncHoverHandlers(tag, props);
+      syncPanHandlers(tag, props);
       syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'View', type);
     }
@@ -702,6 +730,7 @@ const hostConfig = {
       syncClickHandler(currentInstance.tag, newProps);
       syncLongPressHandler(currentInstance.tag, newProps);
       syncHoverHandlers(currentInstance.tag, newProps);
+      syncPanHandlers(currentInstance.tag, newProps);
     }
     if (type === 'textinput') {
       syncChangeTextHandler(currentInstance.tag, newProps);

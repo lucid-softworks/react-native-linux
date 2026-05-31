@@ -153,6 +153,17 @@ void dispatchFabricLongPress(int tag);
 void dispatchFabricHoverIn(int tag);
 void dispatchFabricHoverOut(int tag);
 
+// Pan / drag dispatchers — synthesized from GtkGestureDrag on every
+// View. Start fires on drag-begin (mouse-down + past gesture
+// threshold), Move on each drag-update with the running delta from
+// gesture start, Release on drag-end with the final delta + the
+// release velocity (units/ms over the last few moves). Backs the
+// PanResponder shim; no-op when no handler is registered.
+void dispatchFabricPanStart(int tag, double x, double y);
+void dispatchFabricPanMove(int tag, double x, double y, double dx, double dy, double vx, double vy);
+void dispatchFabricPanRelease(
+    int tag, double x, double y, double dx, double dy, double vx, double vy);
+
 // Notify the JS-side `useWindowDimensions` listener that the surface
 // allocation changed. Called from RNLinuxHost::resizeRootSurface so
 // every actual resize wakes the responsive-layout code (akari's

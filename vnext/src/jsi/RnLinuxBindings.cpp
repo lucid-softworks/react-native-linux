@@ -91,6 +91,15 @@ struct State {
   // re-arms the next fire via scrollViewSetRefreshing(tag, false).
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricRefreshHandlers;
 
+  // Pan / drag handlers — registered by the PanResponder shim via
+  // rnLinux.fabricOnPanStart/Move/Release(tag, fn). The View
+  // component view runs a GtkGestureDrag per instance and dispatches
+  // into these. Three separate maps so the most common case
+  // (Move-only consumer) doesn't iterate empty slots.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricPanStartHandlers;
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricPanMoveHandlers;
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricPanReleaseHandlers;
+
   // Switch onValueChange handlers. The C++ view subscribes to GtkSwitch
   // notify::active and routes through dispatchFabricSwitchChange.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricSwitchHandlers;
@@ -288,6 +297,9 @@ void resetRnLinuxBindings() {
   state().fabricKeyPressHandlers.clear();
   state().fabricScrollHandlers.clear();
   state().fabricRefreshHandlers.clear();
+  state().fabricPanStartHandlers.clear();
+  state().fabricPanMoveHandlers.clear();
+  state().fabricPanReleaseHandlers.clear();
   state().fabricLayoutHandlers.clear();
   state().fabricLayoutLast.clear();
   state().fabricFocusHandlers.clear();
@@ -554,6 +566,105 @@ void dispatchFabricRefresh(int tag) {
       RNL_LOGE("rnLinux") << "fabric refresh handler threw: " << e.getMessage();
     } catch (const std::exception& e) {
       RNL_LOGE("rnLinux") << "fabric refresh handler threw: " << e.what();
+    }
+  });
+}
+
+namespace {
+// Build the synthetic event the PanResponder shim hands to its JS
+// callbacks. Mirrors the shape RN's GestureResponderEvent +
+// PanResponderGestureState exposes: nativeEvent.{locationX, locationY}
+// (RN keeps the same names on both axes) + a `gestureState` object
+// alongside it carrying the delta + velocity. The PanResponder shim
+// flattens these into the `(evt, gestureState)` shape its callers
+// expect; the gestureState payload is what consumers actually read
+// for drag math.
+jsi::Object buildPanEvent(
+    jsi::Runtime& rt, int tag, double x, double y, double dx, double dy, double vx, double vy) {
+  jsi::Object nativeEvent(rt);
+  nativeEvent.setProperty(rt, "locationX", x);
+  nativeEvent.setProperty(rt, "locationY", y);
+  nativeEvent.setProperty(rt, "pageX", x);
+  nativeEvent.setProperty(rt, "pageY", y);
+  nativeEvent.setProperty(rt, "target", tag);
+  jsi::Object gestureState(rt);
+  gestureState.setProperty(rt, "dx", dx);
+  gestureState.setProperty(rt, "dy", dy);
+  gestureState.setProperty(rt, "vx", vx);
+  gestureState.setProperty(rt, "vy", vy);
+  gestureState.setProperty(rt, "moveX", x);
+  gestureState.setProperty(rt, "moveY", y);
+  gestureState.setProperty(rt, "numberActiveTouches", 1);
+  jsi::Object out(rt);
+  out.setProperty(rt, "nativeEvent", nativeEvent);
+  out.setProperty(rt, "gestureState", gestureState);
+  return out;
+}
+} // namespace
+
+void dispatchFabricPanStart(int tag, double x, double y) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag, x, y](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricPanStartHandlers.find(tag);
+    if (it == s.fabricPanStartHandlers.end())
+      return;
+    try {
+      auto evt = buildPanEvent(rt, tag, x, y, /*dx=*/0, /*dy=*/0, /*vx=*/0, /*vy=*/0);
+      it->second->call(rt, std::move(evt));
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "pan-start handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "pan-start handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchFabricPanMove(
+    int tag, double x, double y, double dx, double dy, double vx, double vy) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag, x, y, dx, dy, vx, vy](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricPanMoveHandlers.find(tag);
+    if (it == s.fabricPanMoveHandlers.end())
+      return;
+    try {
+      auto evt = buildPanEvent(rt, tag, x, y, dx, dy, vx, vy);
+      it->second->call(rt, std::move(evt));
+      // Deliberately NO drainMicrotasks here — pan-move fires at
+      // pointer rate (sometimes >> 60 Hz on a fast mouse). Let React
+      // batch with the rAF loop instead of forcing a commit per move.
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "pan-move handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "pan-move handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchFabricPanRelease(
+    int tag, double x, double y, double dx, double dy, double vx, double vy) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag, x, y, dx, dy, vx, vy](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricPanReleaseHandlers.find(tag);
+    if (it == s.fabricPanReleaseHandlers.end())
+      return;
+    try {
+      auto evt = buildPanEvent(rt, tag, x, y, dx, dy, vx, vy);
+      it->second->call(rt, std::move(evt));
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "pan-release handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "pan-release handler threw: " << e.what();
     }
   });
 }
@@ -1734,6 +1845,35 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });
+
+  // PanResponder handlers — register the JS callbacks the View
+  // component view's GtkGestureDrag dispatches into. All three follow
+  // the same shape as fabricOnRefresh: pass null/undefined to
+  // deregister, otherwise install the function as the per-tag entry.
+  // The PanResponder shim in JS wraps an app's `onPanResponderGrant`/
+  // `Move`/`Release` callbacks into these three registries.
+  auto bindPan = [&](const char* name, auto* mapPtr) {
+    bindMethod(rt,
+               rnLinux,
+               name,
+               2,
+               [mapPtr](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count)
+                   -> jsi::Value {
+                 if (count < 2)
+                   return jsi::Value::undefined();
+                 const int tag = static_cast<int>(args[0].asNumber());
+                 if (args[1].isNull() || args[1].isUndefined()) {
+                   mapPtr->erase(tag);
+                   return jsi::Value::undefined();
+                 }
+                 (*mapPtr)[tag] =
+                     std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+                 return jsi::Value::undefined();
+               });
+  };
+  bindPan("fabricOnPanStart", &state().fabricPanStartHandlers);
+  bindPan("fabricOnPanMove", &state().fabricPanMoveHandlers);
+  bindPan("fabricOnPanRelease", &state().fabricPanReleaseHandlers);
 
   // Flip the per-ScrollView refreshing flag. JS calls this whenever
   // its RefreshControl.refreshing prop changes — true after onRefresh

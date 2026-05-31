@@ -403,6 +403,55 @@ function RefreshControl(_props) {
   return null;
 }
 
+// PanResponder — RN's iOS/Android implementation lives on top of the
+// responder graph (which we don't have on desktop). Instead, we drive
+// the same callback contract from GtkGestureDrag: a single-touch drag
+// affordance produces panStart/panMove/panRelease signals on the
+// underlying View, and the JS shim funnels them into the user's
+// onPanResponderGrant / Move / Release callbacks with the synthetic
+// event + gestureState shape RN consumers expect.
+//
+// Out of scope (matches what we don't have natively): multi-touch
+// negotiation, terminate/terminationRequest, pinch / rotation gestures.
+// The single-finger drag covers swipeable cards, slider thumbs,
+// signature pads, and the "Animated.event(…, {useNativeDriver:false})"
+// follow-up that most uses of PanResponder pair with.
+const PanResponder = {
+  create(config) {
+    // Wrap each user callback so we can swallow throws — RN apps
+    // are inconsistent about catching inside gesture handlers, and
+    // a thrown error here would otherwise drop subsequent moves on
+    // the floor.
+    const fire = (key, evt) => {
+      const fn = config && config[key];
+      if (typeof fn !== 'function') return;
+      try {
+        fn(evt, evt.gestureState);
+      } catch (e) {
+        rnLinux.log('error', 'PanResponder.' + key + ' threw: ' + String(e));
+      }
+    };
+    return {
+      panHandlers: {
+        // Host-level prop names the fabricHostConfig recognises and
+        // routes to the new rnLinux.fabricOnPan* registries. These
+        // intentionally don't collide with onLongPress / onClick /
+        // onHover* — both can coexist on the same View.
+        onPanResponderGrantNative: evt => fire('onPanResponderGrant', evt),
+        onPanResponderMoveNative: evt => fire('onPanResponderMove', evt),
+        onPanResponderReleaseNative: evt => {
+          fire('onPanResponderRelease', evt);
+          // RN's Terminate fires when the responder is forcibly torn
+          // away (parent scroll claims it, etc.). On desktop a drag-
+          // end is always a release, so Terminate is a no-op alias —
+          // some apps register both for safety.
+          fire('onPanResponderTerminate', evt);
+        },
+      },
+    };
+  },
+};
+
 // NativeModules — legacy bridge surface. Real RN code (Platform,
 // PlatformColor, AppearanceModule, …) still does `NativeModules.X`
 // rather than going through TurboModuleRegistry. Back it with a
@@ -546,6 +595,7 @@ module.exports = {
   SafeAreaView,
   KeyboardAvoidingView,
   RefreshControl,
+  PanResponder,
   // Animated
   Animated,
   Easing,
