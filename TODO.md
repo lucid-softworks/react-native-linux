@@ -170,7 +170,7 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [x] `Clipboard` — `gdk_clipboard_set_text` via `expo-clipboard`'s GdkClipboard backing (the RN-core `Clipboard` shim re-exports it). Cross-app reads + image/HTML round-trip still on the gap list.
 - [x] `Dimensions` — `rnLinux.getWindowDimensions` returns live surface size + GDK scale; `rnLinux.getScreenDimensions` returns `gdk_monitor_get_geometry` for the monitor the window is on (handles multi-monitor + drag-across); `setOnDimensionsChange` re-reads both on every resize.
 - [x] `Appearance` — reads `RN_LINUX_COLOR_SCHEME` env var first, then `GtkSettings::gtk-application-prefer-dark-theme` (drives GNOME / libadwaita's system "Appearance" panel).
-- [x] `Alert` → `GtkAlertDialog` via `rnLinux.showAlert(title, message, labels, onPicked)`. `Alert.prompt` lands as a button-only fallback — real text-input prompts need a custom dialog.
+- [x] `Alert` → `GtkAlertDialog` via `rnLinux.showAlert(title, message, labels, onPicked)`. `Alert.prompt` landed in 93809c2b — hand-rolled modal `GtkWindow` + `GtkEntry`; Enter activates the default button; secureEntry → `visibility=FALSE` + `input_purpose=PASSWORD`. All three RN call shapes routed (no-cb, fn-cb, button-array).
 - [ ] `AccessibilityInfo` via AT-SPI2
 
 ## Expo module backlog (real backends, not stubs)
