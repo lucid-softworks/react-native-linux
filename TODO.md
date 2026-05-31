@@ -99,7 +99,7 @@ Honest gaps for arbitrary RN apps to drop in:
 - [x] Keyboard events on `<TextInput>` (onKeyPress, onSubmitEditing) — GtkEventControllerKey on CAPTURE phase fires `dispatchFabricKeyPress` with RN-shaped key strings; GtkText "activate" → `dispatchFabricSubmitEditing`. Ctrl+A/C/X/V wired here too because GtkText (unlike GtkEntry) doesn't ship the standard editing accelerators.
 - [ ] Touch events synthesized from pointer
 - [ ] Real Fabric `EventEmitter` plumbing (we use JSI registries keyed by tag — fine for MVP, won't survive nested gestures)
-- [ ] React refs to host instances — currently crashes Fabric at startSurface; missing commitAttachRef/commitDetachRef in fabricHostConfig.js. We worked around this for Animated.View via a generated `nativeID` registered in a C++ map, but apps that ref their own Views will break.
+- [x] React refs to host instances — landed 2026-05-25. The root cause was three stacked bugs: a missing `console` shim hiding the real error, a missing `forwardRef` in the reconciler instance wrapper, and the `createNode` 5th-arg being read as state instead of `instanceHandle`. Real ref-to-host-View works without the Animated.View `nativeID` side-channel hack.
 
 ### 5.6 — TurboModule infrastructure
 
