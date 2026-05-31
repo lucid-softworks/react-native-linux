@@ -349,11 +349,27 @@ function compileBytecode(bundlePath, label) {
         resolve(here, '../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc'),
       ];
   const hermesc = hermescCandidates.find(existsSync);
+  const hbc = bundlePath + '.hbc';
+  // Any failure path falls back to "let the C++ side load the fresh
+  // .js bundle directly" — but main.cpp prefers .hbc when one exists,
+  // so we have to actively wipe a stale .hbc produced by an earlier
+  // run before we hand control back. Otherwise a hermesc failure on
+  // a paper-demo entry would leave the playground happily loading the
+  // PREVIOUS entry's bytecode.
+  const wipeStale = () => {
+    if (!existsSync(hbc)) return;
+    try {
+      unlinkSync(hbc);
+      console.log(`✓ removed stale ${hbc} (falling back to JS source)`);
+    } catch (e) {
+      console.log(`[hermesc] could not remove stale ${hbc}: ${e.message}`);
+    }
+  };
   if (!hermesc) {
     console.log(`[hermesc] not found — ${label} stays as JS source`);
+    wipeStale();
     return;
   }
-  const hbc = bundlePath + '.hbc';
   const t0 = performance.now();
   const r = spawnSync(hermesc, ['-emit-binary', '-O', '-out', hbc, bundlePath], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -362,6 +378,7 @@ function compileBytecode(bundlePath, label) {
     console.log(
       `[hermesc] ${label} failed (status ${r.status}): ${r.stderr?.toString().slice(0, 200)}`,
     );
+    wipeStale();
     return;
   }
   const ms = (performance.now() - t0).toFixed(0);
