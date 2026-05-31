@@ -1843,6 +1843,46 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::String::createFromUtf8(rt, out);
       });
 
+  // Shared algorithm parser used by both cryptoDigest and
+  // cryptoDigestAsync. Returns false if `algo` is unsupported.
+  static const auto parseChecksumType = [](const std::string& algo, GChecksumType& out) -> bool {
+    if (algo == "SHA-1") {
+      out = G_CHECKSUM_SHA1;
+      return true;
+    }
+    if (algo == "SHA-256") {
+      out = G_CHECKSUM_SHA256;
+      return true;
+    }
+    if (algo == "SHA-384") {
+      out = G_CHECKSUM_SHA384;
+      return true;
+    }
+    if (algo == "SHA-512") {
+      out = G_CHECKSUM_SHA512;
+      return true;
+    }
+    if (algo == "MD5") {
+      out = G_CHECKSUM_MD5;
+      return true;
+    }
+    return false;
+  };
+
+  // Shared digest body. Caller owns the base64-decoded byte buffer
+  // and frees it; we just compute the hex digest.
+  static const auto computeDigest =
+      [](GChecksumType type, const guchar* data, gsize len) -> std::string {
+    GChecksum* ck = g_checksum_new(type);
+    if (!ck)
+      return {};
+    g_checksum_update(ck, data, static_cast<gssize>(len));
+    const char* hex = g_checksum_get_string(ck);
+    std::string out = hex ? std::string{hex} : std::string{};
+    g_checksum_free(ck);
+    return out;
+  };
+
   bindMethod(
       rt,
       rnLinux,
@@ -1854,33 +1894,80 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         const auto algo = args[0].asString(rt).utf8(rt);
         const auto b64 = args[1].asString(rt).utf8(rt);
         GChecksumType type;
-        if (algo == "SHA-1")
-          type = G_CHECKSUM_SHA1;
-        else if (algo == "SHA-256")
-          type = G_CHECKSUM_SHA256;
-        else if (algo == "SHA-384")
-          type = G_CHECKSUM_SHA384;
-        else if (algo == "SHA-512")
-          type = G_CHECKSUM_SHA512;
-        else if (algo == "MD5")
-          type = G_CHECKSUM_MD5;
-        else
+        if (!parseChecksumType(algo, type))
           throw jsi::JSError(rt, std::string{"cryptoDigest: unsupported algorithm "} + algo);
         gsize decodedLen = 0;
         guchar* decoded = g_base64_decode(b64.c_str(), &decodedLen);
         if (!decoded)
           throw jsi::JSError(rt, "cryptoDigest: invalid base64 input");
-        GChecksum* ck = g_checksum_new(type);
-        if (!ck) {
-          g_free(decoded);
-          throw jsi::JSError(rt, "cryptoDigest: g_checksum_new failed");
-        }
-        g_checksum_update(ck, decoded, static_cast<gssize>(decodedLen));
-        const char* hex = g_checksum_get_string(ck);
-        std::string out = hex ? std::string{hex} : std::string{};
-        g_checksum_free(ck);
+        std::string out = computeDigest(type, decoded, decodedLen);
         g_free(decoded);
+        if (out.empty())
+          throw jsi::JSError(rt, "cryptoDigest: g_checksum_new failed");
         return jsi::String::createFromUtf8(rt, out);
+      });
+
+  // Async variant of cryptoDigest — for payloads above ~1 MB the
+  // sync path can stall the React commit pipeline for tens of ms
+  // (SHA-256 of 10 MB ≈ 30 ms). Spawns a detached std::thread that
+  // does the SHA + base64 decode, then hops back to the JS worker
+  // via state().executor before invoking the JS callback.
+  //
+  // JS shape: `rnLinux.cryptoDigestAsync(algo, b64, (err, hex) => …)`.
+  // Throws on argument-shape errors before dispatch (caller doesn't
+  // expect those to come through the callback); algorithm-name
+  // errors surface as `err` in the callback so the worker-thread
+  // path stays uniform.
+  bindMethod(
+      rt,
+      rnLinux,
+      "cryptoDigestAsync",
+      3,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 3 || !args[0].isString() || !args[1].isString() || !args[2].isObject() ||
+            !args[2].asObject(rt).isFunction(rt)) {
+          throw jsi::JSError(rt, "cryptoDigestAsync(algorithm, base64Data, cb) required");
+        }
+        const auto algo = args[0].asString(rt).utf8(rt);
+        const auto b64 = args[1].asString(rt).utf8(rt);
+        auto cb = std::make_shared<jsi::Function>(args[2].asObject(rt).asFunction(rt));
+        auto& s = state();
+        if (!s.executor) {
+          throw jsi::JSError(rt, "cryptoDigestAsync: runtime executor unset");
+        }
+        std::thread([algo = std::move(algo), b64 = std::move(b64), cb = std::move(cb)]() {
+          std::string err;
+          std::string hex;
+          GChecksumType type;
+          if (!parseChecksumType(algo, type)) {
+            err = "cryptoDigestAsync: unsupported algorithm " + algo;
+          } else {
+            gsize decodedLen = 0;
+            guchar* decoded = g_base64_decode(b64.c_str(), &decodedLen);
+            if (!decoded) {
+              err = "cryptoDigestAsync: invalid base64 input";
+            } else {
+              hex = computeDigest(type, decoded, decodedLen);
+              g_free(decoded);
+              if (hex.empty()) {
+                err = "cryptoDigestAsync: g_checksum_new failed";
+              }
+            }
+          }
+          state().executor(
+              [cb = std::move(cb), err = std::move(err), hex = std::move(hex)](jsi::Runtime& rt) {
+                try {
+                  if (!err.empty()) {
+                    cb->call(rt, jsi::String::createFromUtf8(rt, err), jsi::Value::null());
+                  } else {
+                    cb->call(rt, jsi::Value::null(), jsi::String::createFromUtf8(rt, hex));
+                  }
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux") << "cryptoDigestAsync callback threw: " << e.what();
+                }
+              });
+        }).detach();
+        return jsi::Value::undefined();
       });
 
   // RFC 4122 v4 UUID via glib. Format matches expo's:

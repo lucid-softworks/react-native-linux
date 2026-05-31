@@ -94,6 +94,42 @@ function randomUUID() {
   return rnLinux.cryptoUUID();
 }
 
+// Payloads above this size go through the threaded
+// `cryptoDigestAsync` binding so SHA + base64 work doesn't pin the
+// JS thread. SHA-256 of a 1 MB blob ≈ 3 ms; 10 MB ≈ 30 ms. Below
+// the threshold the spawn overhead (~50 us) costs more than the
+// digest itself.
+const _LARGE_PAYLOAD_THRESHOLD = 1024 * 1024;
+
+function _digestNative(algorithm, b64) {
+  return new Promise((resolve, reject) => {
+    if (typeof rnLinux.cryptoDigestAsync === 'function') {
+      rnLinux.cryptoDigestAsync(algorithm, b64, (err, hex) => {
+        if (err) reject(new Error(err));
+        else resolve(hex);
+      });
+    } else {
+      // Older C++ side without the async binding — fall back to the
+      // sync path so existing playground builds keep working.
+      try {
+        resolve(rnLinux.cryptoDigest(algorithm, b64));
+      } catch (e) {
+        reject(e);
+      }
+    }
+  });
+}
+
+function _digest(algorithm, b64, byteLen) {
+  // Small payloads stay sync — the thread spawn would cost more than
+  // the digest itself. Returns either a Promise (large) or the hex
+  // string (small) so callers can branch on it.
+  if (byteLen < _LARGE_PAYLOAD_THRESHOLD) {
+    return rnLinux.cryptoDigest(algorithm, b64);
+  }
+  return _digestNative(algorithm, b64);
+}
+
 async function digest(algorithm, data) {
   if (!_hasNative) throw new Error('expo-crypto: native bindings not bound');
   // `data` may be a string, ArrayBuffer, or typed array (BufferSource).
@@ -110,7 +146,7 @@ async function digest(algorithm, data) {
   } else {
     throw new TypeError('digest: data must be a string, ArrayBuffer, or typed array');
   }
-  const hex = rnLinux.cryptoDigest(algorithm, _uint8ToB64(bytes));
+  const hex = await _digest(algorithm, _uint8ToB64(bytes), bytes.length);
   return _hexToUint8(hex).buffer;
 }
 
@@ -118,7 +154,7 @@ async function digestStringAsync(algorithm, data, options) {
   if (!_hasNative) throw new Error('expo-crypto: native bindings not bound');
   const encoding = (options && options.encoding) || CryptoEncoding.HEX;
   const bytes = new TextEncoder().encode(String(data));
-  const hex = rnLinux.cryptoDigest(algorithm, _uint8ToB64(bytes));
+  const hex = await _digest(algorithm, _uint8ToB64(bytes), bytes.length);
   if (encoding === CryptoEncoding.BASE64) {
     return _uint8ToB64(_hexToUint8(hex));
   }
