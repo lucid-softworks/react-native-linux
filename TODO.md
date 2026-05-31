@@ -45,10 +45,10 @@ Perf optimizations that landed (2026-05-25 perf push):
 
 Honest gaps for arbitrary RN apps to drop in:
 
-- `Animated.useNativeDriver` — flag is currently ignored, but the underlying native-driver code path exists; just needs a flag check in `animated.js`'s `timing()`.
-- `RefreshControl` / `KeyboardAvoidingView` — not wired yet. (`Switch`, `ActivityIndicator`, `SafeAreaView` landed; `Switch` / `ActivityIndicator` now have `MeasurableYogaNode` + `measureContent` so they don't collapse to 0×0 in flex layouts.)
-- TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
-- AT-SPI2 accessibility (`AccessibilityInfo` still a stub).
+- TurboModule manager + codegen (`docs/design-turbomodule-manager.md`) — third-party RN libraries with `react-native.config.js` can't autolink yet; in-tree shims work through ad-hoc `rnLinux.*` JSI bindings.
+- Fabric `EventEmitter` event dispatch (`docs/design-fabric-event-emitter.md`) — events still route through per-tag JSI registries.
+- AT-SPI2 accessibility — `AccessibilityInfo` is a stub; `schedulerDidSendAccessibilityEvent` hook exists but doesn't emit through AT-SPI.
+- `RefreshControl` real plumbing — passthrough shim accepts the prop today; `GtkScrolledWindow::edge-reached` → `onRefresh` is the remaining wiring.
 
 ## Phase 5 — Native runtime (`vnext/`)
 
