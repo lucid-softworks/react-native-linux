@@ -253,6 +253,24 @@ export const Animated: {
       useNativeDriver?: boolean;
     },
   ): AnimatedHandle;
+  spring(
+    value: AnimatedValue,
+    config: {
+      toValue: number;
+      velocity?: number;
+      stiffness?: number;
+      damping?: number;
+      mass?: number;
+      tension?: number;
+      friction?: number;
+      restDisplacementThreshold?: number;
+      restSpeedThreshold?: number;
+      overshootClamping?: boolean;
+      useNativeDriver?: boolean;
+    },
+  ): AnimatedHandle;
+  delay(ms: number): AnimatedHandle;
+  stagger(time: number, anims: AnimatedHandle[]): AnimatedHandle;
   sequence(anims: AnimatedHandle[]): AnimatedHandle;
   parallel(anims: AnimatedHandle[]): AnimatedHandle;
   loop(anim: AnimatedHandle, opts?: {iterations?: number}): AnimatedHandle;

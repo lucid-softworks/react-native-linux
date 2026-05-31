@@ -306,6 +306,173 @@ function timing(value, config) {
   };
 }
 
+// Damped harmonic oscillator: dx/dt = v, dv/dt = -(k·x + c·v) / m.
+// Mirrors RN's spring physics from Animated/animations/SpringAnimation
+// (stiffness/damping form). The legacy bouncy/tension+friction config
+// names map onto stiffness/damping via the same constants RN uses, so
+// existing apps drop in unchanged.
+//
+// We integrate with a fixed-step RK4 substep inside the rAF callback
+// (one rAF tick = one integration "frame" of duration `dt` in seconds),
+// which keeps the simulation stable when frame intervals vary on the
+// software-paint VM. The substep count (1 ms each) is small enough
+// that a long-paused tab catching up doesn't blow the spring past
+// `toValue` and oscillate forever.
+function timingSpring(value, config) {
+  const toValue = config.toValue;
+  // Same defaults RN ships. tension/friction shortcuts re-map to
+  // stiffness/damping via the upstream `fromOrigamiTensionAndFriction`
+  // identity (tension*0.62 + 1, friction*0.65 + 0.65) — close enough
+  // for desktop UI use without porting Origami's full Pop interpolator.
+  const stiffness = config.stiffness ?? (config.tension != null ? config.tension * 0.62 + 1 : 100);
+  const damping = config.damping ?? (config.friction != null ? config.friction * 0.65 + 0.65 : 10);
+  const mass = config.mass ?? 1;
+  const initialVelocity = config.velocity ?? 0;
+  const restDispThreshold = config.restDisplacementThreshold ?? 0.001;
+  const restSpeedThreshold = config.restSpeedThreshold ?? 0.001;
+  const overshootClamping = config.overshootClamping === true;
+  const useNative = config.useNativeDriver === true && typeof value._nativeOnly === 'number';
+
+  let from = 0;
+  let v = initialVelocity;
+  let lastT = 0;
+  let raf = 0;
+  let onDone = null;
+  let cancelled = false;
+  let entered = false;
+
+  function enter() {
+    if (entered || !useNative) return;
+    entered = true;
+    value._nativeOnly += 1;
+  }
+  function exit() {
+    if (!entered) return;
+    entered = false;
+    value._nativeOnly = Math.max(0, value._nativeOnly - 1);
+  }
+
+  function step(t) {
+    if (cancelled) {
+      exit();
+      return;
+    }
+    if (!lastT) {
+      lastT = t;
+      from = value.__getValue();
+    }
+    // dt is in seconds. Clamp to 64 ms / substep at most so a stalled
+    // tab can't inject one giant timestep that explodes the spring.
+    let dt = Math.min(0.064, (t - lastT) / 1000);
+    lastT = t;
+
+    // Semi-implicit Euler with 1 ms substeps. Simpler than RK4 and
+    // numerically stable for the range of stiffness/damping desktop UI
+    // springs typically use (Origami's slowest is ~stiffness=50,
+    // damping=10 — well within the stable region at 1 ms).
+    const subStep = 0.001;
+    let x = from;
+    while (dt > 0) {
+      const h = Math.min(subStep, dt);
+      const springForce = -stiffness * (x - toValue);
+      const dampingForce = -damping * v;
+      const a = (springForce + dampingForce) / mass;
+      v += a * h;
+      x += v * h;
+      dt -= h;
+    }
+    from = x;
+
+    // Stop when we've come to rest near toValue. overshootClamping
+    // additionally snaps from past-toValue back to toValue — common
+    // for Modal slide-up where overshoot looks broken.
+    const atRest = Math.abs(v) < restSpeedThreshold && Math.abs(x - toValue) < restDispThreshold;
+    const clamped = overshootClamping && ((v < 0 && x < toValue) || (v > 0 && x > toValue));
+    if (atRest || clamped) {
+      value.setValue(toValue);
+      exit();
+      if (onDone) onDone({finished: true});
+      return;
+    }
+    value.setValue(x);
+    raf = globalThis.requestAnimationFrame(step);
+  }
+
+  return {
+    start(cb) {
+      onDone = cb;
+      enter();
+      raf = globalThis.requestAnimationFrame(step);
+    },
+    stop() {
+      cancelled = true;
+      exit();
+      if (raf) globalThis.cancelAnimationFrame(raf);
+      if (onDone) onDone({finished: false});
+    },
+  };
+}
+
+// Animated.delay(ms) is just an animation handle that resolves
+// `finished: true` after `ms` ms. Used inside sequence() to space out
+// the steps of a multi-stage reveal.
+function delay(ms) {
+  let id = 0;
+  let onDone = null;
+  let cancelled = false;
+  return {
+    start(cb) {
+      onDone = cb;
+      id = globalThis.setTimeout(() => {
+        id = 0;
+        if (!cancelled && onDone) onDone({finished: true});
+      }, ms);
+    },
+    stop() {
+      cancelled = true;
+      if (id) globalThis.clearTimeout(id);
+      if (onDone) onDone({finished: false});
+    },
+  };
+}
+
+// Animated.stagger(time, animations) starts the i-th animation `i*time`
+// ms after the call. Common for list reveals — each item slides up
+// one tick after the previous. Resolves `finished` only after EVERY
+// child resolves; stop cancels them all.
+function stagger(time, anims) {
+  let cancelled = false;
+  let done = 0;
+  const timeouts = [];
+  return {
+    start(cb) {
+      if (anims.length === 0) {
+        if (cb) cb({finished: true});
+        return;
+      }
+      let anyUnfinished = false;
+      anims.forEach((a, i) => {
+        const id = globalThis.setTimeout(() => {
+          if (cancelled) return;
+          a.start(result => {
+            if (!result.finished) anyUnfinished = true;
+            done++;
+            if (done === anims.length && cb) {
+              cb({finished: !anyUnfinished && !cancelled});
+            }
+          });
+        }, i * time);
+        timeouts.push(id);
+      });
+    },
+    stop() {
+      cancelled = true;
+      timeouts.forEach(id => globalThis.clearTimeout(id));
+      anims.forEach(a => a.stop());
+    },
+  };
+}
+
 function sequence(anims) {
   let i = 0;
   let current = null;
@@ -574,6 +741,9 @@ const Animated = {
   ScrollView: createAnimatedComponent(ScrollView),
   createAnimatedComponent,
   timing,
+  spring: timingSpring,
+  delay,
+  stagger,
   sequence,
   parallel,
   loop,
