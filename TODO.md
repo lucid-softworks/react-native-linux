@@ -45,7 +45,6 @@ Perf optimizations that landed (2026-05-25 perf push):
 
 Honest gaps for arbitrary RN apps to drop in:
 
-- Inline nested `<Text>` for mixed-style runs (Fabric collapses our intermediate Text shadow nodes; one Paragraph per outer `<Text>` today).
 - `Animated.useNativeDriver` — flag is currently ignored, but the underlying native-driver code path exists; just needs a flag check in `animated.js`'s `timing()`.
 - `RefreshControl` / `KeyboardAvoidingView` — not wired yet. (`Switch`, `ActivityIndicator`, `SafeAreaView` landed; `Switch` / `ActivityIndicator` now have `MeasurableYogaNode` + `measureContent` so they don't collapse to 0×0 in flex layouts.)
 - TurboModule manager (we use ad-hoc `rnLinux.*` JSI bindings instead).
@@ -155,7 +154,7 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [x] Platform.OS = 'linux', Platform.select; Dimensions / Appearance / useColorScheme stubs
 - [x] HTTP image loading via libsoup-3 async fetch (process-wide SoupSession, dedup-by-uri via g_object_set_data tag)
 - [x] AsyncStorage (`@react-native-async-storage/async-storage` import works) — full API as Promise-returning wrappers over synchronous rnLinux.storage\* JSI bindings
-- [~] Inline `<Text>` styling — only one fontSize/color/etc. per Paragraph; mixed-style runs collapse
+- [x] Inline `<Text>` styling — landed in 76551a0f. Outer `<Text>` emits a Paragraph; nested Text emits a 'Text' shadow node via an `InTextContext` React.Context branch in `components.js`. BaseTextShadowNode walks the descendants to build the AttributedString; PangoMarkup emits one `<span attrs…>` per fragment so multi-style runs render correctly.
 - [x] `numberOfLines` / `ellipsizeMode` — forwarded from `ParagraphAttributes` to `gtk_label_set_lines` / `gtk_label_set_ellipsize` in `ParagraphComponentView::updateProps`; `numberOfLines={1} + ellipsizeMode='tail'` flips wrap off so Pango ellipsizes the single line at the bound
 - [x] Window resize / maximize — viewport widget with a custom GtkLayoutManager (natural=(0,0), allocate-child-to-full-size) breaks the GtkFixed-children-bbox propagation; resize/maximize/restore push real (w, h) into `resizeRootSurface()` on every tick
 - [x] `tintColor` on Image — `RnLinuxTintedPaintable` wraps the source paintable and `gtk_snapshot_push_color_matrix` replaces RGB with the tint, scaled by source alpha so transparent regions stay transparent. Lives in `vnext/src/views/TintedPaintable.{h,cpp}`; `ImageComponentView::updateProps` retunes the live wrapper on tint-only changes instead of reloading.
@@ -236,10 +235,9 @@ In priority order toward "drop a real RN app in and have it work":
 
 1. **Try a real app harness** — pull a non-trivial Expo screen or `react-native-paper` showcase into `apps/`. The "honest gaps" list below is best-guess; running real code reveals the actual blockers. **This re-orders everything else, so do it first.**
 2. **TurboModule manager** — replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules — required for anything beyond first-party shims (NetInfo, the @react-native-community packages, …).
-3. **Inline nested `<Text>` styling** — Fabric collapses our intermediate Text shadow nodes into duplicate Paragraph creates. Read BaseTextShadowNode's `dynamic_cast` path; probably a `LeafYogaNode` / `Trait::FormsView` thing. RN apps mix bold/colored fragments inside one `<Text>` constantly.
-4. **`RefreshControl`** — GtkScrolledWindow's "edge-reached" signal. A few hundred lines.
-5. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
-6. **Long-press, real Fabric EventEmitter, keyboard events** — once the simpler components are landing, gesture coverage starts mattering for parity.
+3. **`RefreshControl`** — GtkScrolledWindow's "edge-reached" signal. A few hundred lines.
+4. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
+5. **Real Fabric EventEmitter** — replace the dispatchFabric\* JSI tag-registry with the EventEmitter::dispatchEvent path so nested gestures route correctly through the standard React event system.
 
 Resize lag and FPS perf are real but second-order: the app needs to RUN before being smooth matters. The perf scaffolding from earlier sessions (CSS cache, opacity cache, set_size_request diff, paint-only transforms, FlatList virtualization, Hermes stack bump, TurboVNC) gives a healthy floor; bare-metal Linux is the final unblock for 60 FPS regardless.
 

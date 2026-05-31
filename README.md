@@ -40,7 +40,6 @@ by and structurally modeled after
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `react-native-safe-area-context`   | ⚠ shim returns zero insets; `SafeAreaProvider` is a passthrough `<View>`                                          |
 | `expo-camera` / `expo-location`    | ❌ expo-modules-core has no Linux native registry; `requireNativeModule()` throws                                 |
-| Nested `<Text>` inside `<Text>`    | ❌ inner element renders as a U+FFFC object-replacement char                                                      |
 | Hermes 0.12 + native async / await | ⚠ Hermes rejects raw `async` / `await` syntax; the bundler lowers it to generators so user code can use it freely |
 | Multi-instance / per-app isolation | ❌ single GtkApplication, single Hermes runtime                                                                   |
 | vnext unit-test binary in CI       | ❌ Hermes' bundled llvh gtest collides with upstream googletest; tests build locally via a Hermes-free configure  |
