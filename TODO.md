@@ -48,7 +48,7 @@ Honest gaps for arbitrary RN apps to drop in:
 - TurboModule manager + codegen (`docs/design-turbomodule-manager.md`) — third-party RN libraries with `react-native.config.js` can't autolink yet; in-tree shims work through ad-hoc `rnLinux.*` JSI bindings.
 - Fabric `EventEmitter` event dispatch (`docs/design-fabric-event-emitter.md`) — events still route through per-tag JSI registries.
 - AT-SPI2 accessibility — `AccessibilityInfo` is a stub; `schedulerDidSendAccessibilityEvent` hook exists but doesn't emit through AT-SPI.
-- `RefreshControl` real plumbing — passthrough shim accepts the prop today; `GtkScrolledWindow::edge-reached` → `onRefresh` is the remaining wiring.
+- ~~`RefreshControl` real plumbing~~ — landed in dbe47c75. `GtkScrolledWindow::edge-overshot` (TOP) → `dispatchFabricRefresh(tag)`; the ScrollView shim extracts `refreshControl`'s `onRefresh` + `refreshing` and forwards them as top-level host props. Per-instance `refreshing_` flag gates re-fires so one gesture = one onRefresh.
 
 ## Phase 5 — Native runtime (`vnext/`)
 
@@ -235,9 +235,8 @@ In priority order toward "drop a real RN app in and have it work":
 
 1. **Try a real app harness** — pull a non-trivial Expo screen or `react-native-paper` showcase into `apps/`. The "honest gaps" list below is best-guess; running real code reveals the actual blockers. **This re-orders everything else, so do it first.**
 2. **TurboModule manager** — replace ad-hoc `rnLinux.*` JSI registrations with a proper TurboModule pipeline. Unblocks autolinking third-party native modules — required for anything beyond first-party shims (NetInfo, the @react-native-community packages, …).
-3. **`RefreshControl`** — GtkScrolledWindow's "edge-reached" signal. A few hundred lines.
-4. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
-5. **Real Fabric EventEmitter** — replace the dispatchFabric\* JSI tag-registry with the EventEmitter::dispatchEvent path so nested gestures route correctly through the standard React event system.
+3. **Honor `Animated.useNativeDriver: true`** — code path exists; flag dispatch + per-frame batching to coalesce setNativeProp calls into one GTK invalidation.
+4. **Real Fabric EventEmitter** — replace the dispatchFabric\* JSI tag-registry with the EventEmitter::dispatchEvent path so nested gestures route correctly through the standard React event system.
 
 Resize lag and FPS perf are real but second-order: the app needs to RUN before being smooth matters. The perf scaffolding from earlier sessions (CSS cache, opacity cache, set_size_request diff, paint-only transforms, FlatList virtualization, Hermes stack bump, TurboVNC) gives a healthy floor; bare-metal Linux is the final unblock for 60 FPS regardless.
 
