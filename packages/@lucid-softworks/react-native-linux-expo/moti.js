@@ -79,14 +79,12 @@ function AnimatePresence(props) {
   return props.children;
 }
 
-module.exports = {
-  MotiView,
-  MotiText,
-  MotiImage,
-  MotiScrollView,
-  motify,
-  useDynamicAnimation,
-  useAnimationState,
-  AnimatePresence,
-  default: undefined,
-};
+Object.defineProperty(module.exports, '__esModule', {value: true});
+module.exports.MotiView = MotiView;
+module.exports.MotiText = MotiText;
+module.exports.MotiImage = MotiImage;
+module.exports.MotiScrollView = MotiScrollView;
+module.exports.motify = motify;
+module.exports.useDynamicAnimation = useDynamicAnimation;
+module.exports.useAnimationState = useAnimationState;
+module.exports.AnimatePresence = AnimatePresence;

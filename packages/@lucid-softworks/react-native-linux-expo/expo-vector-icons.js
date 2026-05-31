@@ -64,23 +64,21 @@ function buildModuleForFont(name) {
 // banner passes the requested font name through so the placeholder
 // can stamp it as a debug aid (and Button-component variants share
 // the per-font surface).
-module.exports = {
-  forFont: buildModuleForFont,
-  // Index shim for `import { FontAwesome } from '@expo/vector-icons'`.
-  FontAwesome: buildModuleForFont('FontAwesome'),
-  FontAwesome5: buildModuleForFont('FontAwesome5'),
-  FontAwesome6: buildModuleForFont('FontAwesome6'),
-  MaterialIcons: buildModuleForFont('MaterialIcons'),
-  MaterialCommunityIcons: buildModuleForFont('MaterialCommunityIcons'),
-  Ionicons: buildModuleForFont('Ionicons'),
-  Feather: buildModuleForFont('Feather'),
-  AntDesign: buildModuleForFont('AntDesign'),
-  Entypo: buildModuleForFont('Entypo'),
-  EvilIcons: buildModuleForFont('EvilIcons'),
-  Foundation: buildModuleForFont('Foundation'),
-  Octicons: buildModuleForFont('Octicons'),
-  SimpleLineIcons: buildModuleForFont('SimpleLineIcons'),
-  Zocial: buildModuleForFont('Zocial'),
-  Fontisto: buildModuleForFont('Fontisto'),
-  default: undefined,
-};
+Object.defineProperty(module.exports, '__esModule', {value: true});
+module.exports.forFont = buildModuleForFont;
+// Index shim for `import { FontAwesome } from '@expo/vector-icons'`.
+module.exports.FontAwesome = buildModuleForFont('FontAwesome');
+module.exports.FontAwesome5 = buildModuleForFont('FontAwesome5');
+module.exports.FontAwesome6 = buildModuleForFont('FontAwesome6');
+module.exports.MaterialIcons = buildModuleForFont('MaterialIcons');
+module.exports.MaterialCommunityIcons = buildModuleForFont('MaterialCommunityIcons');
+module.exports.Ionicons = buildModuleForFont('Ionicons');
+module.exports.Feather = buildModuleForFont('Feather');
+module.exports.AntDesign = buildModuleForFont('AntDesign');
+module.exports.Entypo = buildModuleForFont('Entypo');
+module.exports.EvilIcons = buildModuleForFont('EvilIcons');
+module.exports.Foundation = buildModuleForFont('Foundation');
+module.exports.Octicons = buildModuleForFont('Octicons');
+module.exports.SimpleLineIcons = buildModuleForFont('SimpleLineIcons');
+module.exports.Zocial = buildModuleForFont('Zocial');
+module.exports.Fontisto = buildModuleForFont('Fontisto');

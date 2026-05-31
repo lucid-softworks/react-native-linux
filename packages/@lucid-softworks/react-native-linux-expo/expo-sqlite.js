@@ -120,18 +120,17 @@ function deleteDatabaseAsync() {
   return Promise.resolve();
 }
 
-module.exports = {
+Object.defineProperty(module.exports, '__esModule', {value: true});
+module.exports.openDatabaseSync = openDatabaseSync;
+module.exports.openDatabaseAsync = openDatabaseAsync;
+module.exports.SQLiteProvider = SQLiteProvider;
+module.exports.useSQLiteContext = useSQLiteContext;
+module.exports.addDatabaseChangeListener = addDatabaseChangeListener;
+module.exports.deleteDatabaseSync = deleteDatabaseSync;
+module.exports.deleteDatabaseAsync = deleteDatabaseAsync;
+module.exports.default = {
   openDatabaseSync,
   openDatabaseAsync,
   SQLiteProvider,
   useSQLiteContext,
-  addDatabaseChangeListener,
-  deleteDatabaseSync,
-  deleteDatabaseAsync,
-  default: {
-    openDatabaseSync,
-    openDatabaseAsync,
-    SQLiteProvider,
-    useSQLiteContext,
-  },
 };

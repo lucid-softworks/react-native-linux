@@ -92,6 +92,17 @@ const zustandMod = require('@lucid-softworks/react-native-linux-expo/zustand');
 const expoSqliteMod = require('@lucid-softworks/react-native-linux-expo/expo-sqlite');
 const rnNavigationMod = require('@lucid-softworks/react-native-linux-expo/react-navigation-native');
 const motiMod = require('@lucid-softworks/react-native-linux-expo/moti');
+const expoUpdatesMod = require('@lucid-softworks/react-native-linux-expo/expo-updates');
+const expoAvMod = require('@lucid-softworks/react-native-linux-expo/expo-av');
+const sentryMod = require('@lucid-softworks/react-native-linux-expo/sentry-react-native');
+const socketIoMod = require('@lucid-softworks/react-native-linux-expo/socket-io-client');
+const styledComponentsMod = require('@lucid-softworks/react-native-linux-expo/styled-components-native');
+const reactNativeMapsMod = require('@lucid-softworks/react-native-linux-expo/react-native-maps');
+const reactNativePdfMod = require('@lucid-softworks/react-native-linux-expo/react-native-pdf');
+const reactNativeWebrtcMod = require('@lucid-softworks/react-native-linux-expo/react-native-webrtc');
+const reactNativeSvgMod = require('@lucid-softworks/react-native-linux-expo/react-native-svg');
+const victoryNativeMod = require('@lucid-softworks/react-native-linux-expo/victory-native');
+const reactRouterDomMod = require('@lucid-softworks/react-native-linux-expo/react-router-dom');
 // expo-router-entry is registered lazily — importing it has the side
 // effect of calling registerRootComponent. We pull it in only when an
 // app actually requires "expo-router/entry"; lazy-require via a
@@ -162,6 +173,17 @@ globalThis.__rnv = {
   expoSqlite: expoSqliteMod,
   rnNavigation: rnNavigationMod,
   moti: motiMod,
+  expoUpdates: expoUpdatesMod,
+  expoAv: expoAvMod,
+  sentry: sentryMod,
+  socketIo: socketIoMod,
+  styledComponents: styledComponentsMod,
+  reactNativeMaps: reactNativeMapsMod,
+  reactNativePdf: reactNativePdfMod,
+  reactNativeWebrtc: reactNativeWebrtcMod,
+  reactNativeSvg: reactNativeSvgMod,
+  victoryNative: victoryNativeMod,
+  reactRouterDom: reactRouterDomMod,
   expoRouterEntry,
   expoApplication: expoApplicationMod,
   expoCrypto: expoCryptoMod,

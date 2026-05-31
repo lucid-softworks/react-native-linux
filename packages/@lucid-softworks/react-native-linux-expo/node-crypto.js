@@ -86,12 +86,10 @@ function randomUUID() {
   );
 }
 
-module.exports = {
-  randomBytes,
-  getRandomValues,
-  randomUUID,
-  // CommonJS-default-export convention for libraries that do
-  // `import crypto from 'crypto'` after esbuild's interop wrapper —
-  // the wrapper looks for `default` on the namespace.
-  default: {randomBytes, getRandomValues, randomUUID},
-};
+Object.defineProperty(module.exports, '__esModule', {value: true});
+module.exports.randomBytes = randomBytes;
+module.exports.getRandomValues = getRandomValues;
+module.exports.randomUUID = randomUUID;
+// `import crypto from 'crypto'` reads the default slot; we point it
+// at the namespace itself so both default and named access work.
+module.exports.default = {randomBytes, getRandomValues, randomUUID};

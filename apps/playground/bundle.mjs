@@ -187,6 +187,11 @@ const baseOpts = {
     '.gif': 'dataurl',
     '.webp': 'dataurl',
     '.ttf': 'dataurl',
+    // .svg: real handling needs react-native-svg-transformer to
+    // parse the SVG into a React component. For smoke purposes
+    // empty-ing the file (default value: undefined) lets the import
+    // resolve; `<ExpoLogo />` then renders as nothing.
+    '.svg': 'empty',
     '.otf': 'dataurl',
   },
   jsx: 'automatic',
@@ -297,6 +302,20 @@ const appOpts = {
     '@react-navigation/material-bottom-tabs',
     '@react-navigation/elements',
     'moti',
+    'expo-updates',
+    'expo-av',
+    '@sentry/react-native',
+    'socket.io-client',
+    'styled-components',
+    'styled-components/native',
+    'react-native-maps',
+    'react-native-pdf',
+    'react-native-webrtc',
+    'react-native-svg',
+    'react-native-svg/css',
+    'victory-native',
+    'react-router-dom',
+    'react-router',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -369,6 +388,17 @@ const appOpts = {
       '  if (id === "@react-navigation/material-bottom-tabs") return {createMaterialBottomTabNavigator: rnv.rnNavigation.createMaterialBottomTabNavigator};\n' +
       '  if (id === "@react-navigation/elements") return {};\n' +
       '  if (id === "moti") return rnv.moti;\n' +
+      '  if (id === "expo-updates") return rnv.expoUpdates;\n' +
+      '  if (id === "expo-av") return rnv.expoAv;\n' +
+      '  if (id === "@sentry/react-native") return rnv.sentry;\n' +
+      '  if (id === "socket.io-client") return rnv.socketIo;\n' +
+      '  if (id === "styled-components" || id === "styled-components/native") return rnv.styledComponents;\n' +
+      '  if (id === "react-native-maps") return rnv.reactNativeMaps;\n' +
+      '  if (id === "react-native-pdf") return rnv.reactNativePdf;\n' +
+      '  if (id === "react-native-webrtc") return rnv.reactNativeWebrtc;\n' +
+      '  if (id === "react-native-svg" || id === "react-native-svg/css") return rnv.reactNativeSvg;\n' +
+      '  if (id === "victory-native") return rnv.victoryNative;\n' +
+      '  if (id === "react-router-dom" || id === "react-router") return rnv.reactRouterDom;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.

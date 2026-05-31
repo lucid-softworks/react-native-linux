@@ -206,31 +206,29 @@ const DrawerActions = {
   toggleDrawer: () => ({type: 'TOGGLE_DRAWER'}),
 };
 
-module.exports = {
-  NavigationContainer,
-  NavigationContext,
-  RouteContext,
-  createNavigationContainerRef,
-  useNavigation,
-  useNavigationContainerRef,
-  useRoute,
-  useNavigationState,
-  useFocusEffect,
-  useIsFocused,
-  useTheme,
-  DefaultTheme,
-  DarkTheme,
-  CommonActions,
-  StackActions,
-  DrawerActions,
-  // Navigator factories live on every @react-navigation/* sub-package.
-  // Re-exported here so the bundle banner can route them all through
-  // this single module.
-  createStackNavigator,
-  createNativeStackNavigator,
-  createDrawerNavigator,
-  createBottomTabNavigator,
-  createMaterialTopTabNavigator,
-  createMaterialBottomTabNavigator,
-  default: undefined,
-};
+Object.defineProperty(module.exports, '__esModule', {value: true});
+module.exports.NavigationContainer = NavigationContainer;
+module.exports.NavigationContext = NavigationContext;
+module.exports.RouteContext = RouteContext;
+module.exports.createNavigationContainerRef = createNavigationContainerRef;
+module.exports.useNavigation = useNavigation;
+module.exports.useNavigationContainerRef = useNavigationContainerRef;
+module.exports.useRoute = useRoute;
+module.exports.useNavigationState = useNavigationState;
+module.exports.useFocusEffect = useFocusEffect;
+module.exports.useIsFocused = useIsFocused;
+module.exports.useTheme = useTheme;
+module.exports.DefaultTheme = DefaultTheme;
+module.exports.DarkTheme = DarkTheme;
+module.exports.CommonActions = CommonActions;
+module.exports.StackActions = StackActions;
+module.exports.DrawerActions = DrawerActions;
+// Navigator factories live on every @react-navigation/* sub-package.
+// Re-exported here so the bundle banner can route them all through
+// this single module.
+module.exports.createStackNavigator = createStackNavigator;
+module.exports.createNativeStackNavigator = createNativeStackNavigator;
+module.exports.createDrawerNavigator = createDrawerNavigator;
+module.exports.createBottomTabNavigator = createBottomTabNavigator;
+module.exports.createMaterialTopTabNavigator = createMaterialTopTabNavigator;
+module.exports.createMaterialBottomTabNavigator = createMaterialBottomTabNavigator;

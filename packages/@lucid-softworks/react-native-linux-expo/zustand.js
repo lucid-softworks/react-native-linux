@@ -89,11 +89,15 @@ function create(initializer) {
   return useStore;
 }
 
-module.exports = {
-  create,
-  createStore,
-  // Default export for ESM-default-via-CJS callers.
-  default: create,
-  // /shallow sub-module re-export.
-  shallow,
-};
+// esbuild's __toESM wraps non-ESM modules by stamping their value at
+// `.default` on a new object; that re-wraps `module.exports.default`
+// to point at the whole namespace instead of the create function.
+// Marking the module as ESM-shaped tells the interop to pass through
+// unchanged, so `import create from 'zustand'` reads the right slot.
+Object.defineProperty(module.exports, '__esModule', {value: true});
+module.exports.create = create;
+module.exports.createStore = createStore;
+// Default export for `import create from 'zustand'`.
+module.exports.default = create;
+// /shallow sub-module re-export.
+module.exports.shallow = shallow;
