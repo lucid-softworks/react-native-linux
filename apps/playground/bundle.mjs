@@ -283,6 +283,8 @@ const appOpts = {
     'expo-router',
     'expo-router/entry',
     '@expo/metro-runtime',
+    '@expo/vector-icons',
+    '@expo/vector-icons/*',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -340,6 +342,14 @@ const appOpts = {
       '  if (id === "expo-router/entry") return rnv.expoRouterEntry();\n' +
       '  if (id === "@expo/metro-runtime") return rnv.expoMetroRuntime;\n' +
       '  if (id === "crypto" || id === "node:crypto") return rnv.nodeCrypto;\n' +
+      // @expo/vector-icons/<Font> sub-paths route through the shared
+      // shim; the bare-module form (no sub-path) returns the index
+      // with every font pre-built.
+      '  if (id === "@expo/vector-icons") return rnv.expoVectorIcons;\n' +
+      '  if (id.indexOf("@expo/vector-icons/") === 0) {\n' +
+      '    var f = id.slice("@expo/vector-icons/".length);\n' +
+      '    return rnv.expoVectorIcons[f] || rnv.expoVectorIcons.forFont(f);\n' +
+      '  }\n' +
       '  if (id === "expo-application") return rnv.expoApplication;\n' +
       '  if (id === "expo-crypto") return rnv.expoCrypto;\n' +
       '  if (id === "expo-device") return rnv.expoDevice;\n' +
