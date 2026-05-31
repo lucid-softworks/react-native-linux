@@ -240,6 +240,127 @@ jobs:
             echo "::endgroup::"
           done
 
+  smoke-playground:
+    # Boots the playground binary under xvfb and verifies it actually
+    # paints. The bundle gate (`build-playground-bundle`) only checks
+    # that esbuild + hermesc accept each entry; this job catches C++-
+    # side mounting regressions — a crash in the Hermes runtime, a
+    # broken Fabric mount, a missing JSI binding, etc. — that
+    # wouldn't surface until someone runs the demo locally.
+    #
+    # ~10 min on a cold runner (Hermes + Folly FetchContent +
+    # rn-renderer + playground); ~3 min on a cache hit. Cache key is
+    # the same Fetch*.cmake hash as build-vnext, with a playground
+    # prefix because the subdir layout differs.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install native build + xvfb deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build cmake pkg-config \
+            libgtk-4-dev \
+            libsoup-3.0-dev \
+            libglib2.0-dev \
+            libboost-all-dev \
+            libdouble-conversion-dev \
+            libevent-dev \
+            libssl-dev \
+            libgoogle-glog-dev \
+            libgflags-dev \
+            libfast-float-dev \
+            zlib1g-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libnotify-dev \
+            libsecret-1-dev \
+            python3 python3-pip \
+            xvfb imagemagick
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install template deps (provides node_modules/react-native)
+        working-directory: template
+        run: |
+          pnpm install --no-frozen-lockfile
+
+      - name: Cache CMake FetchContent _deps (playground tree)
+        uses: actions/cache@v5
+        with:
+          path: apps/playground/linux/build/_deps
+          key: playground-deps-ubuntu-24.04-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
+
+      - name: Bundle index.tsx (playground default surface)
+        # index.tsx is the Tabs UI with the most surface area — Pressables,
+        # FlatList, ScrollView, TextInput, Animated. Any C++ regression
+        # in the mounting layer is likeliest to show up here first.
+        working-directory: apps/playground
+        run: |
+          RN_ENTRY=index node bundle.mjs
+
+      - name: Configure playground (incl. vnext as subdir)
+        # The playground's CMakeLists adds vnext as a subdirectory, so
+        # this single configure handles both. -DREACT_NATIVE_LINUX_DIR
+        # points the playground at this repo's vnext, not a published
+        # @lucid-softworks/react-native-linux from node_modules.
+        run: |
+          cmake -S apps/playground/linux -B apps/playground/linux/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DREACT_NATIVE_LINUX_DIR=${{ github.workspace }}/vnext \
+            -DREACT_NATIVE_ROOT=${{ github.workspace }}/template/node_modules/react-native
+
+      - name: Build playground binary
+        run: |
+          cmake --build apps/playground/linux/build --parallel --target rn-linux-playground
+
+      - name: Smoke under xvfb
+        # scripts/ci/smoke-playground.sh: xvfb-run → background the
+        # binary → sleep settle-ms → ImageMagick `import` screenshot
+        # → kill. Three assertions on top of "screenshot exists":
+        #
+        #   1. The process was still alive at screenshot time. Catches
+        #      every crash before the first frame paints.
+        #   2. ImageMagick `identify -format %k` reports ≥ 16 distinct
+        #      pixel values. A bare Xvfb display with no client is
+        #      pure black (k=1); even a minimal GTK window with
+        #      anti-aliased default fonts trips dozens. Catches the
+        #      "binary lives but never opens a window" failure mode.
+        #   3. The captured stderr contains "JSX commit done" — fired
+        #      by fabric.js's commit-success callback. That's
+        #      end-to-end proof the C++ host installed the JSI
+        #      bindings, Hermes evaluated the bundle, and the
+        #      reconciler reached its first reconcile + commit.
+        #
+        # The C++ host reads its bundle URL from RN_BUNDLE_URL; we
+        # pass the .hbc path so we exercise the Hermes-bytecode load
+        # path (same one users hit in release builds).
+        run: |
+          scripts/ci/smoke-playground.sh \
+            --executable apps/playground/linux/build/rn-linux-playground \
+            --bundle-url "file://${{ github.workspace }}/apps/playground/linux/build/assets/index.linux.bundle.hbc" \
+            --settle-ms 4000 \
+            --output dist/ci-smoke/screenshot.png \
+            --log dist/ci-smoke/app.log
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playground-smoke
+          path: |
+            dist/ci-smoke/screenshot.png
+            dist/ci-smoke/app.log
+          if-no-files-found: ignore
+
   coverage:
     # JS-side jest coverage; uploads lcov.info as an artifact. vnext's
     # C++ coverage isn't gated yet — the gtest target conflict with
