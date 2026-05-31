@@ -4,7 +4,7 @@ import execa from 'execa';
 import type {Command, Config} from '@react-native-community/cli-types';
 
 interface PackLinuxOpts {
-  target: 'appimage' | 'deb';
+  target: 'appimage' | 'deb' | 'rpm';
   appDir: string;
   executable: string;
   output?: string;
@@ -18,6 +18,14 @@ interface PackLinuxOpts {
   description?: string;
   depends?: string;
   noFetch?: boolean;
+  // RPM-only — equivalent of --depends with comma-separated names,
+  // a release number, license slug, and vendor (RPM's analogue of
+  // deb's Maintainer field).
+  requires?: string;
+  release?: string;
+  license?: string;
+  summary?: string;
+  vendor?: string;
 }
 
 // Find the wrapper shell scripts relative to this package, so the CLI
@@ -94,6 +102,50 @@ async function packDeb(ctx: Config, opts: PackLinuxOpts) {
   await execa(scriptPath('deb.sh'), args, {stdio: 'inherit', cwd: ctx.root});
 }
 
+async function packRpm(ctx: Config, opts: PackLinuxOpts) {
+  const pkg = readPkg(ctx.root);
+  const name = opts.name ?? sanitizeRpmName(pkg.name ?? opts.executable);
+  const version = opts.version ?? pkg.version ?? '0.0.1';
+  const release = opts.release ?? '1';
+  const summary =
+    opts.summary ?? opts.description ?? pkg.description ?? `${name} (react-native-linux app)`;
+  // RPM's License field expects a short slug ("MIT", "Apache-2.0",
+  // "UNLICENSED"). package.json's license is usually already that.
+  const license = opts.license ?? 'UNLICENSED';
+  const vendor = opts.vendor ?? formatMaintainer(pkg.author);
+  const arch =
+    process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'aarch64' : process.arch;
+  const output = opts.output ?? `dist/${name}-${version}-${release}.${arch}.rpm`;
+
+  const args = [
+    '--app-dir',
+    path.resolve(ctx.root, opts.appDir),
+    '--executable',
+    opts.executable,
+    '--name',
+    name,
+    '--version',
+    version,
+    '--release',
+    release,
+    '--summary',
+    summary,
+    '--license',
+    license,
+    '--vendor',
+    vendor,
+    '--output',
+    path.resolve(ctx.root, output),
+  ];
+  if (opts.desktop) args.push('--desktop', path.resolve(ctx.root, opts.desktop));
+  if (opts.bundle) args.push('--bundle', path.resolve(ctx.root, opts.bundle));
+  if (opts.vendorBundle) args.push('--vendor-bundle', path.resolve(ctx.root, opts.vendorBundle));
+  if (opts.icon) args.push('--icon', path.resolve(ctx.root, opts.icon));
+  if (opts.requires) args.push('--requires', opts.requires);
+
+  await execa(scriptPath('rpm.sh'), args, {stdio: 'inherit', cwd: ctx.root});
+}
+
 interface MinimalPkg {
   name?: string;
   version?: string;
@@ -119,6 +171,17 @@ function sanitizeDebName(name: string): string {
     .replace(/[^a-z0-9.+-]/g, '');
 }
 
+// RPM package names follow a tighter rule than .deb: no leading dot,
+// no '+' in the canonical set. Otherwise the alphabet matches.
+function sanitizeRpmName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[/_]/g, '-')
+    .replace(/[^a-z0-9.-]/g, '')
+    .replace(/^\.+/, '');
+}
+
 function formatMaintainer(author: MinimalPkg['author']): string {
   if (!author) return 'Unspecified <unspecified@example.invalid>';
   if (typeof author === 'string') return author;
@@ -130,11 +193,11 @@ function formatMaintainer(author: MinimalPkg['author']): string {
 export const packLinux: Command = {
   name: 'pack-linux',
   description:
-    'Bundle a built react-native-linux app into a distributable package (.deb or .AppImage).',
+    'Bundle a built react-native-linux app into a distributable package (.deb, .rpm, or .AppImage).',
   options: [
     {
       name: '--target <format>',
-      description: 'Packaging format: "deb" or "appimage"',
+      description: 'Packaging format: "deb", "rpm", or "appimage"',
       default: 'deb',
     },
     {
@@ -187,6 +250,28 @@ export const packLinux: Command = {
       description: 'Runtime apt dependencies (deb only)',
     },
     {
+      name: '--requires <csv>',
+      description: 'Runtime rpm dependencies (rpm only; default: gtk4,libsoup3)',
+    },
+    {
+      name: '--release <int>',
+      description: 'RPM release number (rpm only; default: 1)',
+    },
+    {
+      name: '--license <slug>',
+      description: 'License slug for the RPM License: field (rpm only; default: UNLICENSED)',
+    },
+    {
+      name: '--summary <text>',
+      description:
+        'One-line summary for the RPM Summary: field (rpm only; default: derived from description)',
+    },
+    {
+      name: '--vendor <string>',
+      description:
+        '"Name <email>" for the RPM Vendor: field (rpm only; default: from package.json author)',
+    },
+    {
       name: '--no-fetch',
       description: 'AppImage only: skip downloading linuxdeploy / appimagetool',
     },
@@ -203,8 +288,12 @@ export const packLinux: Command = {
       await packAppImage(ctx, opts);
     } else if (opts.target === 'deb') {
       await packDeb(ctx, opts);
+    } else if (opts.target === 'rpm') {
+      await packRpm(ctx, opts);
     } else {
-      throw new Error(`Unsupported --target "${opts.target}". Supported: "deb", "appimage".`);
+      throw new Error(
+        `Unsupported --target "${opts.target}". Supported: "deb", "rpm", "appimage".`,
+      );
     }
   }) as Command['func'],
 };
