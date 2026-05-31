@@ -126,8 +126,8 @@ Honest gaps for arbitrary RN apps to drop in:
 - [x] Hermes bytecode pre-compile for the vendor bundle (≈10 ms cold-start vendor eval)
 - [ ] Metro WebSocket client (we use the HMR socket instead — same outcome)
 - [ ] Hermes inspector port
-- [ ] Cmd/Ctrl+R reload keybinding at the GTK level
-- [ ] Performance overlay (FPS)
+- [x] Cmd/Ctrl+R reload keybinding at the GTK level — `GtkShortcutController` in `RNLinuxApplication::onActivate` binds both `Ctrl+R` and `Cmd+R` (Mac VNC) to `host->reload()`.
+- [x] Performance overlay (FPS) — `apps/playground/FpsOverlay.tsx` reads from a `requestAnimationFrame` chain and renders FPS / frame-ms / drops over the demo with a color-coded threshold (red/yellow/green).
 
 ### 5.9 — Off-load blocking native work from the JS worker
 
