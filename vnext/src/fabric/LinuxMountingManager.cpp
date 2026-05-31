@@ -2,12 +2,34 @@
 
 #include "react-native-linux/Logging.h"
 
+#include <algorithm>
 #include <gtk/gtk.h>
 #include <react/renderer/mounting/MountingTransaction.h>
 #include <react/renderer/mounting/ShadowView.h>
 #include <react/renderer/mounting/ShadowViewMutation.h>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace rnlinux {
+
+namespace {
+struct UpdatePropsStats {
+  int count = 0;
+  gint64 totalUs = 0;
+  gint64 maxUs = 0;
+};
+// Per-component updateProps profile, keyed by componentName. Logged
+// alongside the per-transaction roll-up so the line shows which view
+// classes (Text, Image, ScrollView, …) are dominating mount cost on a
+// given screen.
+std::unordered_map<std::string, UpdatePropsStats>& updatePropsStats() {
+  static std::unordered_map<std::string, UpdatePropsStats> m;
+  return m;
+}
+} // namespace
 
 LinuxMountingManager::LinuxMountingManager(GtkWidget* rootView)
     : rootView_(rootView) {}
@@ -82,6 +104,26 @@ void LinuxMountingManager::performTransaction(const facebook::react::MountingTra
   if (prof.count >= 60) {
     RNL_LOGI("MountingManager.prof") << "n=" << prof.count << " avg=" << (prof.totalUs / prof.count)
                                      << "us" << " max=" << prof.maxUs << "us";
+    // Roll up per-component updateProps cost. Sorting by total time
+    // (count * avg) puts the worst offenders first; only the top 6
+    // get logged so a screen with 20+ component types stays readable.
+    auto& stats = updatePropsStats();
+    if (!stats.empty()) {
+      std::vector<std::pair<std::string, UpdatePropsStats>> ranked(stats.begin(), stats.end());
+      std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) {
+        return a.second.totalUs > b.second.totalUs;
+      });
+      std::ostringstream line;
+      line << "updateProps roll-up:";
+      const std::size_t top = std::min<std::size_t>(6, ranked.size());
+      for (std::size_t i = 0; i < top; ++i) {
+        const auto& [name, s] = ranked[i];
+        line << " " << name << "(n=" << s.count << ",avg=" << (s.totalUs / s.count)
+             << "us,max=" << s.maxUs << "us)";
+      }
+      RNL_LOGI("MountingManager.prof") << line.str();
+      stats.clear();
+    }
     prof = {};
   }
 }
@@ -150,11 +192,18 @@ void LinuxMountingManager::handleUpdate(const facebook::react::ShadowView& oldVi
                               << " state=" << (newView.state ? "yes" : "no");
   if (!view)
     return;
+  const gint64 propsT0 = g_get_monotonic_time();
   if (oldView.props && newView.props && oldView.props != newView.props) {
     view->updateProps(*oldView.props, *newView.props);
   } else if (newView.props) {
     view->updateProps(*newView.props, *newView.props);
   }
+  const gint64 propsElapsed = g_get_monotonic_time() - propsT0;
+  auto& s = updatePropsStats()[newView.componentName];
+  s.count++;
+  s.totalUs += propsElapsed;
+  if (propsElapsed > s.maxUs)
+    s.maxUs = propsElapsed;
   if (newView.state) {
     view->updateState(*newView.state);
   }
