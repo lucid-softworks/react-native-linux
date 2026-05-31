@@ -93,6 +93,23 @@ echo "[smoke] settle    ${SETTLE_MS}ms"
 echo "[smoke] log →     ${LOG_ABS}"
 echo "[smoke] shot →    ${OUT_ABS}"
 
+# Force a known-good GTK4 software renderer + X11 backend + theme
+# unless the caller has already set them. CI runners with no
+# compositor and no DRI3 can leave a default `cairo` renderer
+# silently producing a blank surface; `ngl` forces the new OpenGL
+# renderer which falls back to llvmpipe under llvmpipe-only X
+# (xvfb), and llvmpipe is reliably available on ubuntu-24.04.
+#
+# GTK_THEME=Adwaita guards against the case where the runner ships
+# no theme files (rare, but produces all-default-colour widgets
+# that still pass the > 16-unique-colour gate; the explicit theme
+# makes the screenshot legible for triage too).
+export GSK_RENDERER="${GSK_RENDERER:-ngl}"
+export GDK_BACKEND="${GDK_BACKEND:-x11}"
+export GTK_A11Y="${GTK_A11Y:-none}"
+export GTK_THEME="${GTK_THEME:-Adwaita}"
+echo "[smoke] env       GSK_RENDERER=${GSK_RENDERER} GDK_BACKEND=${GDK_BACKEND} GTK_THEME=${GTK_THEME}"
+
 # Truncate log so this run's content is the entire file.
 : > "${LOG_ABS}"
 
@@ -137,6 +154,11 @@ COLORS=$(identify -format '%k' "${OUT_ABS}")
 echo "[smoke] screenshot colours: ${COLORS} (min ${MIN_COLORS})"
 if (( COLORS < MIN_COLORS )); then
   echo "[smoke] screenshot has ${COLORS} colours, below threshold ${MIN_COLORS} — likely blank Xvfb" >&2
+  # Dump the binary's stderr so the failure mode is visible without
+  # downloading the artifact — GTK warnings about missing renderers
+  # or theme files often print here and explain the blank capture.
+  echo "--- last 40 lines of app.log ---" >&2
+  tail -40 "${LOG_ABS}" >&2 || true
   exit 3
 fi
 
