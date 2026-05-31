@@ -514,6 +514,131 @@ function timingSpring(value, config) {
   };
 }
 
+// Animated.decay — closed-form exponential deceleration matching RN.
+// `velocity` is in units-per-ms (typical fling values from gesture
+// handlers are 0.1 – 5). `deceleration` ∈ (0, 1) is dimensionless;
+// 0.997 (default) gives a ~3 s coast for v0 = 1, asymptotically
+// settling at v / (1 - deceleration).
+//
+// We use RN's closed-form integral rather than per-frame
+// multiplication so the convergence shape matches Animated.event
+// consumers exactly:
+//
+//   value(t) = from + (v0 / k) * (1 - exp(-k * elapsed_ms))
+//
+// where k = 1 - deceleration. The animation stops when the per-frame
+// delta drops below 0.1 — same convergence heuristic RN uses, much
+// more robust than a velocity threshold (a small v0 can ride the
+// asymptote for thousands of frames otherwise).
+function decay(value, config) {
+  const initialVelocity = config.velocity ?? 0;
+  const deceleration = config.deceleration ?? 0.997;
+  const useNative = config.useNativeDriver === true && typeof value._nativeOnly === 'number';
+  const k = 1 - deceleration;
+
+  let from = 0;
+  let startT = 0;
+  let lastValue = 0;
+  let raf = 0;
+  let onDone = null;
+  let cancelled = false;
+  let entered = false;
+
+  function enter() {
+    if (entered || !useNative) return;
+    entered = true;
+    value._nativeOnly += 1;
+  }
+  function exit() {
+    if (!entered) return;
+    entered = false;
+    value._nativeOnly = Math.max(0, value._nativeOnly - 1);
+  }
+
+  function step(t) {
+    if (cancelled) {
+      exit();
+      return;
+    }
+    if (!startT) {
+      startT = t;
+      from = value.__getValue();
+      lastValue = from;
+    }
+    const elapsedMs = t - startT;
+    const next = from + (initialVelocity / k) * (1 - Math.exp(-k * elapsedMs));
+    // Same convergence test RN uses — once the per-frame delta is
+    // sub-pixel the animation has reached visual rest. Avoids the
+    // long tail where v drifts toward zero without ever crossing
+    // an absolute threshold.
+    if (Math.abs(next - lastValue) < 0.1) {
+      value.setValue(next);
+      exit();
+      if (onDone) onDone({finished: true});
+      return;
+    }
+    lastValue = next;
+    value.setValue(next);
+    raf = globalThis.requestAnimationFrame(step);
+  }
+
+  return {
+    start(cb) {
+      onDone = cb;
+      enter();
+      raf = globalThis.requestAnimationFrame(step);
+    },
+    stop() {
+      cancelled = true;
+      exit();
+      if (raf) globalThis.cancelAnimationFrame(raf);
+      if (onDone) onDone({finished: false});
+    },
+  };
+}
+
+// Animated.event(mapping, config?) returns a function that, when
+// called with synthetic events, walks the mapping recursively and
+// pokes any AnimatedValue it finds with the matching field from the
+// event. Used heavily for scroll-driven animations:
+//
+//   onScroll={Animated.event(
+//     [{nativeEvent: {contentOffset: {y: scrollY}}}],
+//     {useNativeDriver: false},
+//   )}
+//
+// The mapping is positional: argMapping[i] aligns with args[i] from
+// the handler call. A scalar AnimatedValue at any leaf consumes the
+// number at the same leaf path on the event.
+//
+// useNativeDriver:true is accepted but ignored — driving the value
+// from C++-emitted events would need the dispatcher to know about
+// AnimatedValue tags, which we don't wire yet. The native bypass
+// only happens for the per-frame setNativeProps that's downstream
+// of the AnimatedValue, so callers still get a real animation;
+// what they lose is the bypass of the JS-side AnimatedValue tick.
+function animatedEvent(argMapping, config = {}) {
+  function apply(mapping, source) {
+    if (mapping == null || source == null) return;
+    if (mapping instanceof AnimatedValue) {
+      if (typeof source === 'number') mapping.setValue(source);
+      return;
+    }
+    if (typeof mapping === 'object') {
+      for (const k in mapping) apply(mapping[k], source[k]);
+    }
+  }
+  const listener = typeof config.listener === 'function' ? config.listener : null;
+  return function eventHandler() {
+    const args = arguments;
+    const upTo = Math.min(argMapping.length, args.length);
+    for (let i = 0; i < upTo; i++) {
+      apply(argMapping[i], args[i]);
+    }
+    if (listener) listener.apply(null, args);
+  };
+}
+
 // Animated.delay(ms) is just an animation handle that resolves
 // `finished: true` after `ms` ms. Used inside sequence() to space out
 // the steps of a multi-stage reveal.
@@ -844,11 +969,13 @@ const Animated = {
   createAnimatedComponent,
   timing,
   spring: timingSpring,
+  decay,
   delay,
   stagger,
   sequence,
   parallel,
   loop,
+  event: animatedEvent,
 };
 
 module.exports = {Animated, Easing};

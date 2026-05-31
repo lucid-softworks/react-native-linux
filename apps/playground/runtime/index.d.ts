@@ -285,8 +285,16 @@ export const Animated: {
       useNativeDriver?: boolean;
     },
   ): AnimatedHandle;
+  decay(
+    value: AnimatedValue,
+    config: {velocity?: number; deceleration?: number; useNativeDriver?: boolean},
+  ): AnimatedHandle;
   delay(ms: number): AnimatedHandle;
   stagger(time: number, anims: AnimatedHandle[]): AnimatedHandle;
+  event(
+    argMapping: ReadonlyArray<unknown>,
+    config?: {useNativeDriver?: boolean; listener?: (...args: unknown[]) => void},
+  ): (...args: unknown[]) => void;
   sequence(anims: AnimatedHandle[]): AnimatedHandle;
   parallel(anims: AnimatedHandle[]): AnimatedHandle;
   loop(anim: AnimatedHandle, opts?: {iterations?: number}): AnimatedHandle;
