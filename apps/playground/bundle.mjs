@@ -16,7 +16,7 @@
 import {build, context} from 'esbuild';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {mkdirSync, readFileSync, writeFileSync, readFile, existsSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync, readFile, existsSync, unlinkSync} from 'node:fs';
 import {createConnection} from 'node:net';
 import {spawnSync} from 'node:child_process';
 import {transform as swcTransform} from '@swc/core';
@@ -322,12 +322,15 @@ const appOpts = {
   plugins: [refreshTransformPlugin],
 };
 
-// Pre-compile the vendor bundle to Hermes bytecode. Hermes can execute
-// .hbc directly (it auto-detects the magic header), skipping the
+// Pre-compile a bundle to Hermes bytecode. Hermes can execute .hbc
+// directly (it auto-detects the magic header), skipping the
 // parse/AST/codegen pass. For the 2.5 MB vendor that means cold-start
 // JS init lands tens of milliseconds faster. We tolerate a missing
 // hermesc — the C++ side falls back to evaluating the JS bundle.
-function compileVendorBytecode() {
+//
+// `bundlePath` is the input .js; output lands at `<bundlePath>.hbc`.
+// `label` is the user-facing tag in the success log line.
+function compileBytecode(bundlePath, label) {
   // Order matters — `existsSync` doesn't check that the binary is
   // exec-able on the current host. Bytecode is portable across
   // architectures, so the macOS hermesc producing output for the
@@ -347,20 +350,22 @@ function compileVendorBytecode() {
       ];
   const hermesc = hermescCandidates.find(existsSync);
   if (!hermesc) {
-    console.log('[hermesc] not found — vendor stays as JS source');
+    console.log(`[hermesc] not found — ${label} stays as JS source`);
     return;
   }
-  const vendorHbc = vendorOut + '.hbc';
+  const hbc = bundlePath + '.hbc';
   const t0 = performance.now();
-  const r = spawnSync(hermesc, ['-emit-binary', '-O', '-out', vendorHbc, vendorOut], {
+  const r = spawnSync(hermesc, ['-emit-binary', '-O', '-out', hbc, bundlePath], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (r.status !== 0) {
-    console.log(`[hermesc] failed (status ${r.status}): ${r.stderr?.toString().slice(0, 200)}`);
+    console.log(
+      `[hermesc] ${label} failed (status ${r.status}): ${r.stderr?.toString().slice(0, 200)}`,
+    );
     return;
   }
   const ms = (performance.now() - t0).toFixed(0);
-  console.log(`✓ hermesc → ${vendorHbc} (${ms}ms)`);
+  console.log(`✓ hermesc → ${hbc} (${ms}ms)`);
 }
 
 // esbuild's __copyProps helper (added at the top of every bundle for
@@ -395,10 +400,17 @@ async function once() {
   await build(vendorOpts);
   const vp = patchHermesForOfBug(vendorOut);
   console.log(`✓ vendor → ${vendorOut}${vp ? ' (Hermes for-of patched)' : ''}`);
-  compileVendorBytecode();
+  compileBytecode(vendorOut, 'vendor');
   await build(appOpts);
   const ap = patchHermesForOfBug(appOut);
   console.log(`✓ app    → ${appOut}${ap ? ' (Hermes for-of patched)' : ''}`);
+  // The playground's main.cpp prefers `<appBundle>.hbc` over the JS
+  // source when both exist. Without this second compile step, an
+  // `RN_ENTRY=…` re-bundle would write a new index.linux.bundle but
+  // the playground would keep loading whatever stale .hbc was lying
+  // next to it — so dev iterations on the entry file silently
+  // wouldn't show up.
+  compileBytecode(appOut, 'app');
 }
 
 // Discover the playground's HMR socket. Same default the C++ side
@@ -445,7 +457,7 @@ async function watchMode() {
   await build(vendorOpts);
   patchHermesForOfBug(vendorOut);
   console.log(`✓ vendor → ${vendorOut} (one-shot)`);
-  compileVendorBytecode();
+  compileBytecode(vendorOut, 'vendor');
   // Wrap with timing + HMR-push hooks so we can both report rebuild
   // duration and shove the new bundle into the live playground over
   // a Unix socket (the C++ side listens; see startHmrSocket).
@@ -484,6 +496,20 @@ async function watchMode() {
   };
   const ctx = await context({...appOpts, plugins: [...appOpts.plugins, hmrPlugin]});
   await ctx.watch();
+  // Delete any stale `<appOut>.hbc` from an earlier `once()` run.
+  // The playground's main.cpp prefers .hbc when it exists, so leaving
+  // a stale bytecode file means a fresh cold-boot during the watch
+  // session would load the old code instead of the JS we're now
+  // rebuilding on every save.
+  const staleHbc = appOut + '.hbc';
+  if (existsSync(staleHbc)) {
+    try {
+      unlinkSync(staleHbc);
+      console.log(`✓ removed stale ${staleHbc}`);
+    } catch (e) {
+      console.log(`[watch] could not remove stale ${staleHbc}: ${e.message}`);
+    }
+  }
   console.log(`👀 watching ${resolve(here, 'index.tsx')} → ${appOut}`);
   console.log(`📡 HMR push: ${hmrSocketPath()}`);
 }
