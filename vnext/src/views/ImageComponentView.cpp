@@ -1,6 +1,7 @@
 #include "ImageComponentView.h"
 
 #include "TintedPaintable.h"
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <gtk/gtk.h>
@@ -473,7 +474,7 @@ std::string imageCacheDir() {
   } else {
     base = "/tmp";
   }
-  return base + "/rn-linux-playground/soup-image-cache";
+  return base + "/" + rnlinux::applicationId() + "/soup-image-cache";
 }
 
 void clearImageCache() {

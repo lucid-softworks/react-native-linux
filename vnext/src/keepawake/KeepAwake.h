@@ -27,8 +27,8 @@ bool isAvailable();
 // false if logind isn't reachable or the inhibit call failed.
 //
 // `who` shows up in `systemd-inhibit --list` and helps the user
-// identify which app holds an inhibit (defaults to
-// "react-native-linux" when blank).
+// identify which app holds an inhibit (defaults to the consumer's
+// `applicationId()` — the reverse-DNS GApplication id — when blank).
 //
 // `mode` is "block" (default) or "delay". "delay" lets the system
 // continue with idle handling after a short timeout but gives the

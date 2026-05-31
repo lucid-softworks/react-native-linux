@@ -1,5 +1,6 @@
 #include "Camera.h"
 
+#include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
 #include <atomic>
@@ -48,7 +49,9 @@ std::string sourcePart() {
   return "videotestsrc is-live=true pattern=smpte";
 }
 
-// Find a writable spot for snap output. XDG_CACHE_HOME ?? ~/.cache.
+// Find a writable spot for snap output. XDG_CACHE_HOME ?? ~/.cache,
+// scoped to the consumer's `applicationId` so two installed apps
+// don't share a single `/rn-linux/snap-*.png` namespace.
 std::string snapPath() {
   const char* cache = std::getenv("XDG_CACHE_HOME");
   std::string dir;
@@ -59,7 +62,7 @@ std::string snapPath() {
   } else {
     dir = "/tmp";
   }
-  dir += "/rn-linux";
+  dir += "/" + rnlinux::applicationId();
   mkdir(dir.c_str(), 0700);
   char buf[64];
   std::snprintf(buf, sizeof(buf), "/snap-%ld-%d.png", (long)time(nullptr), (int)getpid());

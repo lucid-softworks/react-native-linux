@@ -2710,7 +2710,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
                auto& s = state();
                if (!s.location) {
                  s.location =
-                     std::make_unique<rnlinux::location::LocationClient>("rn-linux-playground");
+                     std::make_unique<rnlinux::location::LocationClient>(rnlinux::applicationId());
                }
                return jsi::Value(s.location->isAvailable());
              });
@@ -2726,7 +2726,8 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         }
         auto& s = state();
         if (!s.location) {
-          s.location = std::make_unique<rnlinux::location::LocationClient>("rn-linux-playground");
+          s.location =
+              std::make_unique<rnlinux::location::LocationClient>(rnlinux::applicationId());
         }
         s.locationOnFix = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
         if (args[1].isObject() && args[1].asObject(rt).isFunction(rt)) {
@@ -3881,7 +3882,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
 
   // expo-image's Image.clearDiskCache lands here. Wipes both the
   // in-memory SoupCache entries and the on-disk cache directory
-  // (XDG_CACHE_HOME/rn-linux-playground/soup-image-cache).
+  // (XDG_CACHE_HOME/<applicationId>/soup-image-cache).
   bindMethod(rt,
              rnLinux,
              "imageClearCache",

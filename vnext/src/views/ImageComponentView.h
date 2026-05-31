@@ -28,7 +28,7 @@ class ImageComponentView final : public LinuxComponentView {
 
 // Process-wide image-cache helpers. The HTTP fetcher attaches a
 // SoupCache (when libsoup is linked) under
-// $XDG_CACHE_HOME/rn-linux-playground/soup-image-cache so cached
+// $XDG_CACHE_HOME/<applicationId>/soup-image-cache so cached
 // responses survive process restarts. `clearImageCache()` wipes
 // both the in-memory entries and the on-disk cache files; bound
 // to `rnLinux.imageClearCache` and surfaced as
