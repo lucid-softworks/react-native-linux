@@ -237,8 +237,24 @@ export interface AnimatedHandle {
   start(cb?: (r: {finished: boolean}) => void): void;
   stop(): void;
 }
+export interface AnimatedValueXY {
+  x: AnimatedValue;
+  y: AnimatedValue;
+  setValue(v: {x?: number; y?: number}): void;
+  setOffset(v: {x?: number; y?: number}): void;
+  flattenOffset(): void;
+  extractOffset(): void;
+  getLayout(): {left: AnimatedValue; top: AnimatedValue};
+  getTranslateTransform(): Array<{translateX: AnimatedValue} | {translateY: AnimatedValue}>;
+  addListener(cb: (s: {x: number; y: number}) => void): string;
+  removeListener(id: string): void;
+  removeAllListeners(): void;
+  stopAnimation(cb?: (s: {x: number; y: number}) => void): void;
+  __getValue(): {x: number; y: number};
+}
 export const Animated: {
   Value: new (initial?: number) => AnimatedValue;
+  ValueXY: new (initial?: {x?: number; y?: number}) => AnimatedValueXY;
   View: (props: ViewProps) => JSX.Element;
   Text: (props: TextProps) => JSX.Element;
   Image: (props: ImageProps) => JSX.Element;

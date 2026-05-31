@@ -92,6 +92,107 @@ AnimatedValue.prototype.interpolate = function (config) {
   return new InterpolatedValue(this, config);
 };
 
+// Two-axis Animated.Value. Used by PanResponder and any draggable
+// affordance — a single ValueXY simultaneously drives an X and a Y
+// AnimatedValue, with offset/extract semantics so a gesture handler
+// can start a new drag from where the previous one ended.
+//
+// All the same listener/setValue rules as AnimatedValue, applied
+// independently to each axis.
+function AnimatedValueXY(initial) {
+  const init = initial && typeof initial === 'object' ? initial : {x: 0, y: 0};
+  this.x = new AnimatedValue(init.x ?? 0);
+  this.y = new AnimatedValue(init.y ?? 0);
+  // offset is added on top of the .x / .y base values; getLayout/
+  // getTranslateTransform read base + offset. setOffset moves the
+  // baseline; flattenOffset folds the offset into the base values
+  // and zeroes it; extractOffset does the opposite. Mirrors RN's
+  // AnimatedValueXY semantics so drag handlers that lock the value
+  // at pan-start work unchanged.
+  this._offset = {x: 0, y: 0};
+}
+
+AnimatedValueXY.prototype.setValue = function (v) {
+  if (v && typeof v === 'object') {
+    if (v.x != null) this.x.setValue(v.x);
+    if (v.y != null) this.y.setValue(v.y);
+  }
+};
+
+AnimatedValueXY.prototype.setOffset = function (v) {
+  if (v && typeof v === 'object') {
+    if (v.x != null) this._offset.x = v.x;
+    if (v.y != null) this._offset.y = v.y;
+  }
+};
+
+AnimatedValueXY.prototype.flattenOffset = function () {
+  this.x.setValue(this.x.__getValue() + this._offset.x);
+  this.y.setValue(this.y.__getValue() + this._offset.y);
+  this._offset.x = 0;
+  this._offset.y = 0;
+};
+
+AnimatedValueXY.prototype.extractOffset = function () {
+  this._offset.x += this.x.__getValue();
+  this._offset.y += this.y.__getValue();
+  this.x.setValue(0);
+  this.y.setValue(0);
+};
+
+AnimatedValueXY.prototype.__getValue = function () {
+  return {
+    x: this.x.__getValue() + this._offset.x,
+    y: this.y.__getValue() + this._offset.y,
+  };
+};
+
+AnimatedValueXY.prototype.getLayout = function () {
+  // Style-bag form a draggable View typically composes with its
+  // existing absolute layout: <View style={[base, valueXY.getLayout()]}>
+  // pushes (left, top) without overwriting other style fields.
+  return {left: this.x, top: this.y};
+};
+
+AnimatedValueXY.prototype.getTranslateTransform = function () {
+  // Transform-array form: <View style={{transform: valueXY.getTranslateTransform()}}>.
+  // Each entry rides through resolveStyle and reads .__getValue() per
+  // frame on the React-side path, or drives setNativeProps on the
+  // native-driver path.
+  return [{translateX: this.x}, {translateY: this.y}];
+};
+
+AnimatedValueXY.prototype.addListener = function (cb) {
+  // Single combined listener fires on either-axis change with both
+  // current values. RN's ValueXY emits {x, y} on each tick of either
+  // axis — apps that track drag deltas read both fields each call.
+  const self = this;
+  const handler = function () {
+    cb({x: self.x.__getValue() + self._offset.x, y: self.y.__getValue() + self._offset.y});
+  };
+  handler._native = true;
+  const ix = this.x.addListener(handler);
+  const iy = this.y.addListener(handler);
+  return ix + ':' + iy;
+};
+
+AnimatedValueXY.prototype.removeListener = function (id) {
+  const [ix, iy] = id.split(':');
+  this.x.removeListener(ix);
+  this.y.removeListener(iy);
+};
+
+AnimatedValueXY.prototype.removeAllListeners = function () {
+  this.x.removeAllListeners();
+  this.y.removeAllListeners();
+};
+
+AnimatedValueXY.prototype.stopAnimation = function (cb) {
+  this.x.stopAnimation();
+  this.y.stopAnimation();
+  if (typeof cb === 'function') cb(this.__getValue());
+};
+
 function InterpolatedValue(source, config) {
   this._source = source;
   this._in = config.inputRange;
@@ -735,6 +836,7 @@ function createAnimatedComponent(Inner) {
 
 const Animated = {
   Value: AnimatedValue,
+  ValueXY: AnimatedValueXY,
   View: createAnimatedComponent(View),
   Text: createAnimatedComponent(Text),
   Image: createAnimatedComponent(Image),
