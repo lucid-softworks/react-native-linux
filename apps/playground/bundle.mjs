@@ -285,6 +285,9 @@ const appOpts = {
     '@expo/metro-runtime',
     '@expo/vector-icons',
     '@expo/vector-icons/*',
+    'zustand',
+    'zustand/shallow',
+    'expo-sqlite',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -342,6 +345,9 @@ const appOpts = {
       '  if (id === "expo-router/entry") return rnv.expoRouterEntry();\n' +
       '  if (id === "@expo/metro-runtime") return rnv.expoMetroRuntime;\n' +
       '  if (id === "crypto" || id === "node:crypto") return rnv.nodeCrypto;\n' +
+      '  if (id === "zustand") return rnv.zustand;\n' +
+      '  if (id === "zustand/shallow") return {shallow: rnv.zustand.shallow};\n' +
+      '  if (id === "expo-sqlite") return rnv.expoSqlite;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.
