@@ -4350,39 +4350,93 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         auto errCb = count >= 5 && args[4].isObject() && args[4].asObject(rt).isFunction(rt)
                          ? std::make_shared<jsi::Function>(args[4].asObject(rt).asFunction(rt))
                          : nullptr;
-        rnlinux::print::exportToPdf(
-            text,
-            outPath,
-            layout,
-            [okCb, outPath](int pageCount) {
-              auto& s = state();
-              if (!s.runtime || !okCb)
-                return;
-              jsi::Runtime& jrt = *s.runtime;
-              try {
-                // Two-arg call: (uri, numberOfPages). The JS shim
-                // resolves the printToFileAsync promise with both
-                // so callers get expo-print's documented shape.
-                okCb->call(jrt,
-                           jsi::String::createFromUtf8(jrt, "file://" + outPath),
-                           jsi::Value(pageCount));
-                jrt.drainMicrotasks();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux.print") << "ok handler threw: " << e.what();
-              }
-            },
-            [errCb](const std::string& msg) {
-              auto& s = state();
-              if (!s.runtime || !errCb)
-                return;
-              jsi::Runtime& jrt = *s.runtime;
-              try {
-                errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
-                jrt.drainMicrotasks();
-              } catch (const std::exception& e) {
-                RNL_LOGE("rnLinux.print") << "err handler threw: " << e.what();
-              }
-            });
+        // Phase 5.9 — PDF render (cairo + Pango layout for an N-page
+        // document) is 100-500 ms on a moderate doc and the lock
+        // would have come on the JS worker. Hand the whole call to a
+        // detached std::thread so the JS commit chain doesn't stall;
+        // the JSI callbacks hop back through state().executor before
+        // touching the runtime.
+        auto& s = state();
+        if (!s.executor) {
+          // Fallback for very early bootstrap (no executor wired yet)
+          // — run sync so existing callers don't lose the response.
+          rnlinux::print::exportToPdf(
+              text,
+              outPath,
+              layout,
+              [okCb, outPath](int pageCount) {
+                if (!okCb)
+                  return;
+                auto& s2 = state();
+                if (!s2.runtime)
+                  return;
+                try {
+                  okCb->call(*s2.runtime,
+                             jsi::String::createFromUtf8(*s2.runtime, "file://" + outPath),
+                             jsi::Value(pageCount));
+                  s2.runtime->drainMicrotasks();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.print") << "ok handler threw: " << e.what();
+                }
+              },
+              [errCb](const std::string& msg) {
+                if (!errCb)
+                  return;
+                auto& s2 = state();
+                if (!s2.runtime)
+                  return;
+                try {
+                  errCb->call(*s2.runtime, jsi::String::createFromUtf8(*s2.runtime, msg));
+                  s2.runtime->drainMicrotasks();
+                } catch (const std::exception& e) {
+                  RNL_LOGE("rnLinux.print") << "err handler threw: " << e.what();
+                }
+              });
+          return jsi::Value::undefined();
+        }
+        std::thread([text = std::move(text),
+                     outPath,
+                     layout,
+                     okCb = std::move(okCb),
+                     errCb = std::move(errCb)]() {
+          // exportToPdf is sync but lives on the worker now. Its
+          // internal callbacks fire on this thread; we forward into
+          // the executor to land on the JS thread.
+          rnlinux::print::exportToPdf(
+              text,
+              outPath,
+              layout,
+              [okCb, outPath](int pageCount) {
+                if (!okCb)
+                  return;
+                state().executor([okCb = std::move(okCb), outPath, pageCount](jsi::Runtime& jrt) {
+                  try {
+                    // Two-arg call: (uri, numberOfPages). The JS
+                    // shim resolves the printToFileAsync promise
+                    // with both so callers get expo-print's
+                    // documented shape.
+                    okCb->call(jrt,
+                               jsi::String::createFromUtf8(jrt, "file://" + outPath),
+                               jsi::Value(pageCount));
+                    jrt.drainMicrotasks();
+                  } catch (const std::exception& e) {
+                    RNL_LOGE("rnLinux.print") << "ok handler threw: " << e.what();
+                  }
+                });
+              },
+              [errCb](const std::string& msg) {
+                if (!errCb)
+                  return;
+                state().executor([errCb = std::move(errCb), msg](jsi::Runtime& jrt) {
+                  try {
+                    errCb->call(jrt, jsi::String::createFromUtf8(jrt, msg));
+                    jrt.drainMicrotasks();
+                  } catch (const std::exception& e) {
+                    RNL_LOGE("rnLinux.print") << "err handler threw: " << e.what();
+                  }
+                });
+              });
+        }).detach();
         return jsi::Value::undefined();
       });
 
