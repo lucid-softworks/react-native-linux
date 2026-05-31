@@ -12,16 +12,29 @@
 //
 // The four entry points (declared as extern in RnLinuxBindings.cpp)
 // are called from the rnLinux.storage* JSI bindings.
+//
+// Threading: the in-memory map is guarded by `storageMutex`. Reads
+// hit the map directly from the calling thread (Hermes worker).
+// Writes mark a dirty flag + notify the background save thread which
+// snapshots the map + writes the JSON; multiple back-to-back writes
+// within one save's duration coalesce into a single disk hit. That
+// keeps the JS thread off `ofstream::write` (which can stall on
+// fsync / journal flush under load) while preserving "writes survive
+// process restarts" — pending saves drain on `flushAsyncStorage()`
+// at host shutdown.
 
 #include "react-native-linux/AppContext.h"
 #include "react-native-linux/Logging.h"
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdlib>
 #include <fstream>
 #include <glib.h>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -180,7 +193,29 @@ void load() {
   }
 }
 
-void save() {
+// Serialize a snapshot of the map into a JSON string. Caller must
+// hold storageMutex while building the snapshot; we release before
+// the disk write so other writers don't pile up on the I/O.
+std::string serializeLocked(const std::unordered_map<std::string, std::string>& map) {
+  std::string out;
+  out.reserve(map.size() * 64);
+  out += "{";
+  bool first = true;
+  for (const auto& [k, v] : map) {
+    if (!first)
+      out += ",";
+    first = false;
+    out += "\"";
+    out += escape(k);
+    out += "\":\"";
+    out += escape(v);
+    out += "\"";
+  }
+  out += "}";
+  return out;
+}
+
+void writeJson(const std::string& json) {
   const auto path = storagePath();
   const auto tmp = path + ".tmp";
   std::ofstream f{tmp, std::ios::trunc};
@@ -188,18 +223,60 @@ void save() {
     RNL_LOGW("AsyncStorage") << "failed to open " << tmp;
     return;
   }
-  f << "{";
-  bool first = true;
-  for (const auto& [k, v] : storageMap()) {
-    if (!first)
-      f << ",";
-    first = false;
-    f << "\"" << escape(k) << "\":\"" << escape(v) << "\"";
-  }
-  f << "}";
+  f.write(json.data(), json.size());
   f.close();
   // Atomic rename so a crash mid-write doesn't corrupt the file.
   std::rename(tmp.c_str(), path.c_str());
+}
+
+// Background save worker. Wakes on `saveCv_` when a write marks
+// `saveDirty_`, snapshots the map under the mutex, writes the JSON
+// to disk without the mutex held, and loops until `shutdown_`.
+// Multiple writes during one save's disk I/O collapse into a single
+// follow-up save (the dirty flag is set once and cleared once per
+// cycle).
+std::mutex saveMutex_;
+std::condition_variable saveCv_;
+std::atomic<bool> saveDirty_{false};
+std::atomic<bool> saveShutdown_{false};
+std::unique_ptr<std::thread> saveWorker_;
+
+void saveLoop() {
+  for (;;) {
+    {
+      std::unique_lock<std::mutex> g{saveMutex_};
+      saveCv_.wait(g, [] { return saveDirty_.load() || saveShutdown_.load(); });
+    }
+    if (saveShutdown_.load() && !saveDirty_.exchange(false)) {
+      return;
+    }
+    // Snapshot under the storage mutex; serialize without holding it
+    // so concurrent reads don't pause for the encode pass.
+    std::string json;
+    {
+      std::lock_guard<std::mutex> g{storageMutex()};
+      saveDirty_.store(false);
+      json = serializeLocked(storageMap());
+    }
+    writeJson(json);
+    if (saveShutdown_.load() && !saveDirty_.load()) {
+      return;
+    }
+  }
+}
+
+void ensureWorker() {
+  static std::once_flag once;
+  std::call_once(once, [] { saveWorker_ = std::make_unique<std::thread>(saveLoop); });
+}
+
+// Schedule a save — sets the dirty flag and wakes the worker.
+// Idempotent within one save cycle (the worker clears the flag once
+// it snapshots, so back-to-back writes coalesce).
+void scheduleSave() {
+  ensureWorker();
+  saveDirty_.store(true);
+  saveCv_.notify_one();
 }
 
 bool loaded = false;
@@ -213,10 +290,25 @@ void ensureLoaded() {
 } // namespace
 
 // External entry points used by RnLinuxBindings.cpp's
-// `extern std::string asyncStorageRead(...)` declarations. They're
-// in the rnlinux:: namespace because the bindings call them with
-// the fully-qualified name; the file as a whole lives inside the
+// `extern std::string asyncStorageRead(...)` declarations. They live
+// in the rnlinux:: namespace because the bindings call them with the
+// fully-qualified name; the file as a whole lives inside the
 // rnlinux namespace (see the matching close-brace below).
+
+// Drain any pending save and stop the background thread. Called by
+// the host on shutdown so an `exit()` right after a write doesn't
+// lose the still-in-flight save.
+void flushAsyncStorage() {
+  if (!saveWorker_) {
+    return;
+  }
+  saveShutdown_.store(true);
+  saveCv_.notify_one();
+  if (saveWorker_->joinable()) {
+    saveWorker_->join();
+  }
+  saveWorker_.reset();
+}
 
 std::string asyncStorageRead(const std::string& key) {
   std::lock_guard<std::mutex> g{storageMutex()};
@@ -226,17 +318,21 @@ std::string asyncStorageRead(const std::string& key) {
 }
 
 void asyncStorageWrite(const std::string& key, const std::string& value) {
-  std::lock_guard<std::mutex> g{storageMutex()};
-  ensureLoaded();
-  storageMap()[key] = value;
-  save();
+  {
+    std::lock_guard<std::mutex> g{storageMutex()};
+    ensureLoaded();
+    storageMap()[key] = value;
+  }
+  scheduleSave();
 }
 
 void asyncStorageRemove(const std::string& key) {
-  std::lock_guard<std::mutex> g{storageMutex()};
-  ensureLoaded();
-  storageMap().erase(key);
-  save();
+  {
+    std::lock_guard<std::mutex> g{storageMutex()};
+    ensureLoaded();
+    storageMap().erase(key);
+  }
+  scheduleSave();
 }
 
 std::vector<std::string> asyncStorageKeys() {

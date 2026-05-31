@@ -35,11 +35,15 @@
 namespace rnlinux {
 
 // Storage backing lives in vnext/src/storage/AsyncStorage.cpp. The
-// JSI rnLinux.storage* bindings below forward into these four.
+// JSI rnLinux.storage* bindings below forward into these four; the
+// fifth (`flushAsyncStorage`) drains the background save thread on
+// host shutdown so an `exit()` right after a `setItem` doesn't lose
+// data.
 std::string asyncStorageRead(const std::string& key);
 void asyncStorageWrite(const std::string& key, const std::string& value);
 void asyncStorageRemove(const std::string& key);
 std::vector<std::string> asyncStorageKeys();
+void flushAsyncStorage();
 
 namespace {
 

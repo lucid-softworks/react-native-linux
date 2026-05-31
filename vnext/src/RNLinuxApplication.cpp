@@ -21,6 +21,11 @@
 
 namespace rnlinux {
 
+// Defined in storage/AsyncStorage.cpp — drains the background save
+// thread on host shutdown. Forward-declared here so we don't drag
+// the whole storage header into the application unit.
+void flushAsyncStorage();
+
 struct RNLinuxApplication::Impl {
   RNLinuxHost::Config config;
   GtkApplication* app = nullptr;
@@ -425,6 +430,12 @@ void RNLinuxApplication::onShutdown(GtkApplication*, void* userData) {
   if (impl->host) {
     impl->host->stop();
   }
+  // Drain any in-flight AsyncStorage save before the process exits.
+  // The background save thread coalesces writes; a `setItem` issued
+  // milliseconds before shutdown can still be sitting in the dirty
+  // queue. Without this drain, that last write doesn't land on disk
+  // — the next app launch reads stale state.
+  flushAsyncStorage();
 }
 
 RNLinuxApplication::RNLinuxApplication(RNLinuxHost::Config config)
