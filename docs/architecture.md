@@ -81,27 +81,67 @@ container. This works for MVP but will need revisiting for serious a11y.
 
 ## Events
 
-| RN concept              | GTK4 mechanism                               |
-| ----------------------- | -------------------------------------------- |
-| `onPressIn` / `onPress` | `GtkGestureClick`                            |
-| `onLongPress`           | `GtkGestureLongPress`                        |
-| Touch (rare on desktop) | Synthesized from pointer; no real multitouch |
-| `onKeyDown` / `onKeyUp` | `GtkEventControllerKey`                      |
-| Scroll                  | `GtkEventControllerScroll`                   |
+| RN concept                         | GTK4 mechanism                               |
+| ---------------------------------- | -------------------------------------------- |
+| `onPress`                          | `GtkGestureClick` (released)                 |
+| `onLongPress`                      | `GtkGestureLongPress` (pressed)              |
+| `onHoverIn` / `onHoverOut`         | `GtkEventControllerMotion` (enter / leave)   |
+| `onChangeText` / `onSubmitEditing` | `GtkText` (changed / activate)               |
+| `onKeyPress`                       | `GtkEventControllerKey` on CAPTURE phase     |
+| `onFocus` / `onBlur`               | `GtkEventControllerFocus` (enter / leave)    |
+| Touch (rare on desktop)            | Synthesized from pointer; no real multitouch |
+| Scroll                             | `GtkAdjustment::value-changed`               |
 
-Each `LinuxComponentView` owns its controllers and forwards events to the
-`EventEmitter` provided by Fabric, which posts them onto the JS thread.
+Each `LinuxComponentView` owns its controllers. Today they dispatch through
+ad-hoc `dispatchFabric*(tag, …)` JSI registries keyed by the Fabric tag;
+the planned migration to real Fabric `EventEmitter` dispatch is
+[design-doc'd](./design-fabric-event-emitter.md).
+
+## Per-app identity (`AppContext`)
+
+The CLI's `init-linux` bakes the consumer's `package.json` name into the
+generated `linux/main.cpp` as `cfg.applicationId` (see
+[design-multi-instance.md](./design-multi-instance.md)). `RNLinuxApplication`'s
+constructor publishes the value via `rnlinux::setApplicationId(...)`;
+in-process modules read it back through `rnlinux::applicationId()`.
+
+The accessor is the canonical source for per-app sandbox paths:
+
+- AsyncStorage's JSON file lives at `$XDG_CONFIG_HOME/<applicationId>/async-storage.json`.
+- SecureStore tags entries with `<applicationId> [secure-store]: <key>`
+  in the user's keyring.
+- KeepAwake's logind `Inhibit` call surfaces the id in `systemd-inhibit --list`.
+- Notifications passes the id to `notify_init` so gnome-shell / xfce4-notifyd
+  attribute bubbles correctly.
+- FileSystem's `documentDirectory` / `cacheDirectory` are
+  `$XDG_*_HOME/<applicationId>/`.
+- DeviceInfo's `bundleId` returns the id (matching iOS / Android shape).
+
+Two installed apps with different `applicationId`s get disjoint state across
+all of these.
 
 ## TurboModules
 
-Native modules are registered with the `TurboModuleManager` at host start.
-The first shipping module is `PlatformConstants`, which exposes
-`Platform.OS === 'linux'` and friends.
+Native modules are registered with the `TurboModuleRegistry` at host start —
+`globalThis.__turboModuleProxy` looks them up by name (see
+`vnext/src/jsi/TurboModuleRegistry.cpp`). The first shipping module is
+`PlatformConstants`, which exposes `Platform.OS === 'linux'` and friends.
 
-The spec lives in
-`packages/react-native-linux/Libraries/Specs/NativePlatformConstantsLinux.ts`
-and is consumed by `@react-native/codegen` to produce a C++ header that
-`vnext/src/modules/PlatformConstants.cpp` implements.
+The remaining ~20 in-tree shims (AsyncStorage, DeviceInfo, Camera,
+SecureStore, …) currently surface through ad-hoc `globalThis.rnLinux.*` JSI
+bindings rather than TurboModules. The migration to `@react-native/codegen`-
+driven TurboModules is [design-doc'd](./design-turbomodule-manager.md).
+
+### Expo modules
+
+Third-party Expo packages from npm look up native modules via
+`expo-modules-core`'s `requireNativeModule(name)` / `requireOptionalNativeModule(name)`,
+which check `globalThis.expo.modules[name]`. Our umbrella shim
+(`packages/@lucid-softworks/react-native-linux-expo/expo-modules-core.js`)
+provides this lookup; each in-tree expo-\* shim registers itself via
+`registerExpoModule(name, impl)` at module-load time so canonical names
+(`ExpoApplication`, `ExpoCamera`, `ExpoHaptics`, etc.) resolve to our
+Linux backends transparently.
 
 ## Build system
 
@@ -124,8 +164,9 @@ The runtime installs as a shared library (`libreact_native_linux.so`) plus a
 
 ## What's NOT in scope (yet)
 
-- Hot Module Replacement (just full reload via Metro WS).
 - Native debugger UI beyond Hermes' inspector.
-- Multi-window apps. The runtime models a single surface today.
+- Multi-window apps. The runtime models a single surface today —
+  [design-multi-instance.md](./design-multi-instance.md) Phase 3 covers the
+  `SurfaceHandler`-per-window plan.
 - Wayland-specific polish (IME, fractional scaling, layer-shell).
 - libadwaita styling — phase 10 in [TODO.md](../TODO.md).
