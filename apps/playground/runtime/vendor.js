@@ -104,6 +104,14 @@ const reactNativeSvgMod = require('@lucid-softworks/react-native-linux-expo/reac
 const victoryNativeMod = require('@lucid-softworks/react-native-linux-expo/victory-native');
 const reactRouterDomMod = require('@lucid-softworks/react-native-linux-expo/react-router-dom');
 const expoAssetMod = require('@lucid-softworks/react-native-linux-expo/expo-asset');
+const expoAuthSessionMod = require('@lucid-softworks/react-native-linux-expo/expo-auth-session');
+const jwtDecodeMod = require('@lucid-softworks/react-native-linux-expo/jwt-decode');
+const apolloClientMod = require('@lucid-softworks/react-native-linux-expo/apollo-client');
+const firebaseMod = require('@lucid-softworks/react-native-linux-expo/firebase');
+const reactNativePickerMod = require('@lucid-softworks/react-native-linux-expo/react-native-picker');
+const tinybaseMod = require('@lucid-softworks/react-native-linux-expo/tinybase');
+const legendStateMod = require('@lucid-softworks/react-native-linux-expo/legend-state');
+const expoGlThreeMod = require('@lucid-softworks/react-native-linux-expo/expo-gl-three');
 // expo-router-entry is registered lazily — importing it has the side
 // effect of calling registerRootComponent. We pull it in only when an
 // app actually requires "expo-router/entry"; lazy-require via a
@@ -186,6 +194,14 @@ globalThis.__rnv = {
   victoryNative: victoryNativeMod,
   reactRouterDom: reactRouterDomMod,
   expoAsset: expoAssetMod,
+  expoAuthSession: expoAuthSessionMod,
+  jwtDecode: jwtDecodeMod,
+  apolloClient: apolloClientMod,
+  firebase: firebaseMod,
+  reactNativePicker: reactNativePickerMod,
+  tinybase: tinybaseMod,
+  legendState: legendStateMod,
+  expoGlThree: expoGlThreeMod,
   expoRouterEntry,
   expoApplication: expoApplicationMod,
   expoCrypto: expoCryptoMod,

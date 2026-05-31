@@ -328,6 +328,35 @@ const appOpts = {
     'react-router-dom',
     'react-router',
     'expo-asset',
+    'expo-auth-session',
+    'expo-auth-session/providers/google',
+    'expo-auth-session/providers/facebook',
+    'expo-auth-session/providers/apple',
+    'jwt-decode',
+    '@apollo/client',
+    '@apollo/client/react',
+    '@apollo/client/link/http',
+    '@apollo/client/cache',
+    'firebase/app',
+    'firebase/auth',
+    'firebase/auth/react-native',
+    'firebase/firestore',
+    'firebase/storage',
+    '@react-native-picker/picker',
+    'tinybase',
+    'tinybase/ui-react',
+    'tinybase/persisters/persister-browser',
+    'tinybase/persisters/persister-expo-sqlite',
+    '@legendapp/state',
+    '@legendapp/state/react',
+    '@legendapp/state/persist',
+    '@legendapp/state/sync',
+    '@legendapp/state/persist-plugins/async-storage',
+    '@legendapp/state/sync-plugins/supabase',
+    'three',
+    'expo-gl',
+    'expo-three',
+    'expo-processing',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -412,6 +441,31 @@ const appOpts = {
       '  if (id === "victory-native") return rnv.victoryNative;\n' +
       '  if (id === "react-router-dom" || id === "react-router") return rnv.reactRouterDom;\n' +
       '  if (id === "expo-asset") return rnv.expoAsset;\n' +
+      '  if (id === "expo-auth-session") return rnv.expoAuthSession;\n' +
+      '  if (id.indexOf("expo-auth-session/providers/") === 0) {\n' +
+      '    var prov = id.slice("expo-auth-session/providers/".length);\n' +
+      '    return rnv.expoAuthSession.Providers[prov[0].toUpperCase()+prov.slice(1)] || rnv.expoAuthSession;\n' +
+      '  }\n' +
+      '  if (id === "jwt-decode") return rnv.jwtDecode;\n' +
+      '  if (id === "@apollo/client" || id.indexOf("@apollo/client/") === 0) return rnv.apolloClient;\n' +
+      '  if (id === "firebase/app") return rnv.firebase.app;\n' +
+      '  if (id === "firebase/auth" || id === "firebase/auth/react-native") return rnv.firebase.auth;\n' +
+      '  if (id === "firebase/firestore") return rnv.firebase.firestore;\n' +
+      '  if (id === "firebase/storage") return rnv.firebase.storage;\n' +
+      '  if (id === "@react-native-picker/picker") return rnv.reactNativePicker;\n' +
+      '  if (id === "tinybase") return rnv.tinybase.base;\n' +
+      '  if (id === "tinybase/ui-react") return rnv.tinybase.uiReact;\n' +
+      '  if (id.indexOf("tinybase/persisters/") === 0) return rnv.tinybase.persisters;\n' +
+      '  if (id === "@legendapp/state") return rnv.legendState.base;\n' +
+      '  if (id === "@legendapp/state/react") return rnv.legendState.react;\n' +
+      '  if (id === "@legendapp/state/persist") return rnv.legendState.persist;\n' +
+      '  if (id === "@legendapp/state/sync") return rnv.legendState.sync;\n' +
+      '  if (id === "@legendapp/state/persist-plugins/async-storage") return rnv.legendState.persistAsyncStorage;\n' +
+      '  if (id === "@legendapp/state/sync-plugins/supabase") return rnv.legendState.syncSupabase;\n' +
+      '  if (id === "three") return rnv.expoGlThree.three;\n' +
+      '  if (id === "expo-gl") return rnv.expoGlThree.expoGl;\n' +
+      '  if (id === "expo-three") return rnv.expoGlThree.expoThree;\n' +
+      '  if (id === "expo-processing") return rnv.expoGlThree.expoProcessing;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.
