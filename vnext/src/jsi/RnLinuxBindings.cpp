@@ -95,6 +95,19 @@ struct State {
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricFocusHandlers;
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricBlurHandlers;
 
+  // GtkGestureLongPress on every View — fires once when the user holds
+  // the primary button past the gesture's threshold (~500 ms by
+  // default). The click gesture is configured to coexist so a normal
+  // tap still routes through `fabricClickHandlers`.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricLongPressHandlers;
+
+  // GtkEventControllerMotion enter / leave on every View — Pressable's
+  // hover-state derives from these; raw onHoverIn / onHoverOut props
+  // also drop straight through. Pointer motion only — touch devices
+  // never fire enter/leave so mobile-style Pressables remain accurate.
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricHoverInHandlers;
+  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricHoverOutHandlers;
+
   // onLayout handlers — fired from LinuxComponentView::updateLayoutMetrics
   // whenever a view's frame changes. Keyed by Fabric tag; payload mirrors
   // RN's {nativeEvent: {layout: {x, y, width, height}}} shape so apps can
@@ -265,6 +278,9 @@ void resetRnLinuxBindings() {
   state().fabricLayoutLast.clear();
   state().fabricFocusHandlers.clear();
   state().fabricBlurHandlers.clear();
+  state().fabricLongPressHandlers.clear();
+  state().fabricHoverInHandlers.clear();
+  state().fabricHoverOutHandlers.clear();
   // Tear down the GeoClue client BEFORE the runtime goes away — its
   // signal callback dereferences state().runtime when a fix arrives,
   // and an in-flight reload could otherwise fire onLocationSignal
@@ -552,6 +568,68 @@ void dispatchFabricBlur(int tag) {
       RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.getMessage();
     } catch (const std::exception& e) {
       RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchFabricLongPress(int tag) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricLongPressHandlers.find(tag);
+    if (it == s.fabricLongPressHandlers.end())
+      return;
+    try {
+      it->second->call(rt);
+      rt.drainMicrotasks();
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric longPress handler threw: " << e.getMessage();
+      reportJsErrorToErrorUtils(rt, e);
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric longPress handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchFabricHoverIn(int tag) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricHoverInHandlers.find(tag);
+    if (it == s.fabricHoverInHandlers.end())
+      return;
+    try {
+      it->second->call(rt);
+      // No drainMicrotasks — hover transitions are often visual-only
+      // (CSS-style highlight) and rarely schedule state work; the next
+      // unrelated tick will pick up any setState that did fire.
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric hoverIn handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric hoverIn handler threw: " << e.what();
+    }
+  });
+}
+
+void dispatchFabricHoverOut(int tag) {
+  auto& s = state();
+  if (!s.executor)
+    return;
+  s.executor([tag](jsi::Runtime& rt) {
+    auto& s = state();
+    auto it = s.fabricHoverOutHandlers.find(tag);
+    if (it == s.fabricHoverOutHandlers.end())
+      return;
+    try {
+      it->second->call(rt);
+    } catch (const jsi::JSError& e) {
+      RNL_LOGE("rnLinux") << "fabric hoverOut handler threw: " << e.getMessage();
+    } catch (const std::exception& e) {
+      RNL_LOGE("rnLinux") << "fabric hoverOut handler threw: " << e.what();
     }
   });
 }
@@ -1137,6 +1215,66 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
           return jsi::Value::undefined();
         }
         state().fabricClickHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // Long-press registry — sibling of fabricOnClick. Pressable /
+  // Touchable subscribe via the Fabric host config when an
+  // `onLongPress` prop appears on a <View>.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnLongPress",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricLongPressHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricLongPressHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+
+  // Hover-in / hover-out registries — siblings of fabricOnClick. Backs
+  // Pressable's `onHoverIn` / `onHoverOut` (and bare `onMouseEnter` /
+  // `onMouseLeave` props). Pointer motion only — touch devices never
+  // fire these.
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnHoverIn",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricHoverInHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricHoverInHandlers[tag] =
+            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        return jsi::Value::undefined();
+      });
+  bindMethod(
+      rt,
+      rnLinux,
+      "fabricOnHoverOut",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2)
+          return jsi::Value::undefined();
+        int tag = static_cast<int>(args[0].asNumber());
+        if (args[1].isNull() || args[1].isUndefined()) {
+          state().fabricHoverOutHandlers.erase(tag);
+          return jsi::Value::undefined();
+        }
+        state().fabricHoverOutHandlers[tag] =
             std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });

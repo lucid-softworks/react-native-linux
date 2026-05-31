@@ -132,6 +132,20 @@ void dispatchFabricBlur(int tag);
 // is registered for the tag.
 void dispatchFabricLayout(int tag, float x, float y, float w, float h);
 
+// Long-press dispatch — fired from GtkGestureLongPress' "pressed"
+// signal on the View. No payload. Handler registered via
+// `rnLinux.fabricOnLongPress(tag, fn)`. Pressable / Touchable both
+// consume this; the rest of RN's gesture-responder graph still falls
+// through to onClick.
+void dispatchFabricLongPress(int tag);
+
+// Pointer enter / leave on a View — backs `onHoverIn` / `onHoverOut`
+// (and Pressable's hover-state plumbing). Wired from
+// GtkEventControllerMotion's "enter" / "leave" signals. Touch devices
+// don't fire these; desktop / hybrid pointer devices do.
+void dispatchFabricHoverIn(int tag);
+void dispatchFabricHoverOut(int tag);
+
 // Notify the JS-side `useWindowDimensions` listener that the surface
 // allocation changed. Called from RNLinuxHost::resizeRootSurface so
 // every actual resize wakes the responsive-layout code (akari's

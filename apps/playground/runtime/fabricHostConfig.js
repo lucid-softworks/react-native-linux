@@ -261,6 +261,45 @@ function syncChangeTextHandler(tag, props) {
   rnLinux.fabricOnChangeText(tag, handler);
 }
 
+// onLongPress fires once after GtkGestureLongPress hits its hold
+// threshold. Wrap into a press-style synthetic event so handlers can
+// share code with onPress.
+function syncLongPressHandler(tag, props) {
+  const onLongPress = props && typeof props.onLongPress === 'function' ? props.onLongPress : null;
+  if (!onLongPress) {
+    rnLinux.fabricOnLongPress(tag, null);
+    return;
+  }
+  rnLinux.fabricOnLongPress(tag, () => onLongPress(makeSyntheticEvent('press')));
+}
+
+// Hover-in / hover-out come from GtkEventControllerMotion. Both
+// Pressable's `onHoverIn` / `onHoverOut` and bare RN web-style
+// `onMouseEnter` / `onMouseLeave` props are forwarded here so existing
+// cross-platform code paths line up.
+function syncHoverHandlers(tag, props) {
+  const onHoverIn =
+    props && typeof props.onHoverIn === 'function'
+      ? props.onHoverIn
+      : props && typeof props.onMouseEnter === 'function'
+        ? props.onMouseEnter
+        : null;
+  const onHoverOut =
+    props && typeof props.onHoverOut === 'function'
+      ? props.onHoverOut
+      : props && typeof props.onMouseLeave === 'function'
+        ? props.onMouseLeave
+        : null;
+  rnLinux.fabricOnHoverIn(
+    tag,
+    onHoverIn ? () => onHoverIn(makeSyntheticEvent('mouseenter')) : null,
+  );
+  rnLinux.fabricOnHoverOut(
+    tag,
+    onHoverOut ? () => onHoverOut(makeSyntheticEvent('mouseleave')) : null,
+  );
+}
+
 function syncScrollHandler(tag, props) {
   const handler = props && typeof props.onScroll === 'function' ? props.onScroll : null;
   rnLinux.fabricOnScroll(tag, handler);
@@ -464,6 +503,8 @@ const hostConfig = {
         internalInstanceHandle,
       );
       syncClickHandler(tag, props);
+      syncLongPressHandler(tag, props);
+      syncHoverHandlers(tag, props);
       syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'View', type);
     }
@@ -642,7 +683,11 @@ const hostConfig = {
     // Re-bind the click handler — JS function identity changes across
     // renders, so we keep the C++ registry pointing at the freshest
     // closure.
-    if (type === 'view') syncClickHandler(currentInstance.tag, newProps);
+    if (type === 'view') {
+      syncClickHandler(currentInstance.tag, newProps);
+      syncLongPressHandler(currentInstance.tag, newProps);
+      syncHoverHandlers(currentInstance.tag, newProps);
+    }
     if (type === 'textinput') {
       syncChangeTextHandler(currentInstance.tag, newProps);
       syncSubmitEditingHandler(currentInstance.tag, newProps);

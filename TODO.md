@@ -94,7 +94,7 @@ Honest gaps for arbitrary RN apps to drop in:
 - [x] GtkGestureClick on every View — `dispatchFabricClick(tag)` JSI registry
 - [x] GtkText "changed" → `dispatchFabricChangeText(tag, text)` JSI registry
 - [x] Scroll events — `dispatchFabricScroll` from GtkAdjustment value-changed → `rnLinux.fabricOnScroll(tag, fn)`, emits nativeEvent with contentOffset / contentSize / layoutMeasurement matching RN's shape
-- [ ] Long-press / motion events
+- [x] Long-press + hover (motion enter/leave) — `GtkGestureLongPress` ("pressed" → `dispatchFabricLongPress`) and `GtkEventControllerMotion` ("enter"/"leave" → `dispatchFabricHoverIn`/`Out`) on every View. JSI registry methods `fabricOnLongPress` / `fabricOnHoverIn` / `fabricOnHoverOut`. Fabric host config wires the props on view create + clone; `onMouseEnter`/`onMouseLeave` aliases also forward.
 - [x] Keyboard events on `<TextInput>` (onKeyPress, onSubmitEditing) — GtkEventControllerKey on CAPTURE phase fires `dispatchFabricKeyPress` with RN-shaped key strings; GtkText "activate" → `dispatchFabricSubmitEditing`. Ctrl+A/C/X/V wired here too because GtkText (unlike GtkEntry) doesn't ship the standard editing accelerators.
 - [ ] Touch events synthesized from pointer
 - [ ] Real Fabric `EventEmitter` plumbing (we use JSI registries keyed by tag — fine for MVP, won't survive nested gestures)
