@@ -425,16 +425,54 @@ function createAnimatedComponent(Inner) {
 
       const subs = [];
       const hasSetter = typeof rnLinux !== 'undefined' && rnLinux.setNativeProp;
-      for (const {value, prop} of native) {
-        if (hasSetter) {
-          rnLinux.setNativeProp(animId, prop, value.__getValue());
+      const hasBatchSetter = typeof rnLinux !== 'undefined' && rnLinux.setNativeProps;
+
+      // Per-host pending bag. Multiple AnimatedValues firing on the
+      // same rAF tick (Paper's floating-label rides translateX +
+      // translateY + scale together) each push into `pending`; a
+      // microtask flushes once via rnLinux.setNativeProps so the C++
+      // side rebuilds the GskTransform a single time per frame
+      // instead of N times.
+      //
+      // Microtask is the right hook: AnimatedValue.setValue → native
+      // listener runs synchronously inside the rAF callback; all of
+      // them have fired by the time the rAF returns. Hermes drains
+      // microtasks after the rAF callback, so the flush sees the
+      // complete bag.
+      const pending = {};
+      let scheduled = false;
+      function flush() {
+        scheduled = false;
+        if (hasBatchSetter) {
+          rnLinux.setNativeProps(animId, pending);
+        } else if (hasSetter) {
+          for (const k in pending) {
+            rnLinux.setNativeProp(animId, k, pending[k]);
+          }
         }
-        // Mark the listener as `_native` so AnimatedValue.setValue keeps
-        // firing it even when a useNativeDriver:true timing has set
-        // _nativeOnly > 0 (which suppresses React-side listeners).
-        const nativeCb = ({value: v}) => {
-          if (hasSetter) rnLinux.setNativeProp(animId, prop, v);
-        };
+        for (const k in pending) delete pending[k];
+      }
+      function enqueue(prop, v) {
+        pending[prop] = v;
+        if (scheduled) return;
+        scheduled = true;
+        globalThis.queueMicrotask(flush);
+      }
+
+      // Initial sync: seed the bag with the current values + flush
+      // once so the widget reflects the right state before any timing
+      // call starts. Without this, an Animated.View mounting with a
+      // non-zero starting opacity / translate stays at the GTK
+      // default (1, 0) until the first animation tick.
+      for (const {value, prop} of native) {
+        pending[prop] = value.__getValue();
+      }
+      if (native.length && (hasBatchSetter || hasSetter)) {
+        flush();
+      }
+
+      for (const {value, prop} of native) {
+        const nativeCb = ({value: v}) => enqueue(prop, v);
         nativeCb._native = true;
         const id = value.addListener(nativeCb);
         subs.push({value, id});

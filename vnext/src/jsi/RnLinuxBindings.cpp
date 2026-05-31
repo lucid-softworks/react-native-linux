@@ -1424,6 +1424,107 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // Batched native-driver hook. Same semantics as setNativeProp but
+  // takes a property bag — {opacity?, translateX?, translateY?,
+  // scale?, scaleX?, scaleY?} — and applies all of them in a single
+  // transform rebuild instead of one read-decompose-write cycle per
+  // prop. Animated hosts that drive multiple transform fields off
+  // distinct Animated.Values (Paper's TextInput.Outlined floating
+  // label rides translateX + translateY + scale together) coalesce
+  // their setValue callbacks into one microtask-flushed bag per
+  // frame, then call setNativeProps once. That replaces N read-
+  // decompose-write cycles with one, and produces a single
+  // gtk_fixed_set_child_transform invalidation instead of N.
+  bindMethod(
+      rt,
+      rnLinux,
+      "setNativeProps",
+      2,
+      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 2 || !args[1].isObject())
+          return jsi::Value::undefined();
+        const auto& s = state();
+        GtkWidget* w = nullptr;
+        if (args[0].isString()) {
+          const auto id = args[0].asString(rt).utf8(rt);
+          auto it = s.animWidgets.find(id);
+          if (it != s.animWidgets.end())
+            w = it->second;
+        } else if (args[0].isNumber() && s.fabricLookup) {
+          const int tag = static_cast<int>(args[0].asNumber());
+          w = s.fabricLookup(tag);
+        }
+        if (!w)
+          return jsi::Value::undefined();
+
+        jsi::Object bag = args[1].asObject(rt);
+
+        // Opacity is independent of the transform — fire its own
+        // diff-skip path so a bag carrying only opacity doesn't touch
+        // the GskTransform at all.
+        if (bag.hasProperty(rt, "opacity")) {
+          const double v = bag.getProperty(rt, "opacity").asNumber();
+          if (gtk_widget_get_opacity(w) != v) {
+            gtk_widget_set_opacity(w, v);
+          }
+        }
+
+        // Transform fields. Collect everything first, then rebuild
+        // the GskTransform once. `scale` is the uniform-scale shortcut
+        // that sets both sx and sy; scaleX / scaleY override either
+        // axis after the uniform pass so a bag containing both
+        // {scale: 1, scaleX: 1.5} still ends up with the per-axis
+        // override winning — matches RN's transform-array
+        // last-write-wins.
+        const bool hasTx = bag.hasProperty(rt, "translateX");
+        const bool hasTy = bag.hasProperty(rt, "translateY");
+        const bool hasScale = bag.hasProperty(rt, "scale");
+        const bool hasSx = bag.hasProperty(rt, "scaleX");
+        const bool hasSy = bag.hasProperty(rt, "scaleY");
+        if (!(hasTx || hasTy || hasScale || hasSx || hasSy))
+          return jsi::Value::undefined();
+
+        GtkWidget* parent = gtk_widget_get_parent(w);
+        if (!parent || !GTK_IS_FIXED(parent))
+          return jsi::Value::undefined();
+
+        const float layoutX =
+            static_cast<float>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "rnl-layout-x")));
+        const float layoutY =
+            static_cast<float>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "rnl-layout-y")));
+        GskTransform* cur = gtk_fixed_get_child_transform(GTK_FIXED(parent), w);
+        GskTransformCategory cat =
+            cur ? gsk_transform_get_category(cur) : GSK_TRANSFORM_CATEGORY_IDENTITY;
+        const bool is2d = cat >= GSK_TRANSFORM_CATEGORY_2D;
+        float xx = 1, yx = 0, xy = 0, yy = 1, dx = layoutX, dy = layoutY;
+        if (cur && is2d) {
+          gsk_transform_to_2d(cur, &xx, &yx, &xy, &yy, &dx, &dy);
+        }
+        float sx = xx;
+        float sy = yy;
+        if (hasTx)
+          dx = layoutX + static_cast<float>(bag.getProperty(rt, "translateX").asNumber());
+        if (hasTy)
+          dy = layoutY + static_cast<float>(bag.getProperty(rt, "translateY").asNumber());
+        if (hasScale) {
+          const float v = static_cast<float>(bag.getProperty(rt, "scale").asNumber());
+          sx = v;
+          sy = v;
+        }
+        if (hasSx)
+          sx = static_cast<float>(bag.getProperty(rt, "scaleX").asNumber());
+        if (hasSy)
+          sy = static_cast<float>(bag.getProperty(rt, "scaleY").asNumber());
+
+        graphene_point_t pt = {dx, dy};
+        GskTransform* next = gsk_transform_translate(nullptr, &pt);
+        next = gsk_transform_scale(next, sx, sy);
+        gtk_fixed_set_child_transform(GTK_FIXED(parent), w, next);
+        gsk_transform_unref(next);
+
+        return jsi::Value::undefined();
+      });
+
   // Instance-method backing for ref.current.measure / measureInWindow.
   // RN's `measure(callback)` callback receives (x, y, width, height,
   // pageX, pageY); `measureInWindow(callback)` gets (pageX, pageY,
