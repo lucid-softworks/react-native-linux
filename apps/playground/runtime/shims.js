@@ -208,6 +208,54 @@ if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.getRandomValu
   });
 }
 
+// `window` global — RN apps occasionally include web-only code paths
+// gated on `typeof window !== 'undefined'`. Hermes doesn't have a
+// `window` and the throw on bare `window.location.reload()` blows
+// the bundle up before any guard could fire. Polyfill as a noop
+// object so the bare-access path resolves; real web feature checks
+// (`window.localStorage`, `window.navigator`, etc.) read undefined
+// and apps' isWeb flags evaluate true OR are guarded by other
+// checks. The polyfill is a separate write from globalThis.window
+// because some bundles (Hermes' lazy parse) need the binding visible
+// at parse time.
+if (typeof globalThis.window === 'undefined') {
+  globalThis.window = globalThis;
+  // Pretend to be a non-DOM environment. Code that does
+  // `if (typeof window.document === 'undefined') return;` (the
+  // standard isNative branch) takes the right path.
+  if (typeof globalThis.document === 'undefined') {
+    globalThis.document = undefined;
+  }
+  if (typeof globalThis.navigator === 'undefined') {
+    globalThis.navigator = {userAgent: 'react-native-linux'};
+  }
+  // location.reload() / location.protocol / location.host are the
+  // most-common bare-property accesses inside web-only branches.
+  // Returning safe defaults keeps the branches from crashing while
+  // still triggering their "not actually web" fallback once they
+  // probe deeper.
+  if (typeof globalThis.location === 'undefined') {
+    globalThis.location = {
+      reload: () => {},
+      protocol: 'https:',
+      host: 'react-native-linux',
+      hostname: 'react-native-linux',
+      href: '',
+      pathname: '/',
+      search: '',
+      hash: '',
+      origin: 'https://react-native-linux',
+    };
+  }
+  // addEventListener / removeEventListener on window — many service-
+  // worker registration shims do `window.addEventListener('load',...)`.
+  if (typeof globalThis.addEventListener !== 'function') {
+    globalThis.addEventListener = () => {};
+    globalThis.removeEventListener = () => {};
+    globalThis.dispatchEvent = () => true;
+  }
+}
+
 // AbortController / AbortSignal — Hermes 0.12 ships neither, but
 // TanStack Query's Query.fetch unconditionally does
 // `new AbortController()` on every fetch, and lots of fetch-using

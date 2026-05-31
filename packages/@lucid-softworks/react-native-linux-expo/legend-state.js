@@ -103,9 +103,15 @@ const sync = stamp({
 });
 const persistAsyncStorage = stamp({
   ObservablePersistAsyncStorage: function () {},
+  // Lowercase factory form — newer @legendapp/state versions
+  // configureSynced({plugin: observablePersistAsyncStorage(...)}).
+  observablePersistAsyncStorage: function (_opts) {
+    return {load: () => Promise.resolve(), save: () => Promise.resolve(), name: 'AsyncStorage'};
+  },
 });
 const syncSupabase = stamp({
   syncedSupabase: x => x,
+  configureSyncedSupabase: x => x,
 });
 
 module.exports = {base, react, persist, sync, persistAsyncStorage, syncSupabase};
