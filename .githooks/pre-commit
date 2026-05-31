@@ -70,13 +70,18 @@ if [[ -n "$cpp_files" && -n "$CLANG_FORMAT" ]]; then
   echo "$cpp_files" | xargs $CLANG_FORMAT
 fi
 
-# Re-stage every touched file. printf-with-empty-line guards against
-# `xargs git add` exiting non-zero when all three lists are empty.
-{
-  printf '%s\n' "$js_files"
-  printf '%s\n' "$cfg_files"
-  printf '%s\n' "$cpp_files"
-} | grep -v '^$' | xargs -r git add
+# Re-stage every touched file. Skip the whole pipeline when all three
+# lists are empty — `grep -v '^$'` returns 1 on an all-empty stream,
+# which trips `set -o pipefail` and kills the hook before typecheck.
+# A commit touching only .txt / submodule / .gitignore etc. has none
+# of these extensions, which is exactly when this branch fires.
+if [[ -n "$js_files" || -n "$cfg_files" || -n "$cpp_files" ]]; then
+  {
+    printf '%s\n' "$js_files"
+    printf '%s\n' "$cfg_files"
+    printf '%s\n' "$cpp_files"
+  } | grep -v '^$' | xargs -r git add
+fi
 
 # Typecheck the whole monorepo. tsc --noEmit on every workspace is
 # fast (a few seconds) once node_modules is warm, and catches the

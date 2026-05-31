@@ -17,6 +17,9 @@ out/
 # wrapper per expo/examples example. Regenerated every run.
 apps/playground/.smoke-entries/
 
+# Local Claude Code session state — scheduled task lock, etc.
+.claude/
+
 # Native build outputs
 vnext/build/
 vnext/cmake-build-*/
