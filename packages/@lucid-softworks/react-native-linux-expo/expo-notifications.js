@@ -537,5 +537,15 @@ const api = {
   getDevicePushTokenAsync,
 };
 
+// Register through expo-modules-core's `globalThis.expo.modules`
+// registry so third-party packages doing
+// `requireNativeModule('ExpoNotifications')` resolve here transparently.
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoNotifications', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
 module.exports = api;
 module.exports.default = api;
