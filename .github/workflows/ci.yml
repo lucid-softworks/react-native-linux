@@ -361,6 +361,109 @@ jobs:
             dist/ci-smoke/app.log
           if-no-files-found: ignore
 
+  smoke-expo-examples:
+    # Iterate every example under external/expo-examples (vendored as a
+    # submodule from expo/examples — MIT-licensed) and try to bundle +
+    # boot each one through the same smoke harness `smoke-playground`
+    # uses. Catches drift between our shim surface and what real Expo
+    # apps actually reach for.
+    #
+    # Each example exports a default App; the driver synthesizes a
+    # tiny wrapper that calls registerRootComponent(App). expo-router
+    # apps (app/ dir layout) get a different wrapper that just does
+    # `import 'expo-router/entry'`.
+    #
+    # Failures are EXPECTED and reported per-example in the summary —
+    # the matrix records pass/bundle_fail/boot_fail/skipped without
+    # failing the job. The published summary.txt lets us track which
+    # examples flip green over time without re-running the matrix
+    # locally to find out.
+    runs-on: ubuntu-24.04
+    needs: smoke-playground
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install native build + xvfb deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build cmake pkg-config \
+            libgtk-4-dev \
+            libsoup-3.0-dev \
+            libglib2.0-dev \
+            libboost-all-dev \
+            libdouble-conversion-dev \
+            libevent-dev \
+            libssl-dev \
+            libgoogle-glog-dev \
+            libgflags-dev \
+            libfast-float-dev \
+            zlib1g-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libnotify-dev \
+            libsecret-1-dev \
+            python3 python3-pip \
+            xvfb imagemagick
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install template deps (provides node_modules/react-native)
+        working-directory: template
+        run: |
+          pnpm install --no-frozen-lockfile
+
+      - name: Cache CMake FetchContent _deps (playground tree)
+        uses: actions/cache@v5
+        with:
+          path: apps/playground/linux/build/_deps
+          key: playground-deps-ubuntu-24.04-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
+
+      - name: Build playground binary (once, reused per example)
+        # Configure pulls vnext as a subdir and builds the full lib +
+        # binary in one pass. Reuses the Fetch* cache the smoke-
+        # playground job warms up.
+        run: |
+          cmake -S apps/playground/linux -B apps/playground/linux/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DREACT_NATIVE_LINUX_DIR=${{ github.workspace }}/vnext \
+            -DREACT_NATIVE_ROOT=${{ github.workspace }}/template/node_modules/react-native
+          cmake --build apps/playground/linux/build --parallel --target rn-linux-playground
+
+      - name: Run the matrix
+        # 4-second settle per example × ~70 examples = ~5 min just
+        # waiting; full sweep including bundle is ~15-20 min on a
+        # cold runner. Each example's bundle log + smoke log + .png +
+        # app.log are written under dist/ci-smoke-examples/ so a red
+        # cell on the summary table links back to the actual cause.
+        run: |
+          bash scripts/ci/smoke-all-examples.sh --settle-ms 4000
+
+      - name: Print summary
+        if: always()
+        run: |
+          cat dist/ci-smoke-examples/summary.txt || true
+
+      - name: Upload matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: expo-examples-matrix
+          path: |
+            dist/ci-smoke-examples/summary.txt
+            dist/ci-smoke-examples/*.png
+            dist/ci-smoke-examples/*.log
+          if-no-files-found: ignore
+
   coverage:
     # JS-side jest coverage; uploads lcov.info as an artifact. vnext's
     # C++ coverage isn't gated yet — the gtest target conflict with

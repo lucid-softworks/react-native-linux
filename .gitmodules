@@ -1,0 +1,3 @@
+[submodule "external/expo-examples"]
+	path = external/expo-examples
+	url = https://github.com/expo/examples

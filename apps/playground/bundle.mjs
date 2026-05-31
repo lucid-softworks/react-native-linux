@@ -229,11 +229,17 @@ const vendorOpts = {
   plugins: [refreshTransformPlugin],
 };
 
-// Override via RN_ENTRY for one-off experiments (e.g. RN_ENTRY=expo-blank.tsx).
+// Override via RN_ENTRY for one-off experiments
+// (e.g. RN_ENTRY=expo-blank.tsx — relative to apps/playground).
+// For entries OUTSIDE the playground (smoke harness for
+// external/expo-examples/* etc.), pass RN_ENTRY_PATH=<absolute path>
+// — that bypasses the `resolve(here, …)` join entirely.
 const appEntry = process.env.RN_ENTRY ?? 'index.tsx';
+const externalEntry = process.env.RN_ENTRY_PATH ?? null;
+const resolvedEntry = externalEntry ? resolve(externalEntry) : resolve(here, appEntry);
 const appOpts = {
   ...baseOpts,
-  entryPoints: [resolve(here, appEntry)],
+  entryPoints: [resolvedEntry],
   outfile: appOut,
   // These resolve at runtime from globalThis.__rnv (see banner).
   external: [
