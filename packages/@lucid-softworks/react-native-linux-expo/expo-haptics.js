@@ -82,5 +82,15 @@ const api = {
   AndroidHaptics,
 };
 
+// Register through expo-modules-core's `globalThis.expo.modules`
+// registry so third-party packages doing
+// `requireNativeModule('ExpoHaptics')` resolve here transparently.
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoHaptics', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
 module.exports = api;
 module.exports.default = api;

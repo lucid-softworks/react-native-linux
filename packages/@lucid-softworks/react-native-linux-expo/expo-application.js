@@ -121,5 +121,21 @@ const api = {
   ApplicationReleaseType,
 };
 
+// Register the same surface under `globalThis.expo.modules.ExpoApplication`
+// so third-party packages from npm that do
+// `requireNativeModule('ExpoApplication')` resolve through expo-modules-core's
+// path (`packages/@lucid-softworks/react-native-linux-expo/expo-modules-core.js`)
+// instead of throwing. The in-tree shim and the registry entry point at
+// the same object so updates stay in sync.
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoApplication', api);
+} catch (_) {
+  // expo-modules-core may not be loaded yet during in-tree tests that
+  // require this file directly. The umbrella vendor.js always loads
+  // expo-modules-core first, so the production path always hits the
+  // try-branch — this catch is for unit-test robustness only.
+}
+
 module.exports = api;
 module.exports.default = api;
