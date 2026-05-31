@@ -281,6 +281,10 @@ const appOpts = {
     'react-native-screens',
     'react-native-reanimated',
     'expo-router',
+    'expo-router/entry',
+    '@expo/metro-runtime',
+    'crypto',
+    'node:crypto',
     'expo-application',
     'expo-crypto',
     'expo-device',
@@ -333,6 +337,9 @@ const appOpts = {
       '  if (id === "react-native-screens") return rnv.screens;\n' +
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
       '  if (id === "expo-router") return rnv.expoRouter;\n' +
+      '  if (id === "expo-router/entry") return rnv.expoRouterEntry();\n' +
+      '  if (id === "@expo/metro-runtime") return rnv.expoMetroRuntime;\n' +
+      '  if (id === "crypto" || id === "node:crypto") return rnv.nodeCrypto;\n' +
       '  if (id === "expo-application") return rnv.expoApplication;\n' +
       '  if (id === "expo-crypto") return rnv.expoCrypto;\n' +
       '  if (id === "expo-device") return rnv.expoDevice;\n' +

@@ -49,6 +49,12 @@ const linuxExpoShims = {
   'react-native-mmkv': '@lucid-softworks/react-native-linux-expo/react-native-mmkv',
   '@react-native-community/netinfo':
     '@lucid-softworks/react-native-linux-expo/react-native-community-netinfo',
+  // expo/examples-driven additions — the smoke matrix surfaced these
+  // as the highest-leverage missing routes.
+  crypto: '@lucid-softworks/react-native-linux-expo/node-crypto',
+  'node:crypto': '@lucid-softworks/react-native-linux-expo/node-crypto',
+  '@expo/metro-runtime': '@lucid-softworks/react-native-linux-expo/expo-metro-runtime',
+  'expo-router/entry': '@lucid-softworks/react-native-linux-expo/expo-router-entry',
 };
 
 const config = {

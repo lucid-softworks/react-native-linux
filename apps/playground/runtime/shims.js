@@ -155,6 +155,59 @@ if (typeof globalThis.performance === 'undefined') {
   globalThis.performance = {now: () => Date.now()};
 }
 
+// Web Crypto API — `globalThis.crypto.getRandomValues` /
+// `randomUUID` is what every modern JWT / OAuth / UUID library
+// reaches for. expo-crypto, uuid, jose, @react-native-async-storage,
+// jsonwebtoken (via its `crypto-js` fallback) — all of them probe
+// the global before falling back to the Node `crypto` module. Polyfill
+// here so the global path works without each library having to know
+// about our Node-style shim.
+//
+// Entropy comes from rnLinux.cryptoRandomBytes which is backed by
+// getrandom(2) on the C++ side; same CSPRNG the Node-style crypto
+// shim uses.
+if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.getRandomValues) {
+  function atobToBytes(b64) {
+    const bin = globalThis.atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function getRandomValues(typedArray) {
+    if (!ArrayBuffer.isView(typedArray)) {
+      throw new TypeError('crypto.getRandomValues: argument must be a typed array');
+    }
+    const bytes = atobToBytes(rnLinux.cryptoRandomBytes(typedArray.byteLength));
+    new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength).set(bytes);
+    return typedArray;
+  }
+  function randomUUID() {
+    const b = atobToBytes(rnLinux.cryptoRandomBytes(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const hex = [];
+    for (let i = 0; i < 16; i++) hex.push((b[i] < 16 ? '0' : '') + b[i].toString(16));
+    return (
+      hex.slice(0, 4).join('') +
+      '-' +
+      hex.slice(4, 6).join('') +
+      '-' +
+      hex.slice(6, 8).join('') +
+      '-' +
+      hex.slice(8, 10).join('') +
+      '-' +
+      hex.slice(10, 16).join('')
+    );
+  }
+  // Some environments freeze crypto; defineProperty with configurable:
+  // true keeps the polyfill replaceable by a real impl later.
+  Object.defineProperty(globalThis, 'crypto', {
+    value: {getRandomValues, randomUUID, subtle: undefined},
+    configurable: true,
+    writable: true,
+  });
+}
+
 // AbortController / AbortSignal — Hermes 0.12 ships neither, but
 // TanStack Query's Query.fetch unconditionally does
 // `new AbortController()` on every fetch, and lots of fetch-using

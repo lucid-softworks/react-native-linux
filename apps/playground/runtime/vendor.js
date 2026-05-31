@@ -85,6 +85,19 @@ const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-n
 const screensMod = require('@lucid-softworks/react-native-linux-expo/react-native-screens');
 const reanimatedMod = require('@lucid-softworks/react-native-linux-expo/react-native-reanimated');
 const expoRouterMod = require('@lucid-softworks/react-native-linux-expo/expo-router');
+const nodeCryptoMod = require('@lucid-softworks/react-native-linux-expo/node-crypto');
+const expoMetroRuntimeMod = require('@lucid-softworks/react-native-linux-expo/expo-metro-runtime');
+// expo-router-entry is registered lazily — importing it has the side
+// effect of calling registerRootComponent. We pull it in only when an
+// app actually requires "expo-router/entry"; lazy-require via a
+// thunk that the banner invokes on first lookup.
+let _expoRouterEntryMod = null;
+function expoRouterEntry() {
+  if (!_expoRouterEntryMod) {
+    _expoRouterEntryMod = require('@lucid-softworks/react-native-linux-expo/expo-router-entry');
+  }
+  return _expoRouterEntryMod;
+}
 const expoApplicationMod = require('@lucid-softworks/react-native-linux-expo/expo-application');
 const expoCryptoMod = require('@lucid-softworks/react-native-linux-expo/expo-crypto');
 const expoDeviceMod = require('@lucid-softworks/react-native-linux-expo/expo-device');
@@ -137,6 +150,9 @@ globalThis.__rnv = {
   screens: screensMod,
   reanimated: reanimatedMod,
   expoRouter: expoRouterMod,
+  nodeCrypto: nodeCryptoMod,
+  expoMetroRuntime: expoMetroRuntimeMod,
+  expoRouterEntry,
   expoApplication: expoApplicationMod,
   expoCrypto: expoCryptoMod,
   expoDevice: expoDeviceMod,
