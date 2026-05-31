@@ -103,6 +103,7 @@ const reactNativeWebrtcMod = require('@lucid-softworks/react-native-linux-expo/r
 const reactNativeSvgMod = require('@lucid-softworks/react-native-linux-expo/react-native-svg');
 const victoryNativeMod = require('@lucid-softworks/react-native-linux-expo/victory-native');
 const reactRouterDomMod = require('@lucid-softworks/react-native-linux-expo/react-router-dom');
+const expoAssetMod = require('@lucid-softworks/react-native-linux-expo/expo-asset');
 // expo-router-entry is registered lazily — importing it has the side
 // effect of calling registerRootComponent. We pull it in only when an
 // app actually requires "expo-router/entry"; lazy-require via a
@@ -184,6 +185,7 @@ globalThis.__rnv = {
   reactNativeSvg: reactNativeSvgMod,
   victoryNative: victoryNativeMod,
   reactRouterDom: reactRouterDomMod,
+  expoAsset: expoAssetMod,
   expoRouterEntry,
   expoApplication: expoApplicationMod,
   expoCrypto: expoCryptoMod,

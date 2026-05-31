@@ -81,11 +81,22 @@ const refreshTransformPlugin = {
       // through swc with ES5 target lowers classes to prototype-based
       // assignments Hermes accepts.
       const inNodeModules = args.path.includes('/node_modules/');
+      // expo/examples is a sibling tree we vendor under
+      // external/expo-examples/ via a git submodule; treat it like
+      // node_modules for class-lowering purposes since esbuild can
+      // still emit `var X = class extends Y.Z` from user code there.
+      const inExternalExamples = args.path.includes('/external/expo-examples/');
+      // Match any `class <Identifier>` declaration — Hermes 0.12
+      // rejects both `class extends X.Y` (member-expression super)
+      // and `class _X { ... }` (the renamed-binding form esbuild
+      // emits for `var X = class { ... }`). The earlier
+      // `class … extends …` filter missed the second case, which
+      // showed up in expo-asset's AssetSourceResolver.
       const looksClassHeavy =
-        inNodeModules &&
+        (inNodeModules || inExternalExamples) &&
         !isShimPackage &&
         !isNativeSpec &&
-        /\bclass\b\s+\w*\s*\bextends\b/.test(lazySource());
+        /\bclass\b\s+\w/.test(lazySource());
       if (!inUserCode && !isNativeSpec && !isShimPackage && !looksClassHeavy) return null;
 
       // RN's Native* spec files are usually Flow-flavoured (// @flow,
@@ -316,6 +327,7 @@ const appOpts = {
     'victory-native',
     'react-router-dom',
     'react-router',
+    'expo-asset',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -399,6 +411,7 @@ const appOpts = {
       '  if (id === "react-native-svg" || id === "react-native-svg/css") return rnv.reactNativeSvg;\n' +
       '  if (id === "victory-native") return rnv.victoryNative;\n' +
       '  if (id === "react-router-dom" || id === "react-router") return rnv.reactRouterDom;\n' +
+      '  if (id === "expo-asset") return rnv.expoAsset;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.

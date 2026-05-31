@@ -185,6 +185,21 @@ const createBottomTabNavigator = makeNavigatorFactory();
 const createMaterialTopTabNavigator = makeNavigatorFactory();
 const createMaterialBottomTabNavigator = makeNavigatorFactory();
 
+// createStaticNavigation — React Navigation 7's static API. Takes a
+// RootNavigator config and returns a NavigationContainer-wrapping
+// component that the app mounts at root. We render the inner
+// Navigator inside our standard NavigationContainer; no real routing
+// happens but the initial screen mounts.
+function createStaticNavigation(RootNavigator) {
+  return function StaticNavigation(props) {
+    return React.createElement(
+      NavigationContainer,
+      props,
+      React.createElement(RootNavigator, null),
+    );
+  };
+}
+
 // CommonActions / StackActions / DrawerActions — action creators
 // returning bare objects. Apps that pass these to navigation.dispatch
 // won't crash; the dispatch itself is a no-op on our side.
@@ -232,3 +247,4 @@ module.exports.createDrawerNavigator = createDrawerNavigator;
 module.exports.createBottomTabNavigator = createBottomTabNavigator;
 module.exports.createMaterialTopTabNavigator = createMaterialTopTabNavigator;
 module.exports.createMaterialBottomTabNavigator = createMaterialBottomTabNavigator;
+module.exports.createStaticNavigation = createStaticNavigation;
