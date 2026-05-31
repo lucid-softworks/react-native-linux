@@ -182,6 +182,64 @@ jobs:
         run: |
           cmake --build vnext/build --parallel --target react_native_linux
 
+  build-playground-bundle:
+    # Runs the playground's bundle.mjs against each demo entry. Catches
+    # bundle-level regressions that pure typecheck can't — e.g. the
+    # paper-demo regression where esbuild's `__toClass` helper started
+    # emitting `class extends X.Y` that hermesc rejects. Cheap: bundling
+    # is a few seconds per entry and we re-use the lockfile install
+    # from the lint-js job's cache.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Bundle every playground entry
+        # Each entry exercises a different slice of the runtime:
+        #   index.tsx              — default Tabs UI (most surface area)
+        #   expo-blank.tsx         — minimal Expo template
+        #   expo-modules-test.tsx  — every shimmed module's surface
+        #   expo-router-tabs.tsx   — expo-router shim
+        #   expo-tabs.tsx          — React Navigation Tabs
+        #   smoke-demo.tsx         — next-batch library smoke probes
+        #   paper-demo.tsx         — react-native-paper end-to-end
+        #
+        # App.tsx is not on the list — it's a component module that
+        # index.tsx imports, not a self-contained entry that calls
+        # registerRootComponent / renderFabric.
+        #
+        # Each entry must produce BOTH a non-empty `.bundle` (esbuild
+        # output) AND a non-empty `.bundle.hbc` (hermesc output). The
+        # bundler wipes the .hbc on hermesc failure, so a missing
+        # bytecode file is the signal that paper-demo-style class
+        # regressions slipped through.
+        #
+        # A failure in any one of these fails the job; the run-log
+        # surfaces which entry tripped so the user knows where to
+        # bisect.
+        working-directory: apps/playground
+        run: |
+          set -e
+          for entry in index.tsx expo-blank.tsx expo-modules-test.tsx \
+                       expo-router-tabs.tsx expo-tabs.tsx smoke-demo.tsx \
+                       paper-demo.tsx; do
+            echo "::group::bundle $entry"
+            RN_ENTRY="$entry" node bundle.mjs
+            test -s linux/build/assets/index.linux.bundle
+            test -s linux/build/assets/vendor.bundle
+            test -s linux/build/assets/index.linux.bundle.hbc \
+              || (echo "::error::$entry produced no .hbc — hermesc rejected the bundle"; exit 1)
+            test -s linux/build/assets/vendor.bundle.hbc \
+              || (echo "::error::$entry: vendor.bundle.hbc missing"; exit 1)
+            echo "::endgroup::"
+          done
+
   coverage:
     # JS-side jest coverage; uploads lcov.info as an artifact. vnext's
     # C++ coverage isn't gated yet — the gtest target conflict with
