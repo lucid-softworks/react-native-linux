@@ -123,6 +123,7 @@ set(RNL_SOURCES
   src/views/ParagraphComponentView.cpp
   src/views/ScrollViewComponentView.cpp
   src/views/ImageComponentView.cpp
+  src/views/TintedPaintable.cpp
   src/views/TextInputComponentView.cpp
   src/views/SwitchComponentView.cpp
   src/views/ActivityIndicatorComponentView.cpp

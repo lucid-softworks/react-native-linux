@@ -1,5 +1,6 @@
 #include "ImageComponentView.h"
 
+#include "TintedPaintable.h"
 #include "react-native-linux/Logging.h"
 
 #include <gtk/gtk.h>
@@ -104,6 +105,42 @@ GdkTexture* decodeDataUri(const std::string& uri) {
   return texture;
 }
 
+// Tint colour qdata key on the GtkPicture. The async fetch callbacks
+// don't carry an ImageComponentView pointer (the view can be unmounted
+// before the request lands), so we stash the desired tint on the
+// widget itself; `applyPaintable` reads it back when wiring the final
+// paintable so the wrapper is applied uniformly across file://, data:,
+// and http(s) load paths.
+constexpr const char* kTintKey = "rnl-tint-color";
+
+void setPictureTint(GtkPicture* picture, const std::optional<GdkRGBA>& tint) {
+  if (tint) {
+    GdkRGBA* heap = g_new(GdkRGBA, 1);
+    *heap = *tint;
+    g_object_set_data_full(G_OBJECT(picture), kTintKey, heap, g_free);
+  } else {
+    g_object_set_data(G_OBJECT(picture), kTintKey, nullptr);
+  }
+}
+
+const GdkRGBA* getPictureTint(GtkPicture* picture) {
+  return static_cast<const GdkRGBA*>(g_object_get_data(G_OBJECT(picture), kTintKey));
+}
+
+// Set `raw` as the picture's paintable, wrapping it in a tinted
+// paintable when a tint colour is stashed on the widget. Passing
+// `nullptr` clears the picture either way.
+void applyPaintable(GtkPicture* picture, GdkPaintable* raw) {
+  const GdkRGBA* tint = getPictureTint(picture);
+  if (raw && tint) {
+    GdkPaintable* wrapped = rn_linux_tinted_paintable_new(raw, tint);
+    gtk_picture_set_paintable(picture, wrapped);
+    g_object_unref(wrapped);
+  } else {
+    gtk_picture_set_paintable(picture, raw);
+  }
+}
+
 #ifdef RNL_HAVE_LIBSOUP3
 // Process-wide SoupCache anchored under XDG_CACHE_HOME — clearable
 // from JS via `Image.clearDiskCache`. Kept as a separate global so
@@ -205,7 +242,7 @@ void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
       gtk_media_stream_set_loop(stream, TRUE);
       gtk_media_stream_set_muted(stream, TRUE);
       gtk_media_stream_play(stream);
-      gtk_picture_set_paintable(fetch->picture, GDK_PAINTABLE(stream));
+      applyPaintable(fetch->picture, GDK_PAINTABLE(stream));
       g_object_unref(stream);
     }
     delete fetch;
@@ -222,7 +259,7 @@ void onImageBytes(GObject* source, GAsyncResult* result, gpointer user) {
     delete fetch;
     return;
   }
-  gtk_picture_set_paintable(fetch->picture, GDK_PAINTABLE(tex));
+  applyPaintable(fetch->picture, GDK_PAINTABLE(tex));
   g_object_unref(tex);
   delete fetch;
 }
@@ -295,6 +332,24 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
   // resizeMode is independent of source loading; apply on every pass.
   gtk_picture_set_content_fit(GTK_PICTURE(widget_), toContentFit(ip.resizeMode));
 
+  // Translate ImageProps' SharedColor tint into a GdkRGBA, mirroring
+  // ViewComponentView's 0xAARRGGBB unpacking. An unset color reads
+  // as falsy and clears any prior tint.
+  std::optional<GdkRGBA> nextTint;
+  if (ip.tintColor) {
+    const auto v = static_cast<unsigned int>(*ip.tintColor);
+    nextTint = GdkRGBA{
+        ((v >> 16) & 0xff) / 255.0f,
+        ((v >> 8) & 0xff) / 255.0f,
+        (v & 0xff) / 255.0f,
+        ((v >> 24) & 0xff) / 255.0f,
+    };
+  }
+  const bool tintChanged = tint_.has_value() != nextTint.has_value() ||
+                           (tint_ && nextTint && !gdk_rgba_equal(&*tint_, &*nextTint));
+  tint_ = nextTint;
+  setPictureTint(GTK_PICTURE(widget_), tint_);
+
   if (ip.sources.empty()) {
     gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
     currentUri_.clear();
@@ -303,8 +358,28 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
 
   const auto& uri = ip.sources.front().uri;
   if (uri == currentUri_) {
-    // Same source we already loaded; nothing to do (resizeMode handled
-    // above).
+    // Source unchanged. If only the tint moved we can either retune the
+    // live wrapper, peel it off, or wrap the raw paintable that's
+    // already on the widget — no reload needed.
+    if (tintChanged) {
+      GdkPaintable* current = gtk_picture_get_paintable(GTK_PICTURE(widget_));
+      if (current && RN_LINUX_IS_TINTED_PAINTABLE(current)) {
+        auto* tinted = RN_LINUX_TINTED_PAINTABLE(current);
+        if (tint_) {
+          rn_linux_tinted_paintable_set_tint(tinted, &*tint_);
+        } else {
+          // Tint cleared — drop the wrapper, reinstall the raw source.
+          GdkPaintable* raw = rn_linux_tinted_paintable_get_source(tinted);
+          if (raw)
+            g_object_ref(raw);
+          gtk_picture_set_paintable(GTK_PICTURE(widget_), raw);
+          if (raw)
+            g_object_unref(raw);
+        }
+      } else if (current && tint_) {
+        applyPaintable(GTK_PICTURE(widget_), current);
+      }
+    }
     return;
   }
   currentUri_ = uri;
@@ -315,7 +390,7 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
   if (uri.rfind("data:", 0) == 0) {
     GdkTexture* texture = decodeDataUri(uri);
     if (texture) {
-      gtk_picture_set_paintable(GTK_PICTURE(widget_), GDK_PAINTABLE(texture));
+      applyPaintable(GTK_PICTURE(widget_), GDK_PAINTABLE(texture));
       g_object_unref(texture);
     } else {
       RNL_LOGW("Image") << "data: uri decode produced no texture (tag=" << tag_ << ")";
@@ -360,7 +435,7 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
       gtk_media_stream_set_loop(stream, TRUE);
       gtk_media_stream_set_muted(stream, TRUE);
       gtk_media_stream_play(stream);
-      gtk_picture_set_paintable(GTK_PICTURE(widget_), GDK_PAINTABLE(stream));
+      applyPaintable(GTK_PICTURE(widget_), GDK_PAINTABLE(stream));
       g_object_unref(stream);
       return;
     }
@@ -380,7 +455,7 @@ void ImageComponentView::updateProps(facebook::react::Props const& /*oldProps*/,
     gtk_picture_set_paintable(GTK_PICTURE(widget_), nullptr);
     return;
   }
-  gtk_picture_set_paintable(GTK_PICTURE(widget_), GDK_PAINTABLE(tex));
+  applyPaintable(GTK_PICTURE(widget_), GDK_PAINTABLE(tex));
   g_object_unref(tex);
 }
 

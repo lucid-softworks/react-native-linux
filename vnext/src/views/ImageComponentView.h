@@ -2,6 +2,8 @@
 
 #include "../fabric/LinuxComponentView.h"
 
+#include <gtk/gtk.h>
+#include <optional>
 #include <string>
 
 namespace rnlinux {
@@ -21,6 +23,7 @@ class ImageComponentView final : public LinuxComponentView {
 
  private:
   std::string currentUri_;
+  std::optional<GdkRGBA> tint_;
 };
 
 // Process-wide image-cache helpers. The HTTP fetcher attaches a
