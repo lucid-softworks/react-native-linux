@@ -160,8 +160,8 @@ In priority order — `[x]` = wired today, `[~]` = present but with known gaps, 
 - [x] `tintColor` on Image — `RnLinuxTintedPaintable` wraps the source paintable and `gtk_snapshot_push_color_matrix` replaces RGB with the tint, scaled by source alpha so transparent regions stay transparent. Lives in `vnext/src/views/TintedPaintable.{h,cpp}`; `ImageComponentView::updateProps` retunes the live wrapper on tint-only changes instead of reloading.
 - [x] `Switch` → `GtkSwitch` (shadow node implements `measureContent` so flex siblings don't overlap)
 - [x] `ActivityIndicator` → `GtkSpinner` (same `measureContent` story; uses 16×16 default)
-- [ ] `RefreshControl`
-- [ ] `KeyboardAvoidingView` (mostly no-op on desktop)
+- [~] `RefreshControl` — accepted-but-no-op shim in `apps/playground/runtime/react-native.js`; FlatList still mounts cleanly when an app passes one. Real GtkScrolledWindow `edge-reached` plumbing for pull-to-refresh is the follow-up.
+- [x] `KeyboardAvoidingView` — desktop no-op forwardRef in `apps/playground/runtime/react-native.js`. On desktop GTK there's no on-screen keyboard to displace content, so the upstream behavior collapses to a passthrough View.
 - [x] `SafeAreaView` — passthrough wrapper in `react-native-safe-area-context` shim
 - [ ] `Modal` as a separate `GtkWindow` with `transient-for` instead of in-window overlay
 - [x] `FlatList` virtualization — JS-side windowing via onScroll. Renders ~14 visible items + spacers preserving total scroll extent. Multi-column path skips windowing (item-size estimate ambiguous).
