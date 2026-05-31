@@ -295,6 +295,28 @@ void ensureLoaded() {
 // fully-qualified name; the file as a whole lives inside the
 // rnlinux namespace (see the matching close-brace below).
 
+// Off-thread cold-start hydration. Called by RNLinuxApplication
+// right after `setApplicationId` (i.e. as early as we have a stable
+// storage path) so the JSON file is parsed before JS asks for its
+// first key. JS reads still serialise through `storageMutex()` via
+// `ensureLoaded()` — if a read races this thread mid-parse, it
+// waits on the mutex and then sees `loaded == true`, so the load
+// itself only runs once.
+//
+// Detached: the worker dies on its own as soon as it releases the
+// mutex. There's no shutdown path to drain — the load is a one-shot
+// that completes long before any process-exit hook needs to act on
+// it.
+void prewarmAsyncStorage() {
+  std::thread([] {
+    std::lock_guard<std::mutex> g{storageMutex()};
+    if (!loaded) {
+      load();
+      loaded = true;
+    }
+  }).detach();
+}
+
 // Drain any pending save and stop the background thread. Called by
 // the host on shutdown so an `exit()` right after a write doesn't
 // lose the still-in-flight save.

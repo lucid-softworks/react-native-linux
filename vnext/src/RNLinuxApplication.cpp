@@ -25,6 +25,12 @@ namespace rnlinux {
 // thread on host shutdown. Forward-declared here so we don't drag
 // the whole storage header into the application unit.
 void flushAsyncStorage();
+// Sibling: kicks off the cold-start hydration on its own detached
+// std::thread so the first JS read of AsyncStorage doesn't block on
+// disk I/O. JS reads still serialize through the storage mutex —
+// if a JS getItem races the prewarm, it waits on the mutex and
+// sees `loaded == true` when the worker drops it.
+void prewarmAsyncStorage();
 
 struct RNLinuxApplication::Impl {
   RNLinuxHost::Config config;
@@ -449,6 +455,11 @@ RNLinuxApplication::RNLinuxApplication(RNLinuxHost::Config config)
   // it up via `rnlinux::applicationId()`. Must run before the JS
   // worker thread or any GTK callback touches storage paths.
   setApplicationId(impl_->config.applicationId);
+
+  // Kick off the AsyncStorage disk-read NOW, on a detached worker, so
+  // the first JS getItem doesn't pay for it. The storage path depends
+  // on applicationId() so this must run after setApplicationId().
+  prewarmAsyncStorage();
 }
 
 RNLinuxApplication::~RNLinuxApplication() {
