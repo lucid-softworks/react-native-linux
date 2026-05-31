@@ -36,13 +36,15 @@ by and structurally modeled after
 
 ## What doesn't yet
 
-| Surface                            | Status                                                                                                            |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `react-native-safe-area-context`   | ⚠ shim returns zero insets; `SafeAreaProvider` is a passthrough `<View>`                                          |
-| `expo-camera` / `expo-location`    | ❌ expo-modules-core has no Linux native registry; `requireNativeModule()` throws                                 |
-| Hermes 0.12 + native async / await | ⚠ Hermes rejects raw `async` / `await` syntax; the bundler lowers it to generators so user code can use it freely |
-| Multi-instance / per-app isolation | ❌ single GtkApplication, single Hermes runtime                                                                   |
-| vnext unit-test binary in CI       | ❌ Hermes' bundled llvh gtest collides with upstream googletest; tests build locally via a Hermes-free configure  |
+| Surface                              | Status                                                                                                                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `react-native-safe-area-context`     | ⚠ shim returns zero insets; `SafeAreaProvider` is a passthrough `<View>`                                                                                             |
+| Third-party Expo packages from npm   | ⚠ `expo-modules-core` shim resolves; modules must register through `registerExpoModule(name, impl)` to flow through it                                               |
+| Hermes 0.12 + native async / await   | ⚠ Hermes rejects raw `async` / `await` syntax; the bundler lowers it to generators so user code can use it freely                                                    |
+| Multi-window per running app         | ❌ one GtkApplicationWindow per process today; multi-window via `SurfaceHandler` is design-doc'd in `docs/design-multi-instance`                                     |
+| Fabric `EventEmitter` event dispatch | ⚠ events still route through per-tag JSI registries; real `EventEmitter` plumbing is design-doc'd in `docs/design-fabric-event-emitter`                              |
+| TurboModule autolinking              | ❌ `@react-native/codegen` pipeline not wired yet; design-doc'd in `docs/design-turbomodule-manager`. In-tree shims work through ad-hoc `rnLinux.*` bindings instead |
+| vnext unit-test binary in CI         | ❌ Hermes' bundled llvh gtest collides with upstream googletest; tests build locally via a Hermes-free configure                                                     |
 
 ## Goals
 
