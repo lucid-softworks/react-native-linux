@@ -148,13 +148,83 @@ InterpolatedValue.prototype.removeAllListeners = function () {
   this._listeners.clear();
 };
 
+// Tight named-color subset matching what fabricHostConfig knows about
+// — the inverse direction (string → [r,g,b,a]) lives there. Kept
+// duplicated rather than imported because the host config is a leaf
+// module and we don't want to introduce a JS-side dep cycle just for
+// an animation helper.
+const ANIM_NAMED_COLORS = {
+  transparent: [0, 0, 0, 0],
+  black: [0, 0, 0, 255],
+  white: [255, 255, 255, 255],
+  red: [255, 0, 0, 255],
+  green: [0, 128, 0, 255],
+  blue: [0, 0, 255, 255],
+  yellow: [255, 255, 0, 255],
+  gray: [128, 128, 128, 255],
+  grey: [128, 128, 128, 255],
+  orange: [255, 165, 0, 255],
+  pink: [255, 192, 203, 255],
+};
+
+// Parse a CSS-style color string into [r, g, b, a] with channels 0-255
+// and alpha 0-1. Returns null if the input doesn't match any known
+// shape, so extrapolate() can fall back to the nearest-bound
+// behaviour instead of producing rgba(NaN, …).
+function parseColorString(c) {
+  if (typeof c !== 'string') return null;
+  const named = ANIM_NAMED_COLORS[c.toLowerCase()];
+  if (named) return named.slice();
+  let m;
+  if ((m = /^#([0-9a-f]{6})$/i.exec(c))) {
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, 255];
+  }
+  if ((m = /^#([0-9a-f]{8})$/i.exec(c))) {
+    const n = parseInt(m[1], 16);
+    return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+  }
+  if ((m = /^#([0-9a-f]{3})$/i.exec(c))) {
+    const s = m[1];
+    return [parseInt(s[0] + s[0], 16), parseInt(s[1] + s[1], 16), parseInt(s[2] + s[2], 16), 255];
+  }
+  if ((m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(c))) {
+    return [+m[1], +m[2], +m[3], m[4] != null ? +m[4] * 255 : 255];
+  }
+  return null;
+}
+
+function clamp255(v) {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+function clamp1(v) {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function lerpColor(c0, c1, t) {
+  const a = parseColorString(c0);
+  const b = parseColorString(c1);
+  if (!a || !b) return null;
+  // extrapolate-mode 'extend' lets t fall outside [0,1]; clamp the
+  // channels to legal CSS ranges so we never produce rgba(-12, …)
+  // or alpha > 1 which fabricHostConfig.normalizeColor's regex
+  // rejects.
+  const r = Math.round(clamp255(a[0] + (b[0] - a[0]) * t));
+  const g = Math.round(clamp255(a[1] + (b[1] - a[1]) * t));
+  const bl = Math.round(clamp255(a[2] + (b[2] - a[2]) * t));
+  const al = clamp1((a[3] + (b[3] - a[3]) * t) / 255);
+  return 'rgba(' + r + ', ' + g + ', ' + bl + ', ' + al.toFixed(3) + ')';
+}
+
 function extrapolate(x, x0, x1, y0, y1) {
   if (typeof y0 === 'string' || typeof y1 === 'string') {
-    // For non-numeric outputs (e.g. colours) we just pick the
-    // nearest range bound. A full colour interpolator would lerp
-    // RGB, but RN's basic API uses this fallback too for unrecognised
-    // shapes.
     const t = (x - x0) / (x1 - x0);
+    const lerped = lerpColor(y0, y1, t);
+    // lerpColor returns null when either endpoint isn't a recognised
+    // colour string (degrees, unit suffixes, transform keywords, …).
+    // Fall back to the original nearest-bound behaviour there so we
+    // never emit rgba(NaN) into the prop bag.
+    if (lerped !== null) return lerped;
     return t < 0.5 ? y0 : y1;
   }
   const t = (x - x0) / (x1 - x0);
