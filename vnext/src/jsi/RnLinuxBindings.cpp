@@ -2914,6 +2914,197 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
+  // Alert.prompt backing — GtkAlertDialog doesn't expose a text
+  // entry, so we hand-roll a modal GtkWindow with a GtkEntry + a
+  // row of GtkButtons. JS calls
+  //   rnLinux.showPrompt(title, message, defaultValue, secureEntry,
+  //                      [labels], cb)
+  // and the callback receives (idx, text) — `idx` is the picked
+  // button (-1 if the window was closed via Escape / WM close),
+  // `text` is whatever the user typed (empty string on cancel).
+  bindMethod(
+      rt,
+      rnLinux,
+      "showPrompt",
+      6,
+      [rootView](
+          jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+        if (count < 1)
+          return jsi::Value::undefined();
+        const auto title = args[0].isString() ? args[0].asString(rt).utf8(rt) : std::string();
+        const auto message =
+            count > 1 && args[1].isString() ? args[1].asString(rt).utf8(rt) : std::string();
+        const auto defaultValue =
+            count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : std::string();
+        const bool secureEntry = count > 3 && args[3].isBool() ? args[3].getBool() : false;
+
+        std::vector<std::string> labels;
+        if (count > 4 && args[4].isObject()) {
+          auto obj = args[4].asObject(rt);
+          if (obj.isArray(rt)) {
+            auto arr = obj.asArray(rt);
+            for (size_t i = 0, n = arr.size(rt); i < n; ++i) {
+              auto el = arr.getValueAtIndex(rt, i);
+              labels.push_back(el.isString() ? el.asString(rt).utf8(rt)
+                                             : std::string("Button " + std::to_string(i)));
+            }
+          }
+        }
+        if (labels.empty()) {
+          labels.emplace_back("Cancel");
+          labels.emplace_back("OK");
+        }
+
+        // Userdata held alive until the window emits its destroy
+        // signal — the last clicked-button handler (or the cancel
+        // path) calls gtk_window_destroy which fires destroy, which
+        // calls the JS callback exactly once and frees us.
+        struct PromptUd {
+          std::shared_ptr<jsi::Function> cb;
+          GtkWidget* entry = nullptr;
+          int pickedIdx = -1;
+          bool fired = false;
+        };
+        PromptUd* ud = new PromptUd{};
+        if (count > 5 && args[5].isObject() && args[5].asObject(rt).isFunction(rt)) {
+          ud->cb = std::make_shared<jsi::Function>(args[5].asObject(rt).asFunction(rt));
+        }
+
+        GtkWindow* parent = nullptr;
+        if (rootView) {
+          GtkRoot* root = gtk_widget_get_root(rootView);
+          if (GTK_IS_WINDOW(root))
+            parent = GTK_WINDOW(root);
+        }
+
+        GtkWidget* dialog = gtk_window_new();
+        gtk_window_set_title(GTK_WINDOW(dialog), title.empty() ? "Prompt" : title.c_str());
+        gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+        gtk_window_set_destroy_with_parent(GTK_WINDOW(dialog), TRUE);
+        if (parent) {
+          gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
+        }
+        gtk_window_set_default_size(GTK_WINDOW(dialog), 360, -1);
+        gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+
+        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+        gtk_widget_set_margin_top(box, 18);
+        gtk_widget_set_margin_bottom(box, 18);
+        gtk_widget_set_margin_start(box, 18);
+        gtk_widget_set_margin_end(box, 18);
+        gtk_window_set_child(GTK_WINDOW(dialog), box);
+
+        if (!message.empty()) {
+          GtkWidget* msg = gtk_label_new(message.c_str());
+          gtk_label_set_xalign(GTK_LABEL(msg), 0.0);
+          gtk_label_set_wrap(GTK_LABEL(msg), TRUE);
+          gtk_box_append(GTK_BOX(box), msg);
+        }
+
+        GtkWidget* entry = gtk_entry_new();
+        gtk_editable_set_text(GTK_EDITABLE(entry), defaultValue.c_str());
+        if (secureEntry) {
+          // visibility=FALSE masks input with the system password
+          // glyph. RN's 'secure-text' and 'login-password' types
+          // both map onto this.
+          gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE);
+          gtk_entry_set_input_purpose(GTK_ENTRY(entry), GTK_INPUT_PURPOSE_PASSWORD);
+        }
+        gtk_box_append(GTK_BOX(box), entry);
+        ud->entry = entry;
+
+        // Button row. Last button is "primary" — wired to Enter via
+        // gtk_widget_set_receives_default + window default; that
+        // matches RN's iOS behaviour where the trailing OK button is
+        // the dismiss-on-Enter default.
+        GtkWidget* btnRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_widget_set_halign(btnRow, GTK_ALIGN_END);
+        gtk_box_append(GTK_BOX(box), btnRow);
+
+        struct ButtonUd {
+          PromptUd* prompt;
+          int idx;
+        };
+        for (size_t i = 0; i < labels.size(); ++i) {
+          GtkWidget* btn = gtk_button_new_with_label(labels[i].c_str());
+          if (i + 1 == labels.size()) {
+            gtk_widget_add_css_class(btn, "suggested-action");
+            gtk_widget_set_receives_default(btn, TRUE);
+            gtk_window_set_default_widget(GTK_WINDOW(dialog), btn);
+          }
+          auto* bud = new ButtonUd{ud, static_cast<int>(i)};
+          g_signal_connect_data(
+              btn,
+              "clicked",
+              G_CALLBACK(+[](GtkButton* b, gpointer userData) {
+                auto* bud = static_cast<ButtonUd*>(userData);
+                bud->prompt->pickedIdx = bud->idx;
+                GtkWidget* win = gtk_widget_get_ancestor(GTK_WIDGET(b), GTK_TYPE_WINDOW);
+                if (win)
+                  gtk_window_destroy(GTK_WINDOW(win));
+              }),
+              bud,
+              +[](gpointer data, GClosure*) { delete static_cast<ButtonUd*>(data); },
+              static_cast<GConnectFlags>(0));
+          gtk_box_append(GTK_BOX(btnRow), btn);
+        }
+
+        // Enter on the entry activates the default button. Without
+        // this, RN apps that train users to press Enter to submit
+        // would have to mouse over to the OK button.
+        g_signal_connect(entry,
+                         "activate",
+                         G_CALLBACK(+[](GtkEntry* /*e*/, gpointer userData) {
+                           auto* d = GTK_WINDOW(userData);
+                           GtkWidget* def = gtk_window_get_default_widget(d);
+                           if (def)
+                             gtk_widget_activate(def);
+                         }),
+                         dialog);
+
+        // Window destroy is the single point we fire the JS callback
+        // and free the userdata — covers all three paths (button
+        // click, Escape, WM close).
+        g_signal_connect_data(dialog,
+                              "destroy",
+                              G_CALLBACK(+[](GtkWindow* /*w*/, gpointer userData) {
+                                auto* ud = static_cast<PromptUd*>(userData);
+                                if (ud->fired) {
+                                  return;
+                                }
+                                ud->fired = true;
+                                std::string text;
+                                if (ud->entry) {
+                                  const char* t = gtk_editable_get_text(GTK_EDITABLE(ud->entry));
+                                  if (t)
+                                    text = t;
+                                }
+                                if (ud->cb) {
+                                  auto& s = state();
+                                  if (s.runtime) {
+                                    try {
+                                      jsi::Value pickedV{ud->pickedIdx};
+                                      jsi::Value textV =
+                                          jsi::Value(*s.runtime,
+                                                     jsi::String::createFromUtf8(*s.runtime, text));
+                                      ud->cb->call(*s.runtime, pickedV, std::move(textV));
+                                      s.runtime->drainMicrotasks();
+                                    } catch (const std::exception& e) {
+                                      RNL_LOGE("rnLinux") << "prompt callback threw: " << e.what();
+                                    }
+                                  }
+                                }
+                                delete ud;
+                              }),
+                              ud,
+                              nullptr,
+                              static_cast<GConnectFlags>(0));
+
+        gtk_window_present(GTK_WINDOW(dialog));
+        gtk_widget_grab_focus(entry);
+        return jsi::Value::undefined();
+      });
+
   // JS-callable reload. Same destination as Ctrl+R, but the actual
   // host->reload() is deferred via g_idle_add so it fires *after*
   // the current JS call stack unwinds. Calling reload synchronously

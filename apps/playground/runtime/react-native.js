@@ -311,11 +311,57 @@ const Alert = {
       rnLinux.showAlert(String(title ?? ''), String(message ?? ''), labels, onPicked);
     }
   },
-  prompt(title, message, _cbOrButtons, _type, _defaultValue, _keyboardType, _options) {
-    // Real prompt() needs a TextInput inside the dialog — GtkAlertDialog
-    // doesn't expose one, so this would need a hand-rolled GtkDialog +
-    // GtkEntry. Stub for now so apps don't crash on import.
-    Alert.alert(title, message, [{text: 'OK'}]);
+  prompt(title, message, cbOrButtons, type, defaultValue, _keyboardType, _options) {
+    // RN's three call shapes:
+    //   Alert.prompt(title, message)
+    //     → just a confirmation; no text result.
+    //   Alert.prompt(title, message, (text) => …)
+    //     → single OK + Cancel; OK fires the cb with the typed text.
+    //   Alert.prompt(title, message, [{text, onPress, style}, …])
+    //     → each button's onPress receives the typed text.
+    let buttons;
+    if (typeof cbOrButtons === 'function') {
+      buttons = [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'OK', onPress: cbOrButtons},
+      ];
+    } else if (Array.isArray(cbOrButtons) && cbOrButtons.length > 0) {
+      buttons = cbOrButtons;
+    } else {
+      // No callback / button list — degenerate to a plain Alert so the
+      // call still surfaces something.
+      Alert.alert(title, message, [{text: 'OK'}]);
+      return;
+    }
+    const labels = buttons.map((b, i) => (b && b.text) || 'Button ' + i);
+    const secureEntry = type === 'secure-text' || type === 'login-password';
+    const onPicked = (idx, text) => {
+      if (idx < 0 || idx >= buttons.length) return; // window closed / Escape
+      const b = buttons[idx];
+      if (b && typeof b.onPress === 'function') {
+        try {
+          b.onPress(text);
+        } catch (e) {
+          rnLinux.log('error', 'Alert.prompt onPress threw: ' + String(e));
+        }
+      }
+    };
+    if (typeof rnLinux !== 'undefined' && rnLinux.showPrompt) {
+      rnLinux.showPrompt(
+        String(title ?? ''),
+        String(message ?? ''),
+        String(defaultValue ?? ''),
+        secureEntry,
+        labels,
+        onPicked,
+      );
+    } else if (typeof rnLinux !== 'undefined' && rnLinux.showAlert) {
+      // Older C++ build without showPrompt — degrade to a button-only
+      // alert so apps don't break. onPress sees an empty text arg.
+      rnLinux.showAlert(String(title ?? ''), String(message ?? ''), labels, idx =>
+        onPicked(idx, ''),
+      );
+    }
   },
 };
 
