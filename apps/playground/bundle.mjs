@@ -110,6 +110,19 @@ const baseOpts = {
   format: 'iife',
   platform: 'neutral',
   target: 'es2020',
+  // Hermes (pinned to the RN 0.81 commit `e0fc6714`) hard-rejects every
+  // `async` / `await` site with "async functions are unsupported" — both
+  // the interpreter and hermesc fail to compile. Use esbuild's
+  // per-feature `supported` knob to lower JUST async / async-generators
+  // to generators, while keeping the rest of ES2020 (optional chaining,
+  // nullish coalescing, object spread, …) intact. Without this RN apps
+  // can't use `async () => …` anywhere — the README workaround
+  // (`async function () {…}`) is also rejected; the runtime is fully
+  // async-free until a Hermes that supports the syntax lands.
+  supported: {
+    'async-await': false,
+    'async-generator': false,
+  },
   define: {
     // react-refresh requires NODE_ENV !== 'production' to enable its
     // patch points. Use 'development' for both bundles so the refresh

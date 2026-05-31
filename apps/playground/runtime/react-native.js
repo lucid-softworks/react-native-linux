@@ -200,8 +200,6 @@ function useColorScheme() {
   return _readScheme();
 }
 
-// Promise-based (not async) so hermesc can compile the bundle —
-// the hermes -emit-binary path doesn't accept async function syntax.
 // Both methods route through GIO's g_app_info_launch_default_for_uri
 // equivalents; canOpenURL only checks for a registered scheme handler
 // (no GET-style verification).
