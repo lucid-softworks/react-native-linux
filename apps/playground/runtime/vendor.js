@@ -113,6 +113,7 @@ const tinybaseMod = require('@lucid-softworks/react-native-linux-expo/tinybase')
 const legendStateMod = require('@lucid-softworks/react-native-linux-expo/legend-state');
 const expoGlThreeMod = require('@lucid-softworks/react-native-linux-expo/expo-gl-three');
 const miscStubsMod = require('@lucid-softworks/react-native-linux-expo/misc-stubs');
+const uuidMod = require('@lucid-softworks/react-native-linux-expo/uuid');
 // expo-router-entry is registered lazily — importing it has the side
 // effect of calling registerRootComponent. We pull it in only when an
 // app actually requires "expo-router/entry"; lazy-require via a
@@ -204,6 +205,7 @@ globalThis.__rnv = {
   legendState: legendStateMod,
   expoGlThree: expoGlThreeMod,
   misc: miscStubsMod,
+  uuid: uuidMod,
   expoRouterEntry,
   expoApplication: expoApplicationMod,
   expoCrypto: expoCryptoMod,

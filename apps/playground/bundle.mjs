@@ -371,6 +371,7 @@ const appOpts = {
     '@tensorflow/tfjs',
     '@tensorflow/tfjs-react-native',
     '@tensorflow-models/mobilenet',
+    'uuid',
     'crypto',
     'node:crypto',
     'expo-application',
@@ -491,6 +492,7 @@ const appOpts = {
       '  if (id === "@tensorflow/tfjs") return rnv.misc.tfjs;\n' +
       '  if (id === "@tensorflow/tfjs-react-native") return rnv.misc.tfjsReactNative;\n' +
       '  if (id === "@tensorflow-models/mobilenet") return rnv.misc.mobilenet;\n' +
+      '  if (id === "uuid") return rnv.uuid;\n' +
       // @expo/vector-icons/<Font> sub-paths route through the shared
       // shim; the bare-module form (no sub-path) returns the index
       // with every font pre-built.

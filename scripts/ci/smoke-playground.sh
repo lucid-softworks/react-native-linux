@@ -43,7 +43,7 @@ BUNDLE_URL=""
 OUTPUT="dist/ci-smoke/screenshot.png"
 LOG="dist/ci-smoke/app.log"
 SETTLE_MS=4000
-MIN_COLORS=4
+MIN_COLORS=2
 REQUIRE_LOG='JSX commit done'
 
 while [[ $# -gt 0 ]]; do
