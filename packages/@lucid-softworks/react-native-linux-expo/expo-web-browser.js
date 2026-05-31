@@ -21,7 +21,7 @@ function maybeCompleteAuthSession() {
   return {type: 'failed', error: 'not-supported'};
 }
 
-module.exports = {
+const api = {
   openBrowserAsync,
   dismissBrowser,
   maybeCompleteAuthSession,
@@ -36,3 +36,12 @@ module.exports = {
     POPOVER: 'popover',
   },
 };
+
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoWebBrowser', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
+module.exports = api;

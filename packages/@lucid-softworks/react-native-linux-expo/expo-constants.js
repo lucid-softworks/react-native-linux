@@ -33,6 +33,17 @@ const Constants = {
   nativeBuildVersion: '0',
 };
 
+// Register through expo-modules-core's `globalThis.expo.modules`
+// registry so third-party packages doing
+// `requireNativeModule('ExpoConstants')` resolve to this Constants
+// snapshot.
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoConstants', Constants);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
 module.exports = {
   ...Constants,
   default: Constants,

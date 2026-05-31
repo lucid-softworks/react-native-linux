@@ -13,13 +13,24 @@ function StatusBar() {
 
 function noop() {}
 
-module.exports = {
+const api = {
   StatusBar,
   setStatusBarStyle: noop,
   setStatusBarHidden: noop,
   setStatusBarBackgroundColor: noop,
   setStatusBarNetworkActivityIndicatorVisible: noop,
   setStatusBarTranslucent: noop,
+};
+
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoStatusBar', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
+module.exports = {
+  ...api,
   __esModule: true,
   default: StatusBar,
 };

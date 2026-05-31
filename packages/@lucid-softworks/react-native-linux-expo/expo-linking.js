@@ -53,7 +53,7 @@ function useURL() {
   return null;
 }
 
-module.exports = {
+const api = {
   ...Linking,
   parse,
   createURL,
@@ -62,3 +62,12 @@ module.exports = {
   getInitialURL: () => Promise.resolve(null),
   addEventListener: (...args) => Linking.addEventListener(...args),
 };
+
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoLinking', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
+module.exports = api;

@@ -15,8 +15,17 @@ function hideAsync() {
 
 function setOptions(_options) {}
 
-module.exports = {
+const api = {
   preventAutoHideAsync,
   hideAsync,
   setOptions,
 };
+
+try {
+  const {registerExpoModule} = require('./expo-modules-core');
+  registerExpoModule('ExpoSplashScreen', api);
+} catch (_) {
+  /* expo-modules-core not loaded in this context (in-tree unit test) */
+}
+
+module.exports = api;
