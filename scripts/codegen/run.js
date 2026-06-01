@@ -80,12 +80,11 @@ function walkSpecs(rootDir) {
   return hits;
 }
 
-function generateTurboModuleHeaders(nativeSpecs, outDir) {
-  if (nativeSpecs.length === 0) return [];
+function loadGenerator() {
   // Resolve the generator package against the script's location so
   // this driver works regardless of cwd.
   // eslint-disable-next-line node/no-missing-require
-  const generator = require(
+  return require(
     path.join(
       __dirname,
       '..',
@@ -96,9 +95,13 @@ function generateTurboModuleHeaders(nativeSpecs, outDir) {
       'lib',
     ),
   );
+}
+
+function generateHeaders(specs, outDir) {
+  if (specs.length === 0) return [];
+  const generator = loadGenerator();
   const specsDir = path.join(outDir, 'specs');
-  const written = generator.writeFromFiles(nativeSpecs, specsDir);
-  return written;
+  return generator.writeFromFiles(specs, specsDir);
 }
 
 function main() {
@@ -132,14 +135,15 @@ function main() {
 
   fs.mkdirSync(args.output, {recursive: true});
 
-  // 1. TurboModule header emission via the Linux generator. Real C++
-  //    headers; CMake's add_dependencies(react_native_linux,
-  //    react_native_linux_codegen) ensures vnext build picks them up.
+  // 1. TurboModule + Fabric component header emission via the Linux
+  //    generator. Real C++ headers; CMake's
+  //    add_dependencies(react_native_linux, react_native_linux_codegen)
+  //    ensures vnext build picks them up.
   let writtenHeaders = [];
   try {
-    writtenHeaders = generateTurboModuleHeaders(native, args.output);
+    writtenHeaders = generateHeaders([...native, ...component], args.output);
     if (writtenHeaders.length > 0) {
-      console.log(`[codegen] wrote ${writtenHeaders.length} TurboModule header(s):`);
+      console.log(`[codegen] wrote ${writtenHeaders.length} header(s):`);
       for (const h of writtenHeaders) {
         console.log(`  - ${path.relative(process.cwd(), h)}`);
       }

@@ -148,6 +148,7 @@ set(RNL_SOURCES
   src/print/Print.cpp
   src/modules/PlatformConstants.cpp
   src/modules/CodegenSmoke.cpp
+  src/components/CodegenSmokeView.cpp
   src/devtools/MetroReloadClient.cpp
 )
 
