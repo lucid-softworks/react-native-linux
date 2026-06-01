@@ -318,20 +318,22 @@ const stubUnresolvedPlugin = {
       return loadStubModule(Array.from(namesSet));
     });
     function loadStubModule(extraKeys) {
-      // Plain function-component stubs (no Proxy). Each harvested
-      // named export becomes its own pre-populated function component
-      // with a one-deep set of common UI sub-primitive names, so:
-      //   * `import X from "stub"`     reads `.default` (= top stub)
-      //   * `import {Y} from "stub"`   reads `.Y` (pre-baked stub)
-      //   * `import * as Z`            __toESM copies enumerable own
-      //                                keys — every harvested name +
-      //                                `default` — into the namespace.
-      //   * `Z.DropdownMenu.Trigger`   pre-baked level-2 stub.
-      //
-      // A function component (rather than a class) sidesteps React's
-      // class-validation pass complaining about every Proxy-bridged
-      // method as a "componentDidReceiveProps" misnamed lifecycle.
+      // Pure-function stub strategy (no runtime Proxy). Every named
+      // export from this stubbed module becomes its OWN function
+      // component decorated with a one-deep set of sub-keys:
+      //   * Common UI namespacing primitives (Root, Trigger, Provider…)
+      //     for `<Dropdown.Trigger />` style nesting.
+      //   * Common hook names so `obj.useSession()` etc. resolves to a
+      //     callable function (returns null → `{data} = ...` gives
+      //     data: undefined, default args kick in).
+      // Calls to the function return null (not a stub Proxy) so React
+      // doesnt spiral into infinite re-render when an example uses a
+      // stubbed Provider as the layouts root component. Accessing an
+      // unknown sub-key returns undefined, which lets `const {x = 0} =
+      // useFoo()` apply its default — the patternmost expo examples
+      // rely on for missing config.
       const subKeys = [
+        // UI namespacing (Radix/Headless/Reach)
         'Root',
         'Trigger',
         'Portal',
@@ -364,36 +366,71 @@ const stubUnresolvedPlugin = {
         'Menu',
         'MenuItem',
         'Button',
+        'Image',
+        'Text',
+        'View',
+        // Common hooks attached to namespace objects
+        'useSession',
+        'useAuth',
+        'useUser',
+        'useUserSession',
+        'useSignIn',
+        'useSignUp',
+        'useSignOut',
+        'useQuery',
+        'useMutation',
+        'useSubscription',
+        'useTheme',
+        'useStyle',
+        'useStyles',
+        'useColorScheme',
+        'useNavigation',
+        'useRouter',
+        'useLink',
+        'useConfig',
+        'useClient',
+        'create',
+        'createTheme',
+        'styled',
+        'css',
+        'token',
+        'tokens',
       ];
       return {
         contents:
           "const React = require('react');\n" +
           "const {View} = require('react-native');\n" +
-          'function StubComponent(props) {\n' +
-          '  return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
-          '}\n' +
-          'function makeStub() {\n' +
+          'function makeStubFn() {\n' +
           '  function S(props) {\n' +
           '    return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
           '  }\n' +
+          '  // Pre-populate a one-deep set of common sub-keys so\n' +
+          '  // `<X.Trigger>` JSX + `obj.useSession()` calls both find\n' +
+          '  // a real function to invoke. Unknown sub-keys return\n' +
+          '  // undefined which lets ES default-args (`{x = 0} = ...`)\n' +
+          '  // apply and React fall back gracefully.\n' +
           '  var subs = ' +
           JSON.stringify(subKeys) +
           ';\n' +
           '  for (var i = 0; i < subs.length; i++) {\n' +
-          '    S[subs[i]] = StubComponent;\n' +
+          '    // Each sub is its own ZERO-deep function: chains end one\n' +
+          '    // level deep to keep bundle size small and avoid cycles.\n' +
+          '    S[subs[i]] = function leafStub(props) {\n' +
+          '      return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
+          '    };\n' +
           '  }\n' +
           '  return S;\n' +
           '}\n' +
           'var keys = ' +
           JSON.stringify(extraKeys) +
           ';\n' +
-          'var exp = StubComponent;\n' +
+          'var defaultExport = makeStubFn();\n' +
           'for (var i = 0; i < keys.length; i++) {\n' +
           "  if (keys[i] === 'default') continue;\n" +
-          '  exp[keys[i]] = makeStub();\n' +
+          '  defaultExport[keys[i]] = makeStubFn();\n' +
           '}\n' +
-          'exp.default = exp;\n' +
-          'module.exports = exp;\n',
+          'defaultExport.default = defaultExport;\n' +
+          'module.exports = defaultExport;\n',
         loader: 'js',
       };
     }
@@ -521,6 +558,17 @@ const baseOpts = {
     // hooks fire and react-reconciler's dev path runs.
     'process.env.NODE_ENV': '"development"',
     'process.env.NODE_DEBUG': '""',
+    // Stub values for EXPO_PUBLIC_* env vars that expo/examples
+    // examples typically check at module-eval time (with-convex
+    // throws if its URL is missing). esbuild substitutes the
+    // literal expression at bundle time so the check passes
+    // regardless of the runtime process.env shape.
+    'process.env.EXPO_PUBLIC_CONVEX_URL': '"https://stub.convex.cloud"',
+    'process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY': '"pk_test_stub"',
+    'process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY': '"pk_test_stub"',
+    'process.env.EXPO_PUBLIC_SUPABASE_URL': '"https://stub.supabase.co"',
+    'process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY': '"stub"',
+    'process.env.EXPO_PUBLIC_API_URL': '"https://stub.api/"',
     // Hermes strict mode doesn't expose globalThis properties via
     // bare-identifier lookup, so react-reconciler's
     // `typeof __REACT_DEVTOOLS_GLOBAL_HOOK__` returns 'undefined' and
