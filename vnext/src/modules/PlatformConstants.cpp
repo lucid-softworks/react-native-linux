@@ -1,8 +1,12 @@
 // PlatformConstants — first TurboModule wired through the Linux
-// codegen pipeline (commit landing this file). Extends the generated
-// `NativePlatformConstantsLinuxSpec` and overrides the single
-// `getConstants()` virtual; all JSI dispatch (host function wrappers,
-// getPropertyNames, name lookup) is generated.
+// codegen pipeline. Extends the generated NativePlatformConstantsLinuxSpec
+// and overrides the single getConstants() virtual; all JSI dispatch
+// (host function wrappers, getPropertyNames, name lookup) is generated.
+//
+// As of the typed-structs landing in the codegen, getConstants()
+// returns a brace-initialised codegen::GetConstantsResult — no more
+// hand-rolled folly::dynamic::object chains. The struct's toDynamic
+// helper handles the jsi conversion.
 //
 // Source spec: packages/@lucid-softworks/react-native-linux/Libraries/
 //   Specs/NativePlatformConstantsLinux.ts
@@ -12,7 +16,6 @@
 #include "react-native-linux/TurboModuleRegistry.h"
 #include "specs/NativePlatformConstantsLinuxSpec.h"
 
-#include <folly/dynamic.h>
 #include <fstream>
 #include <string>
 #include <sys/utsname.h>
@@ -39,7 +42,7 @@ std::string readOsReleaseField(const std::string& key) {
 
 class PlatformConstantsModule final : public codegen::NativePlatformConstantsLinuxSpec {
  public:
-  folly::dynamic getConstants() override {
+  codegen::GetConstantsResult getConstants() override {
     utsname u{};
     std::string osVersion;
     if (uname(&u) == 0) {
@@ -53,23 +56,20 @@ class PlatformConstantsModule final : public codegen::NativePlatformConstantsLin
     if (manufacturer.empty())
       manufacturer = "unknown";
 
-    // RN convention: include the platform name (`OS: "linux"`) so the
-    // JS-side `Platform.OS` resolver can fall back here. Not declared
-    // in the spec because the JS-side `Platform.linux.js` already
-    // pins it; this is belt-and-suspenders for non-standard
-    // consumers reading getConstants() directly.
-    return folly::dynamic::object //
-        ("isTesting", false)      //
-        ("reactNativeVersion",
-         folly::dynamic::object                   //
-         ("major", 0)                             //
-         ("minor", 76)                            //
-         ("patch", 0)                             //
-         ("prerelease", folly::dynamic(nullptr))) //
-        ("osVersion", osVersion)                  //
-        ("Distribution", distribution)            //
-        ("Manufacturer", manufacturer)            //
-        ("OS", "linux");
+    return {
+        .isTesting = false,
+        .reactNativeVersion =
+            {
+                .major = 0,
+                .minor = 76,
+                .patch = 0,
+                .prerelease = "",
+            },
+        .osVersion = std::move(osVersion),
+        .Distribution = std::move(distribution),
+        .Manufacturer = std::move(manufacturer),
+        .OS = "linux",
+    };
   }
 };
 

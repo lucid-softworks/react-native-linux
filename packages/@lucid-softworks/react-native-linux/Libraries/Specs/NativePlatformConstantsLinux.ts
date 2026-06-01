@@ -16,6 +16,7 @@ export interface Spec extends TurboModule {
     osVersion: string;
     Distribution: string;
     Manufacturer: string;
+    OS: string;
   };
 }
 

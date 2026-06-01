@@ -45,22 +45,25 @@ override one virtual per method — no JSI plumbing in user code.
 
 Type coverage today:
 
-| Spec type                     | C++                                                                                      |
-| ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `string`                      | `std::string`                                                                            |
-| `number` / `double` / `float` | `double`                                                                                 |
-| `Int32`                       | `int32_t`                                                                                |
-| `boolean`                     | `bool`                                                                                   |
-| `void` (return)               | `void`                                                                                   |
-| Object / Array                | `folly::dynamic` (via JSIDynamic conversions)                                            |
-| Nullable\<T>                  | inner C++ (MVP)                                                                          |
-| Enum\<string \| number>       | underlying primitive                                                                     |
-| `Promise<T>`                  | trailing `std::function<void(T)> resolve` + `std::function<void(folly::dynamic)> reject` |
+| Spec type                     | C++                                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `string`                      | `std::string`                                                                                                                                                |
+| `number` / `double` / `float` | `double`                                                                                                                                                     |
+| `Int32`                       | `int32_t`                                                                                                                                                    |
+| `boolean`                     | `bool`                                                                                                                                                       |
+| `void` (return)               | `void`                                                                                                                                                       |
+| Object                        | generated `struct` with named fields + `toDynamic()` helper (recursive)                                                                                      |
+| Array / generic object        | `folly::dynamic`                                                                                                                                             |
+| Nullable\<T>                  | inner C++ (MVP)                                                                                                                                              |
+| Enum\<string \| number>       | underlying primitive                                                                                                                                         |
+| `Promise<T>`                  | trailing `std::function<void(T)> resolve` + `std::function<void(folly::dynamic)> reject`, posted via `RuntimeExecutor` so resolve/reject are safe off-thread |
+| `Function (...args) => void`  | `std::function<void(args...)>`, posted via `RuntimeExecutor`                                                                                                 |
 
-Promise resolution today is JS-thread-only (the captured runtime ref
-is valid for the executor lambda lifetime). Off-thread resolve via
-`RuntimeExecutor` is a follow-up. `Function` (callback) params still
-throw with an actionable message — also a follow-up.
+Implementer-facing shape: instead of building `folly::dynamic::object(...)`
+chains, methods that return an object construct a brace-initialised struct
+and the generator handles the conversion. See `PlatformConstants.cpp` for
+a worked example. Nested anonymous objects get their own struct named
+`<Parent>_<Field>` (post-order declaration).
 
 Wiring lives in two places:
 
@@ -238,31 +241,33 @@ needed.
 
 ### TurboModule codegen follow-ups
 
-The TurboModule codegen MVP is in (see above). Two known gaps remain
-for full coverage of arbitrary expo-modules-core specs:
+The TurboModule codegen covers the type system most arbitrary
+`expo-modules-core` specs use: primitives, void, typed structs,
+arrays/generic objects, nullables, enums, Promises (off-thread safe),
+and void-returning callbacks. Remaining edges:
 
-1. **Off-thread Promise resolution.** Today the JSI runtime is
-   captured by reference inside the Promise executor lambda — safe
-   for synchronous resolve/reject inside the spec virtual, unsafe if
-   the user wants to call resolve from a worker thread. The fix is
-   to thread `RuntimeExecutor` (already in scope from
-   `RNLinuxHost.cpp:131`) through to the generated wrapper.
-2. **Function (callback) params.** Generated wrappers throw with
-   "Function (callback) parameters are not yet supported." Adding
-   them mirrors the Promise pattern (jsi::Function → std::function).
+1. **Object params: typed `fromDynamic` deserialisation.** Today the
+   generator emits a default-constructed struct for object-typed
+   params and exposes the raw `folly::dynamic` alongside as
+   `__dyn_<argName>` so the implementer can pull fields manually.
+   The symmetrical typed deserialiser is a small follow-up — mirror
+   `toDynamic` per struct with a `fromDynamic(const folly::dynamic&)`.
+2. **Non-void callback returns.** Almost no real spec uses these
+   (callbacks are typically `(...) => void`), so they still throw
+   with an actionable error. The fix when needed: marshal the JS
+   return value back as the typed C++ return via `valueFromDynamic`.
+3. **Type aliases (`schema.aliasMap`).** Inline anonymous objects
+   get synthesized names today (`<Method>Result_<Field>`). Named
+   type aliases would get the alias name verbatim, deduping the
+   struct list when the same shape appears under multiple methods.
 
-A third nice-to-have is **strongly-typed object structs** instead of
-`folly::dynamic` everywhere. The MVP picks dynamic for object/array
-specs because it covers every shape without per-method struct
-generation; the cost is some C++-side type safety. Worth doing when
-a consumer asks for it.
-
-**JS-side fallback if neither lands soon:** `@lucid-softworks/
-react-native-linux-expo/expo-modules-core.js` already implements
-`requireNativeModule`, `EventEmitter`, `SharedRef`, `CodedError`
-against a JS-side `globalThis.expo.modules` registry. Consumers can
-register modules from JS via `registerExpoModule(name, impl)` and
-skip the C++ codegen path entirely for the slot-in cutover.
+**JS-side fallback** for anything the codegen can't yet express:
+`@lucid-softworks/react-native-linux-expo/expo-modules-core.js`
+implements `requireNativeModule`, `EventEmitter`, `SharedRef`,
+`CodedError` against a JS-side `globalThis.expo.modules` registry.
+Consumers can register modules from JS via
+`registerExpoModule(name, impl)` and skip the C++ codegen path
+entirely for any specific module.
 
 ### Expo CLI `linux` platform tolerance
 

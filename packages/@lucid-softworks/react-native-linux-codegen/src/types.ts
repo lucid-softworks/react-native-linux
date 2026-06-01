@@ -92,7 +92,18 @@ export function mapType(t: TypeAnnotation, ctx: 'param' | 'return'): CppType {
     }
     return VOID;
   }
-  if (t.type === 'ObjectTypeAnnotation' || t.type === 'GenericObjectTypeAnnotation') {
+  if (t.type === 'ObjectTypeAnnotation') {
+    // ObjectType lowering is handled by the generator (it needs a name
+    // to materialise the struct), so mapType doesn't try to express
+    // it as a single CppType. The dispatch path special-cases this.
+    throw new Error(
+      'ObjectTypeAnnotation must be handled at the method level — ' +
+        'mapType cannot lower it without a struct name.',
+    );
+  }
+  if (t.type === 'GenericObjectTypeAnnotation') {
+    // Generic / untyped objects stay as folly::dynamic — there are no
+    // declared properties to materialise into a struct.
     return DYNAMIC;
   }
   if (t.type === 'ArrayTypeAnnotation') {

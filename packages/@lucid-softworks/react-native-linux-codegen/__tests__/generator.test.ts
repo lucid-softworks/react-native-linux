@@ -46,8 +46,9 @@ describe('generateModule — PlatformConstants', () => {
     expect(header).toMatch(/static constexpr const char\* kModuleName = "PlatformConstants";/);
   });
 
-  test('emits one pure virtual per method', () => {
-    expect(header).toMatch(/virtual folly::dynamic getConstants\(\) = 0;/);
+  test('emits a typed-struct return for ObjectType returns', () => {
+    expect(header).toMatch(/struct GetConstantsResult \{/);
+    expect(header).toMatch(/virtual GetConstantsResult getConstants\(\) = 0;/);
   });
 
   test('overrides jsi::HostObject::get and dispatches by name', () => {
@@ -55,7 +56,8 @@ describe('generateModule — PlatformConstants', () => {
       /facebook::jsi::Value get\(facebook::jsi::Runtime& rt, const facebook::jsi::PropNameID& name\) override/,
     );
     expect(header).toMatch(/if \(methodName == "getConstants"\)/);
-    expect(header).toMatch(/return facebook::jsi::valueFromDynamic\(rt_, __result\);/);
+    // Object returns go through toDynamic + valueFromDynamic.
+    expect(header).toMatch(/return facebook::jsi::valueFromDynamic\(rt_, toDynamic\(__result\)\);/);
   });
 
   test('overrides getPropertyNames listing every method', () => {
@@ -268,9 +270,13 @@ describe('generateModule — Promise returns', () => {
     );
   });
 
-  test('object promise virtual takes resolve<folly::dynamic>', () => {
+  test('object promise virtual takes resolve<typed struct>', () => {
+    // Promise<Object> resolves through the spec's generated struct,
+    // not folly::dynamic. The struct is materialised post-order so
+    // its declaration precedes the virtual.
+    expect(header).toMatch(/struct FetchUserResult \{/);
     expect(header).toMatch(
-      /virtual void fetchUser\(std::string id, std::function<void\(folly::dynamic\)> resolve, std::function<void\(folly::dynamic\)> reject\) = 0;/,
+      /virtual void fetchUser\(std::string id, std::function<void\(FetchUserResult\)> resolve, std::function<void\(folly::dynamic\)> reject\) = 0;/,
     );
   });
 
@@ -306,6 +312,86 @@ describe('generateModule — Promise returns', () => {
     expect(header).toMatch(/#include <functional>/);
     expect(header).toMatch(/#include <memory>/);
     expect(header).toMatch(/#include <utility>/);
+  });
+});
+
+describe('generateModule — typed object structs', () => {
+  function platformConstants(): SpecModule {
+    return {
+      specName: 'NativePlatformConstantsLinux',
+      moduleName: 'PlatformConstants',
+      schema: {
+        type: 'NativeModule',
+        moduleName: 'PlatformConstants',
+        spec: {
+          methods: [
+            {
+              name: 'getConstants',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [],
+                returnTypeAnnotation: {
+                  type: 'ObjectTypeAnnotation',
+                  properties: [
+                    {name: 'isTesting', typeAnnotation: {type: 'BooleanTypeAnnotation'}},
+                    {
+                      name: 'reactNativeVersion',
+                      typeAnnotation: {
+                        type: 'ObjectTypeAnnotation',
+                        properties: [
+                          {name: 'major', typeAnnotation: {type: 'NumberTypeAnnotation'}},
+                          {name: 'minor', typeAnnotation: {type: 'NumberTypeAnnotation'}},
+                          {name: 'patch', typeAnnotation: {type: 'NumberTypeAnnotation'}},
+                        ],
+                      },
+                    },
+                    {name: 'osVersion', typeAnnotation: {type: 'StringTypeAnnotation'}},
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  const header = generateModule(platformConstants());
+
+  test('nested structs are declared before their parent (post-order)', () => {
+    const nestedIdx = header.indexOf('struct GetConstantsResult_ReactNativeVersion {');
+    const parentIdx = header.indexOf('struct GetConstantsResult {');
+    expect(nestedIdx).toBeGreaterThan(0);
+    expect(parentIdx).toBeGreaterThan(nestedIdx);
+  });
+
+  test('struct fields take the matching C++ primitive types', () => {
+    expect(header).toMatch(/struct GetConstantsResult \{/);
+    expect(header).toMatch(/bool isTesting;/);
+    expect(header).toMatch(/GetConstantsResult_ReactNativeVersion reactNativeVersion;/);
+    expect(header).toMatch(/std::string osVersion;/);
+  });
+
+  test('nested struct fields take primitive types too', () => {
+    expect(header).toMatch(/struct GetConstantsResult_ReactNativeVersion \{/);
+    expect(header).toMatch(/double major;/);
+    expect(header).toMatch(/double minor;/);
+    expect(header).toMatch(/double patch;/);
+  });
+
+  test('emits toDynamic free function per struct', () => {
+    expect(header).toMatch(/inline folly::dynamic toDynamic\(const GetConstantsResult& v\) \{/);
+    expect(header).toMatch(
+      /inline folly::dynamic toDynamic\(const GetConstantsResult_ReactNativeVersion& v\) \{/,
+    );
+    expect(header).toMatch(/\("isTesting", v\.isTesting\)/);
+    expect(header).toMatch(/\("reactNativeVersion", toDynamic\(v\.reactNativeVersion\)\)/);
+    expect(header).toMatch(/\("osVersion", v\.osVersion\)/);
+  });
+
+  test('dispatcher wraps the returned struct via toDynamic + valueFromDynamic', () => {
+    expect(header).toMatch(/return facebook::jsi::valueFromDynamic\(rt_, toDynamic\(__result\)\);/);
   });
 });
 
