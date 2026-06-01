@@ -56,7 +56,7 @@ class TurboModuleRegistry {
 
 // Install `globalThis.__turboModuleProxy` on the runtime. Called from
 // the same install hook that wires up `rnLinux.*` (see
-// RNLinuxApplication / RNLinuxHost::setBeforeBundleEvalHook).
+// RNLinuxApplication / RNLinuxHost::addRuntimeInitializer).
 void installTurboModuleBinding(facebook::jsi::Runtime& rt);
 
 } // namespace rnlinux

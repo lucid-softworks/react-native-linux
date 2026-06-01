@@ -63,11 +63,17 @@ class RNLinuxHost {
   // mounting transactions.
   void setMountingManager(std::shared_ptr<LinuxMountingManager> manager);
 
-  // Hook fired by start() *after* the Hermes runtime is constructed but
-  // *before* the bundle is loaded/evaluated. Use it to install JSI host
-  // functions / globals (e.g. our lightning-path rnLinux bridge) so the
-  // bundle sees them at top level.
-  void setBeforeBundleEvalHook(std::function<void(facebook::jsi::Runtime&)> hook);
+  // Register a callback fired by start() *after* the Hermes runtime is
+  // constructed but *before* the bundle is loaded/evaluated. Use it to
+  // install JSI host functions / globals (e.g. our lightning-path
+  // rnLinux bridge, `globalThis.expo` for Expo modules, autolinked
+  // TurboModule registrations) so the bundle sees them at top level.
+  //
+  // Multiple initializers run in registration order on the JS thread.
+  // Out-of-tree packages (expo-desktop-stubs, expo-desktop-modules-core,
+  // user-provided JSI bindings) call this independently without
+  // clobbering each other.
+  void addRuntimeInitializer(std::function<void(facebook::jsi::Runtime&)> init);
 
   // Surface management. The returned SurfaceHandler is owned by the host;
   // callers receive a non-owning reference.

@@ -279,8 +279,11 @@ void RNLinuxApplication::onActivate(GtkApplication* app, void* userData) {
 
   // Lightning-path bridge: install the rnLinux JSI bindings *before* the
   // bundle is evaluated so JS sees `globalThis.rnLinux` at top level.
+  // Registered as an initializer so out-of-tree packages (expo-desktop
+  // stubs/modules-core, user JSI bindings) can stack their own without
+  // overwriting ours.
   GtkWidget* rootForJs = impl->rootView;
-  impl->host->setBeforeBundleEvalHook([rootForJs](facebook::jsi::Runtime& rt) {
+  impl->host->addRuntimeInitializer([rootForJs](facebook::jsi::Runtime& rt) {
     installRnLinuxBindings(rt, rootForJs);
     installTurboModuleBinding(rt);
   });

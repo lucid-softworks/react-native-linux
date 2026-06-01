@@ -26,6 +26,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace rnlinux {
 
@@ -36,7 +37,7 @@ struct RNLinuxHost::Impl {
   // goes through jsThread->post / postSync. The host never touches
   // the runtime directly; even bundle eval is a postSync hop.
   std::unique_ptr<JsThread> jsThread;
-  std::function<void(facebook::jsi::Runtime&)> beforeBundleEval;
+  std::vector<std::function<void(facebook::jsi::Runtime&)>> runtimeInitializers;
   std::shared_ptr<facebook::react::ContextContainer> contextContainer;
   std::shared_ptr<facebook::react::ComponentDescriptorProviderRegistry> descriptorProviders;
   // RN 0.81's EventBeat ctor needs a RuntimeScheduler reference, and
@@ -140,12 +141,25 @@ void RNLinuxHost::start() {
   };
   setRuntimeExecutorForJsi(runtimeExecutor);
 
-  // 1b. Install JSI bindings (rnLinux globals, etc.) before any bundle
-  //     code runs. postSync so the host doesn't race the worker — by
-  //     the time start() returns the bindings ARE up and the bundle
-  //     can call into them.
-  if (impl_->beforeBundleEval) {
-    impl_->jsThread->postSync([this](facebook::jsi::Runtime& rt) { impl_->beforeBundleEval(rt); });
+  // 1b. Run every registered runtime initializer (rnLinux globals,
+  //     expo-desktop-stubs' globalThis.expo, autolinked TurboModule
+  //     factories, ...) before any bundle code runs. postSync so the
+  //     host doesn't race the worker — by the time start() returns the
+  //     bindings ARE up and the bundle can call into them. Initializers
+  //     fire in registration order; a throw in one is logged and the
+  //     remaining initializers still run, since they're independent.
+  if (!impl_->runtimeInitializers.empty()) {
+    impl_->jsThread->postSync([this](facebook::jsi::Runtime& rt) {
+      for (const auto& init : impl_->runtimeInitializers) {
+        try {
+          init(rt);
+        } catch (const facebook::jsi::JSError& e) {
+          RNL_LOGE("RNLinuxHost") << "runtime initializer JS error: " << e.getMessage();
+        } catch (const std::exception& e) {
+          RNL_LOGE("RNLinuxHost") << "runtime initializer threw: " << e.what();
+        }
+      }
+    });
   }
 
   // 2. Fabric Scheduler. Built before bundle eval so commit hooks
@@ -377,8 +391,8 @@ void RNLinuxHost::setMountingManager(std::shared_ptr<LinuxMountingManager> m) {
   impl_->mountingManager = std::move(m);
 }
 
-void RNLinuxHost::setBeforeBundleEvalHook(std::function<void(facebook::jsi::Runtime&)> hook) {
-  impl_->beforeBundleEval = std::move(hook);
+void RNLinuxHost::addRuntimeInitializer(std::function<void(facebook::jsi::Runtime&)> init) {
+  impl_->runtimeInitializers.push_back(std::move(init));
 }
 
 facebook::react::SurfaceHandler& RNLinuxHost::createSurface(std::string moduleName,
