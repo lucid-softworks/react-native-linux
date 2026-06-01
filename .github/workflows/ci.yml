@@ -310,22 +310,22 @@ jobs:
             -DREACT_NATIVE_LINUX_DIR=${{ github.workspace }}/vnext \
             -DREACT_NATIVE_ROOT=${{ github.workspace }}/template/node_modules/react-native
 
-      - name: Bundle index.tsx (after the C++ build so the built hermesc exists)
-        # MUST run after the playground binary build. bundle.mjs prefers
-        # the hermesc compiled from the same Hermes source tree the
-        # runtime is linked against — node_modules/hermes-compiler ships
-        # Hermes V1 (CalVer 250829098.0.10), and its bytecode format is
-        # incompatible with the v0.16 runtime FetchHermes.cmake pins.
-        # Skipping hermesc entirely is better than the mismatch (the C++
-        # side then interprets the .js source); building it first guarantees
-        # we get matching bytecode.
+      - name: Build playground binary (also builds matching hermesc)
+        # MUST run before the bundle step. The CMake graph builds hermesc
+        # as a transitive dep of react_native_linux, producing
+        # apps/playground/linux/build/_deps/.../bin/hermesc against the
+        # exact same Hermes source FetchHermes.cmake pins. bundle.mjs
+        # prefers that binary over node_modules/hermes-compiler — the npm
+        # package ships Hermes V1 (CalVer 250829098.0.10) whose bytecode
+        # format is incompatible with the v0.16 runtime we link, and
+        # mixing them crashes std::terminate inside startSurface.
+        run: |
+          cmake --build apps/playground/linux/build --parallel --target rn-linux-playground
+
+      - name: Bundle index.tsx (uses the just-built hermesc)
         working-directory: apps/playground
         run: |
           RN_ENTRY=index node bundle.mjs
-
-      - name: Build playground binary
-        run: |
-          cmake --build apps/playground/linux/build --parallel --target rn-linux-playground
 
       - name: Smoke under xvfb
         # scripts/ci/smoke-playground.sh: xvfb-run → background the
