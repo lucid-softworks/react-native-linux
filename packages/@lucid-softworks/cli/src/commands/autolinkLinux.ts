@@ -169,10 +169,9 @@ export function runCodegenForDep(
 
   const cfg = readCodegenConfig(depRoot);
   if (!cfg) return undefined;
-  // Components are still stub-only on the Linux side (see
-  // scripts/codegen/run.js). Skip 'components'-typed configs until
-  // the Fabric component generator lands.
-  if (cfg.type === 'components') return undefined;
+  // Both `modules` and `components` are now supported; the generator
+  // dispatches by schema type per spec. `all` and missing `type`
+  // are accepted as catch-all.
 
   const jsSrcsDir = path.join(depRoot, cfg.jsSrcsDir ?? '.');
   const specs = findNativeSpecs(jsSrcsDir);
@@ -248,7 +247,11 @@ function findNativeSpecs(rootDir: string): string[] {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         stack.push(full);
-      } else if (entry.isFile() && /^Native[A-Z][^.]*\.(ts|tsx|js)$/.test(entry.name)) {
+      } else if (
+        entry.isFile() &&
+        (/^Native[A-Z][^.]*\.(ts|tsx|js)$/.test(entry.name) ||
+          /NativeComponent\.(ts|tsx|js)$/.test(entry.name))
+      ) {
         hits.push(full);
       }
     }

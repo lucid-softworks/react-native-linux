@@ -168,7 +168,7 @@ describe('runCodegenForDep', () => {
     expect(result).toBeUndefined();
   });
 
-  test('skips deps whose codegenConfig.type is components', () => {
+  test('processes deps with codegenConfig.type === components (Fabric supported now)', () => {
     const depRoot = makeFakeDep('cmp', {
       codegenConfig: {type: 'components', name: 'CmpSpec', jsSrcsDir: 'src'},
       specs: {'src/NativeCmp.ts': dummySpec('NativeCmp', 'Cmp')},
@@ -179,7 +179,11 @@ describe('runCodegenForDep', () => {
       {name: 'cmp', sourceDir: '/x', cmakeTarget: 'cmp'},
       path.join(tmpRoot, 'build', 'codegen'),
     );
-    expect(result).toBeUndefined();
+    // Spec is a TM (Native*.ts pattern + extends TurboModule), so
+    // even though type=components, the generator handles the file
+    // by schema type rather than codegenConfig.type.
+    expect(result).toBeDefined();
+    expect(result!.moduleNames).toEqual(['Cmp']);
   });
 
   test('emits headers and returns metadata for a real spec', () => {
