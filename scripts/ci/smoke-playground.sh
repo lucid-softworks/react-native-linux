@@ -129,7 +129,7 @@ echo "[smoke] env       GSK_RENDERER=${GSK_RENDERER} GDK_BACKEND=${GDK_BACKEND} 
 xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
   bash -c "
     set -u
-    RN_BUNDLE_URL='${BUNDLE_URL}' '${EXE_ABS}' > '${LOG_ABS}' 2>&1 &
+    RN_BUNDLE_URL='${BUNDLE_URL}' RN_WINDOW_TITLE='${RN_WINDOW_TITLE:-}' '${EXE_ABS}' > '${LOG_ABS}' 2>&1 &
     APP_PID=\$!
     sleep ${SETTLE_S}
     if ! kill -0 \"\$APP_PID\" 2>/dev/null; then
@@ -180,6 +180,25 @@ fi
 if grep -q -E 'Segmentation fault|terminate called|\bAborted\b' "${LOG_ABS}"; then
   echo "[smoke] crash marker found in log" >&2
   tail -40 "${LOG_ABS}" >&2
+  exit 4
+fi
+
+# JS-level error markers. Even when the app *technically* mounts a
+# screen (the ErrorBoundary fallback satisfies the JSX commit + min-
+# colour checks), a caught runtime error means the user sees a red
+# error panel — not the app they shipped. Treat as a failure so the
+# matrix surfaces these regressions instead of marking them PASS.
+#
+# `ErrorBoundary[app] caught` is what our app-level boundary prints
+# when it intercepts a render throw. `Too many re-renders` and
+# `Maximum update depth exceeded` come from React's tear-detection
+# (the zustand selector bug pattern). `Property '<x>' doesn't exist`
+# is Hermes' "missing identifier" form — usually the result of a
+# shim that didn't export what its consumer expected.
+if grep -q -E 'ErrorBoundary\[[^]]*\] caught|Maximum update depth exceeded|Too many re-renders|Property .* doesnt exist|cannot read propert' "${LOG_ABS}"; then
+  echo "[smoke] runtime JS error in log (caught by ErrorBoundary or React tear-detection)" >&2
+  echo "--- relevant log lines ---" >&2
+  grep -E 'ERROR|ErrorBoundary|Maximum update|Too many|Property|TypeError' "${LOG_ABS}" | head -10 >&2 || true
   exit 4
 fi
 

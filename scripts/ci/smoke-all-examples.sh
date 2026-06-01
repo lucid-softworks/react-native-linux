@@ -214,7 +214,10 @@ EOF
   # go under the artifact dir; the smoke script's own exit code
   # tells us pass vs which kind of fail.
   smoke_log="${ARTIFACT_DIR}/${name}.smoke.log"
-  if bash "${REPO_ROOT}/scripts/ci/smoke-playground.sh" \
+  # Per-example window title so anyone watching the matrix live can
+  # tell which app is on screen at a given moment. RN_WINDOW_TITLE
+  # is consumed by apps/playground/linux/main.cpp at startup.
+  if RN_WINDOW_TITLE="rnl-matrix · ${name}" bash "${REPO_ROOT}/scripts/ci/smoke-playground.sh" \
        --executable "${REPO_ROOT}/${EXECUTABLE}" \
        --bundle-url "file://${REPO_ROOT}/apps/playground/linux/build/assets/index.linux.bundle.hbc" \
        --settle-ms "${SETTLE_MS}" \
