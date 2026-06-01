@@ -16,6 +16,7 @@
   "main": "index.js",
   "files": [
     "index.js",
+    "metro.js",
     "expo.js",
     "expo-constants.js",
     "expo-font.js",
