@@ -26,16 +26,39 @@ import {mapType, type TypeAnnotation} from './types';
 interface StructProperty {
   name: string;
   cppType: string;
-  // The toJsi-equivalent expression body for serialising the C++
-  // value back into a folly::dynamic field. Built at collection
-  // time so the emitter can render `toDynamic` without re-walking
-  // the schema.
+  // Expression that serialises the C++ value back into a
+  // folly::dynamic field. Built at collection time so the emitter
+  // can render `toDynamic` without re-walking the schema.
   toDynamicExpr: string;
+  // The inverse: an expression that reads `d["<name>"]` and lowers
+  // it back to the C++ type. Lets the dispatcher hand a populated
+  // struct (rather than a default-constructed shell) to the
+  // implementer for object-typed params.
+  fromDynamicExpr: string;
 }
 
 interface StructDef {
   name: string;
   properties: StructProperty[];
+}
+
+// Per-primitive fromDynamic field accessor. Mirrors the toJsi /
+// fromJsi table in types.ts but targets folly::dynamic.
+function fromDynamicForPrimitive(typeName: string, fieldExpr: string): string {
+  switch (typeName) {
+    case 'StringTypeAnnotation':
+      return `${fieldExpr}.asString()`;
+    case 'BooleanTypeAnnotation':
+      return `${fieldExpr}.asBool()`;
+    case 'NumberTypeAnnotation':
+    case 'DoubleTypeAnnotation':
+    case 'FloatTypeAnnotation':
+      return `${fieldExpr}.asDouble()`;
+    case 'Int32TypeAnnotation':
+      return `static_cast<int32_t>(${fieldExpr}.asInt())`;
+    default:
+      throw new Error(`No fromDynamic mapping for primitive ${typeName}`);
+  }
 }
 
 class StructCollector {
@@ -68,6 +91,7 @@ class StructCollector {
       }
       const fieldName = prop.name;
       const propPascal = pascalCase(fieldName);
+      const fieldExpr = `d["${fieldName}"]`;
       if (propType.type === 'ObjectTypeAnnotation') {
         const nestedName = `${name}_${propPascal}`;
         this.collect(nestedName, propType);
@@ -75,6 +99,7 @@ class StructCollector {
           name: fieldName,
           cppType: nestedName,
           toDynamicExpr: `toDynamic(v.${fieldName})`,
+          fromDynamicExpr: `${nestedName}::fromDynamic(${fieldExpr})`,
         });
         continue;
       }
@@ -87,6 +112,7 @@ class StructCollector {
           name: fieldName,
           cppType: 'folly::dynamic',
           toDynamicExpr: `v.${fieldName}`,
+          fromDynamicExpr: fieldExpr,
         });
         continue;
       }
@@ -95,6 +121,7 @@ class StructCollector {
         name: fieldName,
         cppType: mapped.cpp,
         toDynamicExpr: `v.${fieldName}`,
+        fromDynamicExpr: fromDynamicForPrimitive(propType.type, fieldExpr),
       });
     }
     this.structs.push(struct);
@@ -115,6 +142,23 @@ function renderStructDecls(structs: StructDef[]): string[] {
     for (const p of s.properties) {
       lines.push(`  ${p.cppType} ${p.name};`);
     }
+    // Symmetrical fromDynamic: build a populated struct from a
+    // folly::dynamic object. The implementer-facing dispatcher uses
+    // this to convert jsi::Value-typed params to typed C++ before
+    // calling the user's virtual.
+    lines.push('');
+    lines.push(`  static ${s.name} fromDynamic(const folly::dynamic& d) {`);
+    if (s.properties.length === 0) {
+      lines.push(`    (void)d;`);
+      lines.push(`    return {};`);
+    } else {
+      lines.push(`    return {`);
+      for (const p of s.properties) {
+        lines.push(`        .${p.name} = ${p.fromDynamicExpr},`);
+      }
+      lines.push(`    };`);
+    }
+    lines.push(`  }`);
     lines.push('};');
     lines.push('');
     lines.push(`inline folly::dynamic toDynamic(const ${s.name}& v) {`);
@@ -385,21 +429,14 @@ function renderDispatchBranch(method: MethodShape, meta: MethodStructMeta): stri
     if (isCallback(p.typeAnnotation)) {
       unpackLines.push(...renderCallbackUnpack(p.typeAnnotation, argName, i, BODY));
     } else if (isObject(p.typeAnnotation)) {
-      // Object params: unpack via dynamicFromValue, then materialise
-      // the typed struct. For the MVP we go through folly::dynamic on
-      // the way in; a generated fromDynamic with type-checked field
-      // pulls would be a strictly nicer follow-up.
+      // Object params: jsi::Value → folly::dynamic → typed struct.
+      // The struct's static fromDynamic does the field-by-field
+      // pull so the implementer's virtual receives a populated
+      // value, not a default-constructed shell.
       const structName = meta.paramStructs[i]!;
       unpackLines.push(
-        `${BODY}auto __dyn_${argName} = facebook::jsi::dynamicFromValue(rt_, args[${i}]);`,
+        `${BODY}auto ${argName} = ${structName}::fromDynamic(facebook::jsi::dynamicFromValue(rt_, args[${i}]));`,
       );
-      unpackLines.push(`${BODY}${structName} ${argName}{};`);
-      unpackLines.push(
-        `${BODY}// TODO(codegen): typed fromDynamic field pull. Today the impl ` +
-          `receives a default-constructed ${structName}; pass the raw dynamic via ` +
-          `__dyn_${argName} for now.`,
-      );
-      unpackLines.push(`${BODY}(void)__dyn_${argName};`);
     } else {
       const pType = mapType(p.typeAnnotation, 'param');
       const unpack = pType.fromJsi!(`args[${i}]`, 'rt_');

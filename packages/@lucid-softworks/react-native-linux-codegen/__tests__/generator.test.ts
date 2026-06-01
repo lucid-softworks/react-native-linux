@@ -393,6 +393,85 @@ describe('generateModule — typed object structs', () => {
   test('dispatcher wraps the returned struct via toDynamic + valueFromDynamic', () => {
     expect(header).toMatch(/return facebook::jsi::valueFromDynamic\(rt_, toDynamic\(__result\)\);/);
   });
+
+  test('emits a symmetrical static fromDynamic per struct', () => {
+    expect(header).toMatch(/static GetConstantsResult fromDynamic\(const folly::dynamic& d\)/);
+    expect(header).toMatch(
+      /static GetConstantsResult_ReactNativeVersion fromDynamic\(const folly::dynamic& d\)/,
+    );
+  });
+
+  test('fromDynamic builds the struct field-by-field with the right accessors', () => {
+    expect(header).toMatch(/\.isTesting = d\["isTesting"\]\.asBool\(\),/);
+    expect(header).toMatch(/\.osVersion = d\["osVersion"\]\.asString\(\),/);
+    expect(header).toMatch(/\.major = d\["major"\]\.asDouble\(\),/);
+  });
+
+  test("fromDynamic recurses into nested struct via the nested type's factory", () => {
+    expect(header).toMatch(
+      /\.reactNativeVersion = GetConstantsResult_ReactNativeVersion::fromDynamic\(d\["reactNativeVersion"\]\),/,
+    );
+  });
+});
+
+describe('generateModule — Object params unpack via fromDynamic', () => {
+  function objectParamMod(): SpecModule {
+    return {
+      specName: 'NativeWithObj',
+      moduleName: 'WithObj',
+      schema: {
+        type: 'NativeModule',
+        moduleName: 'WithObj',
+        spec: {
+          methods: [
+            {
+              name: 'submit',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [
+                  {
+                    name: 'payload',
+                    typeAnnotation: {
+                      type: 'ObjectTypeAnnotation',
+                      properties: [
+                        {name: 'id', typeAnnotation: {type: 'StringTypeAnnotation'}},
+                        {name: 'count', typeAnnotation: {type: 'Int32TypeAnnotation'}},
+                      ],
+                    },
+                  },
+                ],
+                returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+              },
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  const header = generateModule(objectParamMod());
+
+  test('virtual signature takes the generated param struct, not folly::dynamic', () => {
+    expect(header).toMatch(/struct SubmitParam_Payload \{/);
+    expect(header).toMatch(/virtual void submit\(SubmitParam_Payload payload\) = 0;/);
+  });
+
+  test("dispatcher unpacks via the struct's static fromDynamic in one line", () => {
+    expect(header).toMatch(
+      /auto payload = SubmitParam_Payload::fromDynamic\(facebook::jsi::dynamicFromValue\(rt_, args\[0\]\)\);/,
+    );
+  });
+
+  test('Int32 fields lower via asInt() + static_cast<int32_t>', () => {
+    expect(header).toMatch(/\.count = static_cast<int32_t>\(d\["count"\]\.asInt\(\)\),/);
+  });
+
+  test('no default-construct + raw-dynamic dance left behind', () => {
+    expect(header).not.toMatch(/SubmitParam_Payload payload\{\}/);
+    expect(header).not.toMatch(/__dyn_payload/);
+    expect(header).not.toMatch(/TODO\(codegen\): typed fromDynamic field pull/);
+  });
 });
 
 describe('generateModule — Function (callback) params', () => {
