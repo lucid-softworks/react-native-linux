@@ -45,12 +45,25 @@ if(REACT_NATIVE_LINUX_RUN_CODEGEN AND EXISTS "${RN_LINUX_CODEGEN_SCRIPT}")
     "${REACT_NATIVE_LINUX_JS_PACKAGE}/Libraries/**/*NativeComponent.ts"
     "${REACT_NATIVE_LINUX_JS_PACKAGE}/Libraries/**/Native*.ts")
 
+  # The generator package source — touch one of these and the next
+  # build will re-emit headers. We depend on src/ rather than lib/
+  # so consumers who haven't built the generator yet still trigger
+  # a regenerate when they pull a fix.
+  set(RN_LINUX_CODEGEN_PKG_DIR
+    "${CMAKE_CURRENT_LIST_DIR}/../../packages/@lucid-softworks/react-native-linux-codegen")
+  file(GLOB RN_LINUX_CODEGEN_PKG_SOURCES
+    LIST_DIRECTORIES false
+    "${RN_LINUX_CODEGEN_PKG_DIR}/src/*.ts"
+    "${RN_LINUX_CODEGEN_PKG_DIR}/lib/*.js")
+
   add_custom_command(
     OUTPUT ${RN_LINUX_CODEGEN_STAMP}
     COMMAND ${NODE_EXECUTABLE} ${RN_LINUX_CODEGEN_SCRIPT}
             --package ${REACT_NATIVE_LINUX_JS_PACKAGE}
             --output ${RN_LINUX_CODEGEN_OUTPUT_DIR}
-    DEPENDS ${RN_LINUX_CODEGEN_SCRIPT} ${RN_LINUX_CODEGEN_SPECS}
+    DEPENDS ${RN_LINUX_CODEGEN_SCRIPT}
+            ${RN_LINUX_CODEGEN_SPECS}
+            ${RN_LINUX_CODEGEN_PKG_SOURCES}
     COMMENT "Running react-native-linux codegen"
     VERBATIM)
 

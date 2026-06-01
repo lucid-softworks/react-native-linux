@@ -4,25 +4,23 @@
 /**
  * react-native-linux codegen driver.
  *
- * Walks the JS package (and the playground app, if `--include-app` is
- * passed) for `*NativeComponent.{ts,tsx,js}` and `Native*.{ts,tsx,js}`
- * spec files, then drives `@react-native/codegen` to emit C++ headers
- * under `--output`.
+ * Walks the JS package for `*NativeComponent.{ts,tsx,js}` (Fabric
+ * components — still a stub, see Markers.h note below) and
+ * `Native*.{ts,tsx,js}` (TurboModule specs), then drives
+ * `@lucid-softworks/react-native-linux-codegen` to emit one C++
+ * header per TM spec under `--output/specs/`.
  *
- * IMPORTANT (2026-05-22): `@react-native/codegen` only ships first-class
- * generators for `android` and `ios`. Until we fork the codegen package
- * (mirroring react-native-windows's `@react-native-windows/codegen`) or
- * upstream a `linux` platform, this driver:
+ * Output layout:
  *
- *   1. Resolves all spec files in the package.
- *   2. Writes a manifest (`.codegen-stamp.json`) listing them.
- *   3. Returns success — the manifest is what CMake's
- *      add_custom_command stamps on so downstream builds know "we have
- *      run the codegen step against this set of inputs".
+ *   <output>/.codegen-stamp.json   — manifest CMake stamps on
+ *   <output>/Markers.h             — kSpecCount marker header
+ *   <output>/specs/<Native*>Spec.h — TurboModule abstract base
+ *                                    classes (one per parsed module)
  *
- * The actual `.h` emission lands once the linux generator exists. Until
- * then, vnext/src/ uses the same upstream `react/renderer/components/
- * view/*Props.h` etc. that RN already publishes for View and Paragraph.
+ * Fabric component codegen is still stamp-only: building a Linux
+ * variant of `GenerateComponentDescriptorH.js` is a separate piece of
+ * work and the in-tree `vnext/src/fabric/` uses the upstream
+ * components directly today.
  *
  * Exit codes:
  *    0  ok
@@ -50,8 +48,8 @@ function parseArgs(argv) {
 }
 
 function walkSpecs(rootDir) {
-  /** @type {string[]} */
-  const hits = [];
+  /** @type {{native: string[], component: string[]}} */
+  const hits = {native: [], component: []};
   if (!fs.existsSync(rootDir)) return hits;
 
   const stack = [rootDir];
@@ -69,13 +67,38 @@ function walkSpecs(rootDir) {
       if (entry.isDirectory()) {
         stack.push(full);
       } else if (entry.isFile()) {
-        if (/(NativeComponent|Native[A-Z][^.]*)\.(ts|tsx|js)$/.test(entry.name)) {
-          hits.push(full);
+        if (/NativeComponent\.(ts|tsx|js)$/.test(entry.name)) {
+          hits.component.push(full);
+        } else if (/^Native[A-Z][^.]*\.(ts|tsx|js)$/.test(entry.name)) {
+          hits.native.push(full);
         }
       }
     }
   }
-  return hits.sort();
+  hits.native.sort();
+  hits.component.sort();
+  return hits;
+}
+
+function generateTurboModuleHeaders(nativeSpecs, outDir) {
+  if (nativeSpecs.length === 0) return [];
+  // Resolve the generator package against the script's location so
+  // this driver works regardless of cwd.
+  // eslint-disable-next-line node/no-missing-require
+  const generator = require(
+    path.join(
+      __dirname,
+      '..',
+      '..',
+      'packages',
+      '@lucid-softworks',
+      'react-native-linux-codegen',
+      'lib',
+    ),
+  );
+  const specsDir = path.join(outDir, 'specs');
+  const written = generator.writeFromFiles(nativeSpecs, specsDir);
+  return written;
 }
 
 function main() {
@@ -89,41 +112,74 @@ function main() {
     process.exit(2);
   }
 
-  const specs = walkSpecs(args.package);
-  if (specs.length === 0) {
+  const {native, component} = walkSpecs(args.package);
+  if (native.length === 0 && component.length === 0) {
     console.warn(`[codegen] no specs found under ${args.package}; emitting empty stamp.`);
   } else {
-    console.log(`[codegen] discovered ${specs.length} spec file(s):`);
-    for (const s of specs) {
-      console.log(`  - ${path.relative(process.cwd(), s)}`);
+    if (native.length > 0) {
+      console.log(`[codegen] discovered ${native.length} TurboModule spec(s):`);
+      for (const s of native) {
+        console.log(`  - ${path.relative(process.cwd(), s)}`);
+      }
+    }
+    if (component.length > 0) {
+      console.log(`[codegen] discovered ${component.length} Fabric component spec(s):`);
+      for (const s of component) {
+        console.log(`  - ${path.relative(process.cwd(), s)}`);
+      }
     }
   }
 
   fs.mkdirSync(args.output, {recursive: true});
+
+  // 1. TurboModule header emission via the Linux generator. Real C++
+  //    headers; CMake's add_dependencies(react_native_linux,
+  //    react_native_linux_codegen) ensures vnext build picks them up.
+  let writtenHeaders = [];
+  try {
+    writtenHeaders = generateTurboModuleHeaders(native, args.output);
+    if (writtenHeaders.length > 0) {
+      console.log(`[codegen] wrote ${writtenHeaders.length} TurboModule header(s):`);
+      for (const h of writtenHeaders) {
+        console.log(`  - ${path.relative(process.cwd(), h)}`);
+      }
+    }
+  } catch (e) {
+    console.error(`[codegen] header generation failed: ${e.message}`);
+    if (e.stack) console.error(e.stack.split('\n').slice(1, 4).join('\n'));
+    process.exit(4);
+  }
+
+  // 2. Manifest + marker stamp. The CMake custom command's OUTPUT
+  //    list keys on this file so a touched spec → fresh stamp →
+  //    rebuild of the dependent C++ TU.
+  const allSpecs = [...native, ...component];
   const manifest = {
     generatedAt: new Date().toISOString(),
     package: path.resolve(args.package),
-    specs: specs.map(s => path.relative(args.package, s)),
+    nativeSpecs: native.map(s => path.relative(args.package, s)),
+    componentSpecs: component.map(s => path.relative(args.package, s)),
+    generatedHeaders: writtenHeaders.map(h => path.relative(args.output, h)),
     notice:
-      'Manifest only — the linux platform generator for @react-native/codegen ' +
-      'is not yet implemented. See TODO.md Phase 5.6 and the comment at the ' +
-      'top of scripts/codegen/run.js.',
+      writtenHeaders.length > 0
+        ? 'TurboModule header emission is live via @lucid-softworks/react-native-linux-codegen. ' +
+          'Fabric component generators are still stub-only.'
+        : 'Manifest only — no TurboModule specs found.',
   };
   fs.writeFileSync(
     path.join(args.output, '.codegen-stamp.json'),
     JSON.stringify(manifest, null, 2) + '\n',
   );
 
-  // Emit a placeholder header so consumers that #include
-  // "react-native-linux/codegen/Markers.h" don't fail when codegen
-  // hasn't run with real content yet.
   const markerHeader = [
     '// Auto-generated by scripts/codegen/run.js. Do not edit.',
     '#pragma once',
     '',
     'namespace rnlinux::codegen {',
-    `inline constexpr unsigned int kSpecCount = ${specs.length}u;`,
-    '}  // namespace rnlinux::codegen',
+    `inline constexpr unsigned int kSpecCount = ${allSpecs.length}u;`,
+    `inline constexpr unsigned int kTurboModuleCount = ${native.length}u;`,
+    `inline constexpr unsigned int kComponentCount = ${component.length}u;`,
+    '} // namespace rnlinux::codegen',
     '',
   ].join('\n');
   fs.writeFileSync(path.join(args.output, 'Markers.h'), markerHeader);
