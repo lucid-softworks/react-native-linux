@@ -430,7 +430,16 @@ const appOpts = {
       '  if (id === "@expo/metro-runtime") return rnv.expoMetroRuntime;\n' +
       '  if (id === "crypto" || id === "node:crypto") return rnv.nodeCrypto;\n' +
       '  if (id === "zustand") return rnv.zustand;\n' +
-      '  if (id === "zustand/shallow") return {shallow: rnv.zustand.shallow};\n' +
+      // zustand/shallow ships BOTH `import shallow from "zustand/shallow"`
+      // (the function as default) AND `import {shallow} from "zustand/shallow"`.
+      // Return an __esModule namespace that satisfies both shapes; esbuild
+      // sees __esModule:true and pipes it through interop untouched.
+      '  if (id === "zustand/shallow") {\n' +
+      '    var sh = rnv.zustand.shallow;\n' +
+      '    var ns = {default: sh, shallow: sh};\n' +
+      '    Object.defineProperty(ns, "__esModule", {value: true});\n' +
+      '    return ns;\n' +
+      '  }\n' +
       '  if (id === "expo-sqlite") return rnv.expoSqlite;\n' +
       // Every @react-navigation/* package routes through the same
       // minimal shim — the navigator factories cover stack / native-

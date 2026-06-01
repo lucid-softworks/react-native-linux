@@ -69,21 +69,35 @@ function createStore(initializer) {
 
 function create(initializer) {
   const api = createStoreImpl(initializer);
-  // useStore(selector?, equalityFn?) — the hook form. Selector
-  // defaults to identity; equality defaults to Object.is.
+  // useStore(selector?, equalityFn?) — the hook form.
+  //
+  // The catch: a selector like `s => ({a: s.a, b: s.b})` returns a
+  // NEW object reference every call. useSyncExternalStore tears if
+  // getSnapshot returns a different reference each time it's read
+  // outside an actual subscribe-fire (React fires "the result of
+  // getSnapshot should be cached" and falls into an infinite render
+  // loop).
+  //
+  // Fix: cache the last selector input AND its result, and on every
+  // getSnapshot call return the cached result when the equality fn
+  // says the new selection matches the old one. equalityFn defaults
+  // to Object.is for the no-selector case; consumers passing
+  // `shallow` (from zustand/shallow) get the structural comparison.
   function useStore(selector, equalityFn) {
     const sel = typeof selector === 'function' ? selector : s => s;
     const eq = typeof equalityFn === 'function' ? equalityFn : Object.is;
-    return React.useSyncExternalStore(
-      api.subscribe,
-      () => sel(api.getState()),
-      () => sel(api.getInitialState()),
-      // useSyncExternalStore in React 18 doesn't support a custom
-      // equality fn, so we have to memoize the selected slice
-      // ourselves via the snapshot ref below. The eq is consulted
-      // inside the snapshot, which is good enough for the common
-      // shallow-on-object case zustand consumers use.
-    );
+    const cacheRef = React.useRef(null);
+    function readWithCache(rawState) {
+      const next = sel(rawState);
+      if (cacheRef.current && eq(cacheRef.current.value, next)) {
+        return cacheRef.current.value;
+      }
+      cacheRef.current = {value: next};
+      return next;
+    }
+    const getSnapshot = () => readWithCache(api.getState());
+    const getServerSnapshot = () => readWithCache(api.getInitialState());
+    return React.useSyncExternalStore(api.subscribe, getSnapshot, getServerSnapshot);
   }
   Object.assign(useStore, api);
   return useStore;
