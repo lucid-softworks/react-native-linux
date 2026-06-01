@@ -1,4 +1,8 @@
-import {collectLinkedDependencies, renderCmake} from '../commands/autolinkLinux';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import {collectLinkedDependencies, renderCmake, runCodegenForDep} from '../commands/autolinkLinux';
 
 describe('collectLinkedDependencies', () => {
   test('returns an empty list when ctx has no dependencies', () => {
@@ -94,4 +98,140 @@ describe('renderCmake', () => {
     // hyphens and dots and @ and / are all replaced with underscores
     expect(out).toContain('rn_linux_dep__foo_bar_baz_qux');
   });
+
+  test('emits target_include_directories for deps that codegenned', () => {
+    const out = renderCmake([
+      {
+        name: 'fake-tm',
+        sourceDir: '/x/linux',
+        cmakeTarget: 'fake_tm',
+        codegen: {
+          specs: ['/x/src/NativeFake.ts'],
+          outputDir: '/build/codegen/fake-tm/specs',
+          moduleNames: ['Fake'],
+        },
+      },
+    ]);
+    expect(out).toContain(
+      'target_include_directories(fake_tm PRIVATE "/build/codegen/fake-tm/specs")',
+    );
+    expect(out).toContain('#   modules: Fake');
+  });
+
+  test('skips include_directories for deps with no codegen', () => {
+    const out = renderCmake([{name: 'plain', sourceDir: '/x/linux', cmakeTarget: 'plain'}]);
+    expect(out).not.toContain('target_include_directories');
+  });
 });
+
+describe('runCodegenForDep', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rnl-autolink-cg-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, {recursive: true, force: true});
+  });
+
+  function makeFakeDep(
+    name: string,
+    opts: {codegenConfig?: object; specs?: Record<string, string>},
+  ) {
+    const depRoot = path.join(tmpRoot, 'node_modules', name);
+    fs.mkdirSync(depRoot, {recursive: true});
+    fs.writeFileSync(
+      path.join(depRoot, 'package.json'),
+      JSON.stringify({
+        name,
+        version: '0.0.1',
+        ...(opts.codegenConfig ? {codegenConfig: opts.codegenConfig} : {}),
+      }),
+    );
+    for (const [relPath, body] of Object.entries(opts.specs ?? {})) {
+      const full = path.join(depRoot, relPath);
+      fs.mkdirSync(path.dirname(full), {recursive: true});
+      fs.writeFileSync(full, body);
+    }
+    return depRoot;
+  }
+
+  test('returns undefined when the dep has no codegenConfig', () => {
+    const depRoot = makeFakeDep('plain', {});
+    const ctx = {root: tmpRoot, dependencies: {plain: {root: depRoot}}} as any;
+    const result = runCodegenForDep(
+      ctx,
+      {name: 'plain', sourceDir: '/x', cmakeTarget: 'plain'},
+      path.join(tmpRoot, 'build', 'codegen'),
+    );
+    expect(result).toBeUndefined();
+  });
+
+  test('skips deps whose codegenConfig.type is components', () => {
+    const depRoot = makeFakeDep('cmp', {
+      codegenConfig: {type: 'components', name: 'CmpSpec', jsSrcsDir: 'src'},
+      specs: {'src/NativeCmp.ts': dummySpec('NativeCmp', 'Cmp')},
+    });
+    const ctx = {root: tmpRoot, dependencies: {cmp: {root: depRoot}}} as any;
+    const result = runCodegenForDep(
+      ctx,
+      {name: 'cmp', sourceDir: '/x', cmakeTarget: 'cmp'},
+      path.join(tmpRoot, 'build', 'codegen'),
+    );
+    expect(result).toBeUndefined();
+  });
+
+  test('emits headers and returns metadata for a real spec', () => {
+    const depRoot = makeFakeDep('rn-fake', {
+      codegenConfig: {type: 'modules', name: 'RNFakeSpec', jsSrcsDir: 'src'},
+      specs: {'src/NativeFake.ts': dummySpec('NativeFake', 'Fake')},
+    });
+    const ctx = {root: tmpRoot, dependencies: {'rn-fake': {root: depRoot}}} as any;
+    const codegenRoot = path.join(tmpRoot, 'build', 'codegen');
+    const result = runCodegenForDep(
+      ctx,
+      {name: 'rn-fake', sourceDir: '/x', cmakeTarget: 'rn_fake'},
+      codegenRoot,
+    );
+    expect(result).toBeDefined();
+    expect(result!.moduleNames).toEqual(['Fake']);
+    expect(result!.specs).toHaveLength(1);
+
+    const headerPath = path.join(codegenRoot, 'rn_fake', 'specs', 'NativeFakeSpec.h');
+    expect(fs.existsSync(headerPath)).toBe(true);
+    const header = fs.readFileSync(headerPath, 'utf8');
+    expect(header).toMatch(/class NativeFakeSpec : public rnlinux::TurboModule/);
+    expect(header).toMatch(/kModuleName = "Fake"/);
+  });
+
+  test('returns undefined when the spec dir has no Native*.ts', () => {
+    const depRoot = makeFakeDep('rn-nothing', {
+      codegenConfig: {type: 'modules', name: 'NS', jsSrcsDir: 'src'},
+      specs: {'src/Helper.ts': '// not a spec\n'},
+    });
+    const ctx = {root: tmpRoot, dependencies: {'rn-nothing': {root: depRoot}}} as any;
+    const result = runCodegenForDep(
+      ctx,
+      {name: 'rn-nothing', sourceDir: '/x', cmakeTarget: 'rn_nothing'},
+      path.join(tmpRoot, 'build', 'codegen'),
+    );
+    expect(result).toBeUndefined();
+  });
+});
+
+// Minimal TS source the @react-native/codegen TypeScriptParser
+// understands — `extends TurboModule` interface + the registry call.
+function dummySpec(specName: string, moduleName: string): string {
+  return `
+import {TurboModuleRegistry} from 'react-native';
+import type {TurboModule} from 'react-native';
+
+export interface Spec extends TurboModule {
+  ping(): string;
+}
+
+export default TurboModuleRegistry.get<Spec>('${moduleName}');
+// specName: ${specName}
+`.trimStart();
+}

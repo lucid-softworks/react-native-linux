@@ -27,6 +27,7 @@
     "test": "jest --passWithNoTests"
   },
   "dependencies": {
+    "@lucid-softworks/react-native-linux-codegen": "workspace:*",
     "chalk": "^4.1.2",
     "execa": "^5.1.1",
     "ws": "^8.16.0"

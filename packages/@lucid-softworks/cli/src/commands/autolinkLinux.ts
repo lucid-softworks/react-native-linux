@@ -13,6 +13,26 @@ interface LinkedDependency {
   name: string;
   sourceDir: string;
   cmakeTarget: string;
+  // Populated only when the dep ships a NativeModule codegen config.
+  // The autolink command runs the Linux generator over the dep's
+  // spec files and records where the headers landed so the emitted
+  // CMake can target_include_directories them onto the dep's
+  // cmakeTarget.
+  codegen?: {
+    specs: string[];
+    outputDir: string;
+    moduleNames: string[];
+  };
+}
+
+interface CodegenConfigShape {
+  // RN's standard package.json key. Both `codegenConfig` and the
+  // nested shape are optional; we treat any presence as opt-in.
+  type?: 'modules' | 'components' | 'all';
+  name?: string;
+  jsSrcsDir?: string;
+  // We don't honour the iOS/Android-specific subfields — the Linux
+  // generator drives off the same spec files regardless.
 }
 
 /**
@@ -22,6 +42,12 @@ interface LinkedDependency {
  * non-null `LinuxDependencyConfig`, then emits a CMake include file that
  * pulls each one in via `add_subdirectory` and links it into the host app
  * target.
+ *
+ * Also drives the Linux TurboModule code generator
+ * (`@lucid-softworks/react-native-linux-codegen`) for any dep whose
+ * `package.json` carries a `codegenConfig`. The generated headers land
+ * under `<autolinked-parent>/codegen/<dep-name>/specs/` and the emitted
+ * CMake adds them to the dep's `cmakeTarget` include path.
  *
  * The generated file is consumed by the app's `linux/CMakeLists.txt` like:
  *
@@ -53,10 +79,14 @@ export const autolinkLinux: Command = {
   func: (async (_argv: string[], ctx: Config, rawOpts: unknown) => {
     const opts = rawOpts as AutolinkLinuxOpts;
     const linked = collectLinkedDependencies(ctx);
-    const generated = renderCmake(linked);
     const outPath = path.resolve(ctx.root, opts.outputFile);
+    const codegenRoot = path.join(path.dirname(outPath), 'codegen');
 
+    // In --check mode we don't run codegen; we just verify the
+    // existing autolinked.cmake is in sync with the discovered
+    // metadata. CI surfaces a stale checkout that way.
     if (opts.check) {
+      const generated = renderCmake(linked);
       const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : '';
       if (existing.trim() !== generated.trim()) {
         console.error(
@@ -72,6 +102,22 @@ export const autolinkLinux: Command = {
       return;
     }
 
+    // Drive the Linux codegen for any dep with a codegenConfig in
+    // its package.json. Populates each dep's `codegen` field.
+    for (const dep of linked) {
+      const codegen = runCodegenForDep(ctx, dep, codegenRoot);
+      if (codegen) {
+        dep.codegen = codegen;
+        console.log(
+          chalk.green(
+            `✓ codegen for ${dep.name}: ${codegen.moduleNames.length} TurboModule(s) ` +
+              `→ ${path.relative(ctx.root, codegen.outputDir)}`,
+          ),
+        );
+      }
+    }
+
+    const generated = renderCmake(linked);
     fs.mkdirSync(path.dirname(outPath), {recursive: true});
     fs.writeFileSync(outPath, generated);
     console.log(
@@ -108,6 +154,108 @@ export function collectLinkedDependencies(ctx: Config): LinkedDependency[] {
   return out;
 }
 
+// Run the Linux TurboModule generator for a single dep if it ships a
+// codegenConfig. Returns metadata for `renderCmake` to consume, or
+// undefined when the dep is component-only / has no codegen config.
+//
+// Exported for tests; the real entry is the `func` above.
+export function runCodegenForDep(
+  ctx: Config,
+  dep: LinkedDependency,
+  codegenRoot: string,
+): LinkedDependency['codegen'] {
+  const depRoot = resolveDepRoot(ctx, dep.name);
+  if (!depRoot) return undefined;
+
+  const cfg = readCodegenConfig(depRoot);
+  if (!cfg) return undefined;
+  // Components are still stub-only on the Linux side (see
+  // scripts/codegen/run.js). Skip 'components'-typed configs until
+  // the Fabric component generator lands.
+  if (cfg.type === 'components') return undefined;
+
+  const jsSrcsDir = path.join(depRoot, cfg.jsSrcsDir ?? '.');
+  const specs = findNativeSpecs(jsSrcsDir);
+  if (specs.length === 0) return undefined;
+
+  const safeName = dep.name.replace(/[^a-zA-Z0-9_]/g, '_');
+  const outputDir = path.join(codegenRoot, safeName, 'specs');
+
+  // Loaded lazily so the CLI doesn't pay the @react-native/codegen
+  // parser cost when no deps need codegen.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const codegen = require('@lucid-softworks/react-native-linux-codegen');
+  fs.mkdirSync(outputDir, {recursive: true});
+
+  const moduleNames: string[] = [];
+  for (const specPath of specs) {
+    try {
+      const generated = codegen.generateFromFile(specPath) as Array<{
+        filename: string;
+        contents: string;
+        moduleName: string;
+      }>;
+      for (const g of generated) {
+        fs.writeFileSync(path.join(outputDir, g.filename), g.contents);
+        moduleNames.push(g.moduleName);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(
+        chalk.yellow(
+          `! codegen skipped ${path.relative(ctx.root, specPath)} for ${dep.name}: ${msg}`,
+        ),
+      );
+    }
+  }
+
+  if (moduleNames.length === 0) return undefined;
+  return {specs, outputDir, moduleNames};
+}
+
+function resolveDepRoot(ctx: Config, name: string): string | undefined {
+  const dep = (ctx.dependencies as Record<string, {root?: string}> | undefined)?.[name];
+  return dep?.root;
+}
+
+function readCodegenConfig(depRoot: string): CodegenConfigShape | undefined {
+  const pkgPath = path.join(depRoot, 'package.json');
+  if (!fs.existsSync(pkgPath)) return undefined;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const cfg = pkg?.codegenConfig;
+    if (cfg && typeof cfg === 'object') return cfg as CodegenConfigShape;
+  } catch {
+    /* malformed package.json — treat as no codegen */
+  }
+  return undefined;
+}
+
+function findNativeSpecs(rootDir: string): string[] {
+  if (!fs.existsSync(rootDir)) return [];
+  const hits: string[] = [];
+  const stack = [rootDir];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, {withFileTypes: true});
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile() && /^Native[A-Z][^.]*\.(ts|tsx|js)$/.test(entry.name)) {
+        hits.push(full);
+      }
+    }
+  }
+  return hits.sort();
+}
+
 export function renderCmake(linked: LinkedDependency[]): string {
   const lines: string[] = [];
   lines.push('# Auto-generated by @lucid-softworks/react-native-linux-cli');
@@ -121,6 +269,12 @@ export function renderCmake(linked: LinkedDependency[]): string {
     lines.push(`# ${dep.name}`);
     lines.push(`add_subdirectory("${dep.sourceDir}" rn_linux_dep_${cleaned})`);
     lines.push(`list(APPEND RN_LINUX_AUTOLINKED_TARGETS ${dep.cmakeTarget})`);
+    if (dep.codegen) {
+      lines.push(
+        `target_include_directories(${dep.cmakeTarget} PRIVATE "${dep.codegen.outputDir}")`,
+      );
+      lines.push(`#   modules: ${dep.codegen.moduleNames.join(', ')}`);
+    }
   }
   lines.push('');
   return lines.join('\n');

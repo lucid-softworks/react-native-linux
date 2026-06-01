@@ -108,6 +108,9 @@ importers:
 
   packages/@lucid-softworks/cli:
     dependencies:
+      '@lucid-softworks/react-native-linux-codegen':
+        specifier: workspace:*
+        version: link:../react-native-linux-codegen
       '@react-native-community/cli':
         specifier: '*'
         version: 20.1.3(typescript@5.9.3)
