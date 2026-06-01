@@ -122,17 +122,14 @@ owns every line of JSI plumbing.
 ## Known follow-ups
 
 - Non-void callback returns. `(...) => T` callbacks throw at
-  generation time today. Adding this mirrors Promise resolve:
-  marshal the JS return value back through `valueFromDynamic` /
-  the per-type `fromJsi`.
-- Object args in callbacks. Today `(...args)` containing an
-  ObjectType param throws because the StructCollector only walks
-  top-level method types. Extending it to recurse into callback
-  arg types is straightforward.
-- `schema.aliasMap` name reuse. Inline anonymous objects get path-
-  derived names today (`<Method>Result_<Field>`). When the spec
-  defines a named type alias, the generator could use the alias
-  name directly and dedupe across methods.
+  generation time today. Real specs nearly always use
+  `(...) => void` (success/error / on-event patterns); when one
+  needs a sync return value, the generator would have to capture
+  `rt_` by-pointer and document the call-from-JS-thread constraint.
+- `schema.aliasMap` name reuse. Inline anonymous objects get
+  path-derived names today (`<Method>Result_<Field>`). When the
+  spec defines a named type alias, the generator could use the
+  alias name directly and dedupe across methods.
 - Fabric component generators. TurboModules only for now; Props.h /
   ComponentDescriptor.h / EventEmitters.h would need a separate
   pipeline.

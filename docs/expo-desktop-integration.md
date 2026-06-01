@@ -253,24 +253,25 @@ needed.
 ### TurboModule codegen follow-ups
 
 The TurboModule codegen covers the type system most arbitrary
-`expo-modules-core` specs use: primitives, void, typed structs,
-arrays/generic objects, nullables, enums, Promises (off-thread safe),
-and void-returning callbacks. Remaining edges:
+`expo-modules-core` specs use: primitives, void, typed C++ structs
+(with both `toDynamic` and `static fromDynamic` helpers),
+arrays/generic objects via `folly::dynamic`, nullables, enums,
+Promises (off-thread safe via `RuntimeExecutor`), void-returning
+callbacks (also off-thread safe), and object args inside
+callbacks. Remaining edges:
 
-1. **Object params: typed `fromDynamic` deserialisation.** Today the
-   generator emits a default-constructed struct for object-typed
-   params and exposes the raw `folly::dynamic` alongside as
-   `__dyn_<argName>` so the implementer can pull fields manually.
-   The symmetrical typed deserialiser is a small follow-up — mirror
-   `toDynamic` per struct with a `fromDynamic(const folly::dynamic&)`.
-2. **Non-void callback returns.** Almost no real spec uses these
+1. **Non-void callback returns.** Almost no real spec uses these
    (callbacks are typically `(...) => void`), so they still throw
-   with an actionable error. The fix when needed: marshal the JS
-   return value back as the typed C++ return via `valueFromDynamic`.
-3. **Type aliases (`schema.aliasMap`).** Inline anonymous objects
+   with an actionable error. Adding it requires capturing `rt_` by
+   pointer and documenting the call-from-JS-thread constraint.
+2. **Type aliases (`schema.aliasMap`).** Inline anonymous objects
    get synthesized names today (`<Method>Result_<Field>`). Named
    type aliases would get the alias name verbatim, deduping the
    struct list when the same shape appears under multiple methods.
+3. **Fabric component generators.** Props.h / ComponentDescriptor.h /
+   EventEmitters.h — separate pipeline, separate generator. None of
+   `expo-desktop-modules-core` needs this, but downstream Expo
+   packages with native views (`expo-image`, etc.) would.
 
 **JS-side fallback** for anything the codegen can't yet express:
 `@lucid-softworks/react-native-linux-expo/expo-modules-core.js`
