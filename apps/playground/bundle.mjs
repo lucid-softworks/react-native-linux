@@ -16,7 +16,15 @@
 import {build, context} from 'esbuild';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {mkdirSync, readFileSync, writeFileSync, readFile, existsSync, unlinkSync} from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  readFile,
+  readdirSync,
+  existsSync,
+  unlinkSync,
+} from 'node:fs';
 import {createConnection} from 'node:net';
 import {spawnSync} from 'node:child_process';
 import {transform as swcTransform} from '@swc/core';
@@ -81,6 +89,81 @@ const svgPlaceholderPlugin = {
         'module.exports = SvgPlaceholder;\n' +
         'module.exports.default = SvgPlaceholder;\n';
       return {contents: src, loader: 'js'};
+    });
+  },
+};
+
+// When EXPO_ROUTER_APP_ROOT is set in the bundler env, walk that dir,
+// require() every *.{tsx,ts,jsx,js} file under it, and assign the
+// resulting components to globalThis.__expoRouterRoutes keyed by their
+// route path. The shim's <Stack>/<Slot> machinery already consumes that
+// table — see lookupRoute() in expo-router.js. This is what
+// `expo-router/entry` ends up importing (see expoRouterEntryRoutesShim
+// below). Without it, the shim falls back to a static placeholder.
+//
+// Route keys mirror real expo-router: file path → URL segment, with
+// `_layout` and group-segments (`(auth)/...`) preserved as-is. The
+// keys the shim looks up:
+//   /_layout           — root layout
+//   /index             — root index route
+//   /(tabs)/_layout    — tabs group layout
+//   /(tabs)/profile    — tabs group profile leaf
+const expoRouterRoutesPlugin = {
+  name: 'expo-router-routes',
+  setup(b) {
+    const appRoot = process.env.EXPO_ROUTER_APP_ROOT || null;
+    const virtualId = 'lucid-expo-router-routes';
+    b.onResolve({filter: new RegExp('^' + virtualId + '$')}, () => ({
+      path: virtualId,
+      namespace: 'expo-router-routes',
+    }));
+    b.onLoad({filter: /.*/, namespace: 'expo-router-routes'}, () => {
+      if (!appRoot || !existsSync(appRoot)) {
+        // No app root configured: emit an empty manifest. The entry
+        // checks for emptiness and falls back to the placeholder.
+        return {
+          contents: 'globalThis.__expoRouterRoutes = {};\nmodule.exports = {};',
+          loader: 'js',
+        };
+      }
+      // Walk the app dir. We accept tsx/ts/jsx/js, skip dotfiles, and
+      // skip api routes (real expo-router treats `+api.ts` / `api/`
+      // dirs as server-side handlers, we render the UI layer only).
+      const files = [];
+      const walk = dir => {
+        for (const ent of readdirSync(dir, {withFileTypes: true})) {
+          if (ent.name.startsWith('.')) continue;
+          const p = resolve(dir, ent.name);
+          if (ent.isDirectory()) {
+            // skip directories that real expo-router treats as
+            // non-route — `api/` (server handlers).
+            if (ent.name === 'api') continue;
+            walk(p);
+          } else if (/\.(tsx|ts|jsx|js)$/.test(ent.name)) {
+            // skip `+api.ts`-style server handlers.
+            if (/^\+api\./.test(ent.name)) continue;
+            // skip `_layout.web.tsx` web variants.
+            if (/\.(web|native)\.(tsx|ts|jsx|js)$/.test(ent.name)) continue;
+            files.push(p);
+          }
+        }
+      };
+      walk(appRoot);
+      const routeKey = abs => {
+        let rel = abs.slice(appRoot.length).replace(/\\/g, '/');
+        if (!rel.startsWith('/')) rel = '/' + rel;
+        return rel.replace(/\.(tsx|ts|jsx|js)$/, '');
+      };
+      const lines = files.map(
+        (f, i) =>
+          `var r${i} = require(${JSON.stringify(f)});\n` +
+          `routes[${JSON.stringify(routeKey(f))}] = r${i} && r${i}.default ? r${i}.default : r${i};`,
+      );
+      const contents =
+        'var routes = (globalThis.__expoRouterRoutes = globalThis.__expoRouterRoutes || {});\n' +
+        lines.join('\n') +
+        '\nmodule.exports = routes;\nmodule.exports.default = routes;\n';
+      return {contents, loader: 'js', resolveDir: appRoot};
     });
   },
 };
@@ -571,7 +654,7 @@ const appOpts = {
       '  throw new Error("unknown vendor require: " + id);\n' +
       '};\n',
   },
-  plugins: [svgPlaceholderPlugin, refreshTransformPlugin],
+  plugins: [svgPlaceholderPlugin, expoRouterRoutesPlugin, refreshTransformPlugin],
 };
 
 // Pre-compile a bundle to Hermes bytecode. Hermes can execute .hbc

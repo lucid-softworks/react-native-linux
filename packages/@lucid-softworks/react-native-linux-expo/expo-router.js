@@ -201,6 +201,45 @@ function makeRouter(initial, isRoot) {
   return ctx;
 }
 
+// Walk `globalThis.__expoRouterRoutes` and return the unique first-
+// segment names directly under `base`. Used by Stack/Slot when no
+// explicit <Stack.Screen> children are passed (the common case for
+// real expo-router apps that rely on file-based discovery). E.g. if
+// base="" and the routes table contains `/_layout`, `/index`,
+// `/modal`, this returns ['index', 'modal'].
+function listChildSegments(base) {
+  const routes = typeof globalThis !== 'undefined' ? globalThis.__expoRouterRoutes : null;
+  if (!routes) return [];
+  const prefix = (base ? base : '') + '/';
+  const out = new Set();
+  for (const key of Object.keys(routes)) {
+    if (!key.startsWith(prefix)) continue;
+    const rest = key.slice(prefix.length);
+    if (!rest) continue;
+    if (rest === '_layout') continue;
+    const first = rest.split('/')[0];
+    if (!first) continue;
+    out.add(first);
+  }
+  return Array.from(out);
+}
+
+// Build a screens array from the routes manifest by resolving each
+// child segment to its component. Used as a fallback when the Stack
+// caller didn't pass <Stack.Screen> children.
+function autoCollectScreens(base) {
+  const names = listChildSegments(base);
+  return names.map(name => {
+    const fs = lookupRoute(base, name);
+    return {
+      name,
+      options: {},
+      component: fs ? fs.component : null,
+      childBase: fs ? fs.childBase : (base ? base : '') + '/' + name,
+    };
+  });
+}
+
 // "Strip the current Stack/Tabs' base from the pathname, return the
 // next segment." The auth Stack's base is `(auth)`; a pathname of
 // `/(auth)/password` reduces to `password`, which IS one of its
@@ -254,10 +293,25 @@ function Stack({children, screenOptions}) {
   const local = makeRouter('/', !parent);
   const ctx = parent || local;
   const base = React.useContext(RouteBaseContext);
-  const screens = collectScreens(children, Stack.Screen, base);
+  const explicitScreens = collectScreens(children, Stack.Screen, base);
+  // File-system fallback: if the caller didn't pass any <Stack.Screen>
+  // children, derive them from the routes manifest. This is what real
+  // expo-router does for `<Stack />` with no children — the file
+  // tree under `base` is the source of truth.
+  const autoScreens = explicitScreens.length === 0 ? autoCollectScreens(base) : [];
+  const screens = explicitScreens.length > 0 ? explicitScreens : autoScreens;
   const seg = effectiveSegment(ctx.pathname, base) || 'index';
-  const match = screens.find(s => s.name === seg) ?? pickDefaultScreen(screens, base);
-  const headerShown = match?.options?.headerShown ?? screenOptions?.headerShown ?? true;
+  const match =
+    screens.find(s => s.name === seg) ??
+    screens.find(s => s.name === 'index') ??
+    pickDefaultScreen(screens, base);
+  // When screens were auto-collected (no explicit options), suppress
+  // the chrome header — the example's layout is usually responsible
+  // for any header it wants to draw.
+  const headerShown =
+    match?.options?.headerShown ??
+    screenOptions?.headerShown ??
+    (autoScreens.length > 0 ? false : true);
   const tree = React.createElement(
     View,
     {style: {flex: 1}},
@@ -548,8 +602,32 @@ function Link(props) {
 // ────────────────────────────────────────────────────────────────
 // Misc
 
+// RootRouter — wraps the user's root <_layout/> with a real
+// RouterContext.Provider so useRouter/usePathname/<Slot>/<Stack>
+// inside the layout get a writable router. expo-router-entry.js
+// renders this around the routes['/_layout'] component.
+function RootRouter({children}) {
+  const ctx = makeRouter('/', true);
+  return React.createElement(RouterContext.Provider, {value: ctx}, children);
+}
+
+// <Slot /> placed inside a parent _layout means "render whichever
+// child route the current URL points at". Real expo-router walks the
+// route tree to find the match. We do the same off __expoRouterRoutes:
+// list children under the current base, pick the segment matching the
+// pathname (or `index` as the home default), render via renderScreen.
+// Explicit children (rare but legal — used as a defensive placeholder)
+// short-circuit the lookup.
 function Slot({children}) {
-  return children ?? null;
+  const ctx = React.useContext(RouterContext) || RouterStub;
+  const base = React.useContext(RouteBaseContext);
+  if (children) return children;
+  const screens = autoCollectScreens(base);
+  if (screens.length === 0) return null;
+  const seg = effectiveSegment(ctx.pathname, base) || 'index';
+  const match =
+    screens.find(s => s.name === seg) ?? screens.find(s => s.name === 'index') ?? screens[0];
+  return renderScreen(match);
 }
 
 function Redirect({href}) {
@@ -616,6 +694,7 @@ module.exports = {
   Redirect,
   ThemeProvider,
   ErrorBoundary: ErrorBoundaryProvider,
+  RootRouter,
 
   // Hooks
   useRouter,
