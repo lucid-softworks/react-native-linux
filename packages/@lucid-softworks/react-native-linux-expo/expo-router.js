@@ -689,6 +689,14 @@ module.exports = {
   // Components
   Stack,
   Tabs,
+  // `expo-router/unstable-native-tabs` exports {NativeTabs} — same
+  // shape as our Tabs (root + Tabs.Screen children) so the shim
+  // re-uses the same impl. with-shadcn s `<NativeTabs.Trigger>`
+  // additionally drills into a sub-component on Tabs.Trigger; alias
+  // through too.
+  NativeTabs: Object.assign(Tabs, {
+    Trigger: Object.assign(Tabs.Screen, {Icon: Slot, Label: Slot}),
+  }),
   Link,
   Slot,
   Redirect,

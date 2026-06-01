@@ -230,6 +230,47 @@ const stubUnresolvedPlugin = {
       }
       return false;
     }
+    // For each stubbed module, track the set of named imports the
+    // consumers reach for. esbuild's __toESM (used for `import * as` /
+    // `import default`) reads the Proxy's ownKeys list to decide what
+    // to copy into the namespace — without seeding it with the right
+    // names, namespaces land empty and accesses like
+    // `ThemedText` (from a stubbed `@/components/themed-text`) read as
+    // undefined and JSX dies with "Element type is invalid".
+    const stubbedNames = new Map();
+    // Inexpensive regex parse of an importer file: pulls names out of
+    // both `import { A, B as C } from "X"` and `import D, {E} from "X"`
+    // declarations whose source matches `spec`. We don't try to be a
+    // full parser — comments / template-literal-as-spec edge cases
+    // would slip through. For routine npm package shapes this catches
+    // the common cases.
+    const importNamesRe =
+      /import\s+(?:type\s+)?(?:([A-Za-z_$][\w$]*)\s*(?:,\s*)?)?(?:\{([^}]+)\})?\s*from\s*['"]([^'"]+)['"]/g;
+    function harvestNames(importerFile, spec) {
+      let txt;
+      try {
+        txt = readFileSync(importerFile, 'utf8');
+      } catch (_) {
+        return;
+      }
+      importNamesRe.lastIndex = 0;
+      let m;
+      while ((m = importNamesRe.exec(txt))) {
+        if (m[3] !== spec) continue;
+        const set = stubbedNames.get(spec) || new Set();
+        if (m[1]) set.add('default'); // import X from ...
+        if (m[2]) {
+          for (const part of m[2].split(',')) {
+            const name = part
+              .trim()
+              .split(/\s+as\s+/)[0]
+              .trim();
+            if (name) set.add(name);
+          }
+        }
+        stubbedNames.set(spec, set);
+      }
+    }
     b.onResolve({filter: /^[^./]/}, args => {
       if (args.path.startsWith('node:')) return null;
       // External or external-subpath: defer to esbuild's external
@@ -248,24 +289,82 @@ const stubUnresolvedPlugin = {
         logged.add(args.path);
         console.log(`[bundle] stubbing unresolved bare import: ${args.path}`);
       }
+      // Pull named-import bindings out of the importer source so the
+      // stubs ownKeys list can advertise them. esbuilds __toESM
+      // pipeline copies only listed keys into the namespace object.
+      if (args.importer && args.importer[0] === '/') {
+        harvestNames(args.importer, args.path);
+      }
       // CSS-flavoured imports: tag the path so onLoad uses an empty
       // CSS body. Routing JS stub content into a CSS context blows up
       // esbuild's CSS parser.
       const looksCss =
         /\.(css|scss|sass|less|styl)$/.test(args.path) ||
         (args.importer && /\.(css|scss|sass|less|styl)$/.test(args.importer));
-      return {path: args.path, namespace: NS, pluginData: {css: !!looksCss}};
+      return {
+        path: args.path,
+        namespace: NS,
+        pluginData: {css: !!looksCss, spec: args.path},
+      };
     });
     b.onLoad({filter: /.*/, namespace: NS}, args => {
       if (args.pluginData && args.pluginData.css) {
         return {contents: '', loader: 'css'};
       }
-      return loadStubModule();
+      const spec = args.pluginData && args.pluginData.spec;
+      const namesSet = (spec && stubbedNames.get(spec)) || new Set();
+      // Always include 'default' so `import X from ...` works.
+      namesSet.add('default');
+      return loadStubModule(Array.from(namesSet));
     });
-    function loadStubModule() {
-      // The stub: a Proxy that's callable, indexable, default-
-      // exportable, and forwards through arbitrary chains. Reactish
-      // components return a plain View so JSX in callers mounts.
+    function loadStubModule(extraKeys) {
+      // Plain function-component stubs (no Proxy). Each harvested
+      // named export becomes its own pre-populated function component
+      // with a one-deep set of common UI sub-primitive names, so:
+      //   * `import X from "stub"`     reads `.default` (= top stub)
+      //   * `import {Y} from "stub"`   reads `.Y` (pre-baked stub)
+      //   * `import * as Z`            __toESM copies enumerable own
+      //                                keys — every harvested name +
+      //                                `default` — into the namespace.
+      //   * `Z.DropdownMenu.Trigger`   pre-baked level-2 stub.
+      //
+      // A function component (rather than a class) sidesteps React's
+      // class-validation pass complaining about every Proxy-bridged
+      // method as a "componentDidReceiveProps" misnamed lifecycle.
+      const subKeys = [
+        'Root',
+        'Trigger',
+        'Portal',
+        'Content',
+        'Overlay',
+        'Item',
+        'Group',
+        'Label',
+        'Separator',
+        'Anchor',
+        'Action',
+        'Cancel',
+        'Close',
+        'Title',
+        'Description',
+        'Provider',
+        'Consumer',
+        'Header',
+        'Body',
+        'Footer',
+        'Input',
+        'Field',
+        'Form',
+        'Slot',
+        'List',
+        'Tab',
+        'Tabs',
+        'Panel',
+        'Sub',
+        'Menu',
+        'MenuItem',
+        'Button',
+      ];
       return {
         contents:
           "const React = require('react');\n" +
@@ -273,26 +372,28 @@ const stubUnresolvedPlugin = {
           'function StubComponent(props) {\n' +
           '  return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
           '}\n' +
-          'const handler = {\n' +
-          '  get(target, prop) {\n' +
-          "    if (prop === '__esModule') return true;\n" +
-          "    if (prop === 'default') return target;\n" +
-          '    return makeStub();\n' +
-          '  },\n' +
-          '  apply() { return makeStub(); },\n' +
-          '  construct() { return makeStub(); },\n' +
-          '};\n' +
           'function makeStub() {\n' +
-          '  const f = function (props) {\n' +
-          "    if (props && (props.children || (typeof props === 'object' && props.style))) {\n" +
-          '      return StubComponent(props);\n' +
-          '    }\n' +
-          '    return null;\n' +
-          '  };\n' +
-          '  f.default = f;\n' +
-          '  return new Proxy(f, handler);\n' +
+          '  function S(props) {\n' +
+          '    return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
+          '  }\n' +
+          '  var subs = ' +
+          JSON.stringify(subKeys) +
+          ';\n' +
+          '  for (var i = 0; i < subs.length; i++) {\n' +
+          '    S[subs[i]] = StubComponent;\n' +
+          '  }\n' +
+          '  return S;\n' +
           '}\n' +
-          'module.exports = makeStub();\n',
+          'var keys = ' +
+          JSON.stringify(extraKeys) +
+          ';\n' +
+          'var exp = StubComponent;\n' +
+          'for (var i = 0; i < keys.length; i++) {\n' +
+          "  if (keys[i] === 'default') continue;\n" +
+          '  exp[keys[i]] = makeStub();\n' +
+          '}\n' +
+          'exp.default = exp;\n' +
+          'module.exports = exp;\n',
         loader: 'js',
       };
     }
@@ -690,6 +791,11 @@ const appOpts = {
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
       '  if (id === "expo-router") return rnv.expoRouter;\n' +
       '  if (id === "expo-router/entry") return rnv.expoRouterEntry();\n' +
+      // Subpath catch-all: expo-router/unstable-native-tabs,
+      // expo-router/build/..., etc. The base shim exposes Stack/Tabs/
+      // Slot/Link/hooks — that's enough for most subpath imports
+      // (the unstable-native-tabs one in with-shadcn just wants Tabs).
+      '  if (id.indexOf("expo-router/") === 0) return rnv.expoRouter;\n' +
       '  if (id === "@expo/metro-runtime") return rnv.expoMetroRuntime;\n' +
       '  if (id === "crypto" || id === "node:crypto") return rnv.nodeCrypto;\n' +
       '  if (id === "zustand") return rnv.zustand;\n' +
