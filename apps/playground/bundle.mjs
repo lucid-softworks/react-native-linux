@@ -39,6 +39,52 @@ const watch = process.argv.includes('--watch');
 // (which would inject $RefreshReg$ into react-reconciler internals).
 // esbuild filters use Go RE2 (no lookahead) so path screening happens
 // inside the handler.
+// .svg imports resolve to a tiny React component that renders a
+// labeled <View> at the requested width/height. Real handling needs
+// react-native-svg-transformer (parses SVG into a react-native-svg
+// component tree) — out of scope here. The component uses the
+// react-native-svg shim already in vendor so transform/opacity props
+// still pass through.
+const svgPlaceholderPlugin = {
+  name: 'svg-placeholder',
+  setup(b) {
+    b.onResolve({filter: /\.svg$/}, args => ({
+      path: args.path,
+      namespace: 'svg-placeholder',
+    }));
+    b.onLoad({filter: /.*/, namespace: 'svg-placeholder'}, args => {
+      const name = args.path
+        .split('/')
+        .pop()
+        .replace(/\.svg$/, '');
+      // Render a labeled <View>; size from the consumer-passed props,
+      // colour-coded by the (untouched) fill prop so apps like with-
+      // svg that pass fill="white" actually get a visible square.
+      const src =
+        "const React = require('react');\n" +
+        "const {View, Text} = require('react-native');\n" +
+        'function SvgPlaceholder(props) {\n' +
+        '  const size = props.width != null ? props.width : 24;\n' +
+        '  return React.createElement(View, {\n' +
+        '    style: [{\n' +
+        '      width: size,\n' +
+        '      height: props.height != null ? props.height : size,\n' +
+        "      backgroundColor: props.fill || '#94a3b8',\n" +
+        "      alignItems: 'center',\n" +
+        "      justifyContent: 'center',\n" +
+        '      opacity: 0.4,\n' +
+        '    }, props.style],\n' +
+        "  }, React.createElement(Text, {style: {fontSize: 8, color: '#0f172a'}}, '" +
+        name +
+        ".svg'));\n" +
+        '}\n' +
+        'module.exports = SvgPlaceholder;\n' +
+        'module.exports.default = SvgPlaceholder;\n';
+      return {contents: src, loader: 'js'};
+    });
+  },
+};
+
 const refreshTransformPlugin = {
   name: 'react-refresh-swc',
   setup(b) {
@@ -199,10 +245,13 @@ const baseOpts = {
     '.webp': 'dataurl',
     '.ttf': 'dataurl',
     // .svg: real handling needs react-native-svg-transformer to
-    // parse the SVG into a React component. For smoke purposes
-    // empty-ing the file (default value: undefined) lets the import
-    // resolve; `<ExpoLogo />` then renders as nothing.
-    '.svg': 'empty',
+    // parse the SVG into a React component. We instead handle them
+    // via the svgPlaceholderPlugin below, which emits a tiny React
+    // component that renders a labeled <View> at the requested
+    // width/height — `empty` would resolve the import to {} and
+    // React would throw "Element type is invalid" on
+    // `<ExpoLogo width={...} />` because {} isn't a valid component.
+    // No loader entry — onResolve+onLoad take over.
     '.otf': 'dataurl',
   },
   jsx: 'automatic',
@@ -242,7 +291,7 @@ const vendorOpts = {
   // silently drops the class-expression assignment and any `new
   // MMKV()` from the app bundle blows up with "undefined is not a
   // function".
-  plugins: [refreshTransformPlugin],
+  plugins: [svgPlaceholderPlugin, refreshTransformPlugin],
 };
 
 // Override via RN_ENTRY for one-off experiments
@@ -522,7 +571,7 @@ const appOpts = {
       '  throw new Error("unknown vendor require: " + id);\n' +
       '};\n',
   },
-  plugins: [refreshTransformPlugin],
+  plugins: [svgPlaceholderPlugin, refreshTransformPlugin],
 };
 
 // Pre-compile a bundle to Hermes bytecode. Hermes can execute .hbc
