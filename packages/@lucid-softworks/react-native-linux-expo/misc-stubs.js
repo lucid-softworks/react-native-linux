@@ -131,7 +131,18 @@ const tfjsReactNative = {
   fetch: globalThis.fetch || (() => Promise.reject(new Error('fetch not available'))),
 };
 const mobilenet = {
-  load: () => Promise.reject(new Error('mobilenet not available on Linux')),
+  // Resolve with a no-op model: the example's useTensorFlowModel hook
+  // does `modelKind.load().then(setModel)` with no .catch. Rejecting
+  // here surfaces as an unhandled promise rejection mid-render and
+  // the ErrorBoundary catches it. Returning a stub model lets the
+  // tree mount; classify() returns an empty array so consumers get
+  // their "no predictions" UI path.
+  load: () =>
+    Promise.resolve({
+      classify: () => Promise.resolve([]),
+      infer: () => null,
+      dispose: () => {},
+    }),
 };
 
 function stamp(o) {

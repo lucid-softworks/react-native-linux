@@ -59,12 +59,25 @@ function ApolloProvider(props) {
 }
 
 function useQuery() {
+  // Returning `data: null + loading: false` causes apps that read
+  // `data.starship.name` inside the success branch to crash with
+  // Cannot read property of null. Stay in `loading: true` so apps
+  // render their loader and gate field access behind a guard. data
+  // stays undefined which is the canonical Apollo "no result yet"
+  // value.
   return {
-    data: null,
-    loading: false,
+    data: undefined,
+    loading: true,
     error: null,
+    networkStatus: 1,
+    called: true,
+    client: null,
     refetch: () => Promise.resolve(),
     fetchMore: () => Promise.resolve(),
+    subscribeToMore: () => () => {},
+    startPolling: () => {},
+    stopPolling: () => {},
+    updateQuery: () => {},
   };
 }
 function useMutation() {

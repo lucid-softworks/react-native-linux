@@ -28,12 +28,16 @@ function notReady(name) {
 function getAuth(_app) {
   return {
     currentUser: null,
-    onAuthStateChanged(cb) {
-      cb(null);
+    // NEVER synchronously call the listener. The example pattern
+    // `useEffect(onAuthStateChanged(auth, cb), [])` evaluates the
+    // outer call at render time; if our cb fires immediately it
+    // mutates state during render and React infinite-loops with
+    // "Too many re-renders". Real Firebase fires asynchronously on
+    // the next macrotask after IndexedDB rehydration.
+    onAuthStateChanged() {
       return () => {};
     },
-    onIdTokenChanged(cb) {
-      cb(null);
+    onIdTokenChanged() {
       return () => {};
     },
     signOut: () => Promise.resolve(),
@@ -93,8 +97,11 @@ const firebaseAuth = {
   getAuth,
   initializeAuth,
   getReactNativePersistence,
-  onAuthStateChanged: (auth, cb) => {
-    cb(null);
+  // Same as the inner getAuth().onAuthStateChanged — never sync
+  // because consumers call this at render time as
+  // `useEffect(onAuthStateChanged(auth, cb), [])` and a sync fire
+  // mutates state during render.
+  onAuthStateChanged: () => {
     return () => {};
   },
   signInWithEmailAndPassword: notReady('auth.signInWithEmailAndPassword'),

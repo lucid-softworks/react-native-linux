@@ -217,6 +217,22 @@ const api = {
   getCameraPermissionsAsync,
   requestCameraPermissionsAsync,
   getPendingResultAsync,
+  // React hook wrappers that landed in expo-image-picker v15. They
+  // return `[permission, request]` where request triggers the
+  // async permission flow. We always report "granted" since the
+  // GtkFileDialog backend doesn't need an OS-level permission.
+  useCameraPermissions: function () {
+    return [
+      {granted: true, status: 'granted', canAskAgain: true, expires: 'never'},
+      requestCameraPermissionsAsync,
+    ];
+  },
+  useMediaLibraryPermissions: function () {
+    return [
+      {granted: true, status: 'granted', canAskAgain: true, expires: 'never'},
+      requestMediaLibraryPermissionsAsync,
+    ];
+  },
 };
 
 // Register through expo-modules-core's `globalThis.expo.modules`

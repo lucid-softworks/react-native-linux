@@ -109,6 +109,19 @@ module.exports = {
   useAnimatedReaction,
   useAnimatedGestureHandler,
   useAnimatedScrollHandler,
+  // ParallaxScrollView pattern in newer Expo starters: useAnimatedRef
+  // on a ScrollView + useScrollViewOffset to read scrollY into an
+  // animated value. We return a noop sharedValue object so callers
+  // chaining `.value` reads / `.value =` writes don't throw.
+  useScrollViewOffset: () => ({value: 0}),
+  interpolate: (_input, _inputRange, outputRange) => {
+    return Array.isArray(outputRange) ? outputRange[0] : 0;
+  },
+  interpolateColor: (_input, _inputRange, outputRange) => {
+    return Array.isArray(outputRange) ? outputRange[0] : '#000';
+  },
+  Extrapolation: {EXTEND: 'extend', CLAMP: 'clamp', IDENTITY: 'identity'},
+  Extrapolate: {EXTEND: 'extend', CLAMP: 'clamp', IDENTITY: 'identity'},
   withTiming,
   withSpring,
   withDecay,

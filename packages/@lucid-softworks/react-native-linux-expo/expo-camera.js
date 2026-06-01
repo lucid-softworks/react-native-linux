@@ -99,6 +99,14 @@ const CameraView = React.forwardRef(function CameraView(props, ref) {
 // at expo-camera v14; many tutorials and codebases still reach for
 // the old name.
 const Camera = CameraView;
+// React-component static convenience: lots of legacy expo-camera
+// examples reach for `Camera.useCameraPermissions()` directly on
+// the component rather than importing the hook from the module
+// namespace. Attach them so either pattern works.
+Camera.useCameraPermissions = useCameraPermissions;
+Camera.useMicrophonePermissions = useMicrophonePermissions;
+CameraView.useCameraPermissions = useCameraPermissions;
+CameraView.useMicrophonePermissions = useMicrophonePermissions;
 
 // ─── takePictureAsync ─────────────────────────────────────────────
 // expo-camera's signature is `(options) => Promise<{uri, width,
