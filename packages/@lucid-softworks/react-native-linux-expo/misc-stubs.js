@@ -126,7 +126,14 @@ const tfjs = {
 };
 const tfjsReactNative = {
   bundleResourceIO: () => null,
-  cameraWithTensors: () => null,
+  // cameraWithTensors(Camera) returns a wrapped component class —
+  // returning null makes `<TensorCamera ... />` blow up with
+  // "Element type is invalid: got: null". Return a passthrough that
+  // renders the original component so the surrounding tree mounts.
+  cameraWithTensors: Inner =>
+    function TensorCamera(props) {
+      return React.createElement(Inner, props);
+    },
   decodeJpeg: () => null,
   fetch: globalThis.fetch || (() => Promise.reject(new Error('fetch not available'))),
 };

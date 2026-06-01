@@ -107,6 +107,17 @@ Camera.useCameraPermissions = useCameraPermissions;
 Camera.useMicrophonePermissions = useMicrophonePermissions;
 CameraView.useCameraPermissions = useCameraPermissions;
 CameraView.useMicrophonePermissions = useMicrophonePermissions;
+// Legacy expo-camera ≤ v13 exposed the enums under `Camera.Constants`
+// rather than as top-level module exports. Lots of older starters /
+// tutorials still reach for `Camera.Constants.Type.back`. Attach the
+// same enums there for back-compat.
+Camera.Constants = {
+  Type: CameraType,
+  FlashMode,
+  VideoStabilization,
+  AutoFocus: FocusMode,
+};
+CameraView.Constants = Camera.Constants;
 
 // ─── takePictureAsync ─────────────────────────────────────────────
 // expo-camera's signature is `(options) => Promise<{uri, width,
