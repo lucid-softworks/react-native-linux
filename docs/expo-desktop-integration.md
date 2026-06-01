@@ -1,0 +1,243 @@
+# Integrating with `shirakaba/expo-desktop`
+
+`expo-desktop` is userland Expo glue for out-of-tree React Native platforms.
+It ships a config plugin, a CLI, a port of `expo-modules-core`, and a JSI
+stubs package. Today it wires Expo into `react-native-macos` and
+`react-native-windows`; this doc covers what's needed to land Linux as a
+sibling.
+
+This is a contract doc, not a step-by-step. It describes the surface
+`react-native-linux` exposes for slot-in consumers and what
+`expo-desktop` would need to add on its side.
+
+---
+
+## What rn-linux already exposes
+
+### Platform registration
+
+`template/react-native.config.js` registers `linux` with
+`@react-native-community/cli`:
+
+```js
+module.exports = {
+  platforms: {linux: {}},
+  project: {linux: {sourceDir: 'linux'}},
+};
+```
+
+With `@lucid-softworks/react-native-linux-cli` installed, the CLI
+recognises `react-native run-linux`, `react-native bundle-linux`,
+`react-native init-linux`, `react-native autolink-linux`,
+`react-native pack-linux`, and `react-native log-linux` — the same
+verb shape rnc-cli already uses for `run-macos` / `run-windows`.
+
+### Pre-bundle JSI hooks: `addRuntimeInitializer`
+
+`expo-desktop-stubs` installs `globalThis.expo` via C++ JSI before
+the bundle evaluates. `expo-desktop-modules-core` (once wired —
+see Gaps below) adds TurboModule factories the same way.
+
+`rnlinux::RNLinuxHost::addRuntimeInitializer` is the registration
+point. Stack as many as you need; they fire in registration order on
+the JS thread, with per-callback exception isolation:
+
+```cpp
+#include <react-native-linux/RNLinuxHost.h>
+
+host.addRuntimeInitializer([](facebook::jsi::Runtime& rt) {
+  // Install globalThis.expo for expo-modules-core's resolver.
+  auto expo = facebook::jsi::Object(rt);
+  rt.global().setProperty(rt, "expo", std::move(expo));
+});
+
+host.addRuntimeInitializer([](facebook::jsi::Runtime& rt) {
+  // Register a TurboModule factory.
+  rnlinux::TurboModuleRegistry::instance().registerModule(
+      "ExpoDesktopModulesCore", makeModulesCoreFactory());
+});
+```
+
+The internal rnLinux bridge is itself one of these initialisers
+(`RNLinuxApplication.cpp`), so consumer registrations never collide
+with the built-ins.
+
+### Metro shim composition: `withLinuxExpoShims`
+
+The shim table for Linux-incompatible Expo modules lives in
+`@lucid-softworks/react-native-linux-expo/metro`. The wrapper is
+additive — it preserves any upstream `resolveRequest`, leaves every
+other resolver/transformer field intact, and only intervenes when
+`platform === 'linux'`:
+
+```js
+// Inside a consumer's metro.config.js
+const {getDefaultConfig} = require('@expo/metro-config');
+const {withMetroConfig} = require('@rnx-kit/metro-config');
+const {withLinuxExpoShims} = require('@lucid-softworks/react-native-linux-expo/metro');
+
+const expoCfg = getDefaultConfig(__dirname);
+const rnxCfg = withMetroConfig(expoCfg, {
+  /* ... */
+});
+
+module.exports = withLinuxExpoShims(rnxCfg);
+```
+
+For non-Expo (template) projects:
+
+```js
+const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
+const {withLinuxExpoShims} = require('@lucid-softworks/react-native-linux-expo/metro');
+
+module.exports = withLinuxExpoShims(
+  mergeConfig(getDefaultConfig(__dirname), {
+    resolver: {platforms: ['linux', 'ios', 'android', 'native']},
+  }),
+);
+```
+
+The helper also exports `linuxExpoShims` (the raw table) and
+`createLinuxResolver(next)` for consumers that want to assemble their
+own `resolveRequest`.
+
+### Runtime + version surface
+
+| Dimension      | rn-linux pin                                     | expo-desktop catalog band          |
+| -------------- | ------------------------------------------------ | ---------------------------------- |
+| `react-native` | `^0.85.3`                                        | `0.81 / 0.82 / 0.83 / 0.84 / 0.85` |
+| `react`        | `19.2.3`                                         | `19.1 / 19.2`                      |
+| JS engine      | Hermes 0.12                                      | Hermes (platform binaries)         |
+| `expo` peer    | `@expo/config` >=12, `@expo/config-plugins` >=54 | same                               |
+
+rn-linux sits at the top of expo-desktop's supported band on both
+RN and React. Hermes is shared. No version-level blocker.
+
+### Hermes globals
+
+Hermes 0.12 ships without several Web APIs Expo packages assume
+(`AbortController`, `FormData`, `Blob`, `Headers`, etc.). rn-linux
+polyfills these in its bundle entry shims; consumers don't need to
+patch anything for those specifically.
+
+---
+
+## What expo-desktop would need to add
+
+The cleanest framing: Linux as a sibling platform alongside macOS
+and Windows in the existing plugin / CLI surface.
+
+### Config plugin
+
+Add a `plugins/linux/` sibling to the existing `android`, `ios`,
+`macos`, `windows` mod directories in
+`expo-desktop-config-plugins`. The Linux mod compiler would write
+into the project's `linux/` directory — which already exists for
+rn-linux template projects and is owned by
+`react-native.config.js`'s `project.linux.sourceDir`.
+
+### Workspace catalog entry
+
+Add a `react-native-linux` row to `pnpm-workspace.yaml` catalogs
+pointing at `@lucid-softworks/react-native-linux`. Pair it with
+matching React / RN versions per the table above.
+
+### app.json + plugin invocation
+
+Consumers would extend `app.json` with a `linux` block and add
+`linux` to the `platforms` list. A minimal example:
+
+```json
+{
+  "expo": {
+    "platforms": ["android", "ios", "macos", "windows", "linux"],
+    "linux": {
+      "applicationId": "works.lucidsoft.demo",
+      "displayName": "Demo"
+    },
+    "plugins": [
+      [
+        "expo-desktop-config-plugins",
+        {
+          "displayName": "Demo",
+          "bundleIdentifier": "works.lucidsoft.demo"
+        }
+      ]
+    ]
+  }
+}
+```
+
+`applicationId` becomes the GApplication reverse-DNS id and the
+`.desktop` file `Name=` line; `displayName` becomes the GtkWindow
+title. rn-linux's `init-linux` template substitutes these from
+`package.json` today — the plugin would write them directly from
+`app.json` instead.
+
+### Run verb
+
+The demo runs through `rnc-cli run-macos` / `run-windows` today.
+Linux parity: `react-native run-linux` works out of the box once
+`@lucid-softworks/react-native-linux-cli` is a dep, no extra wiring
+needed.
+
+---
+
+## Gaps
+
+### TurboModule codegen (the only real blocker for `expo-desktop-modules-core`)
+
+`expo-desktop-modules-core` ships as a TurboModule spec
+(`ExpoDesktopModulesCoreSpec`). rn-linux's autolink
+(`autolinkLinux.ts`) emits CMake `add_subdirectory(...)` lines per
+linked dep but does not invoke `@react-native/codegen` — and even if
+it did, `@react-native/codegen` only has first-class generators for
+ios and android. Adding a Linux generator is a fork of the codegen
+package mirroring `@react-native-windows/codegen`. See `TODO.md`
+("TurboModule manager + codegen") and `docs/design-turbomodule-manager.md`
+— scoped as a 4–6 week effort with phased milestones.
+
+**Workaround for an early Linux slot-in:** ship the modules-core
+surface as JS shims under `@lucid-softworks/react-native-linux-expo`
+(`expo-modules-core.js` already exists — it provides
+`requireNativeModule`, `EventEmitter`, `SharedRef`, `CodedError`
+against a JS-side `globalThis.expo.modules` registry). Bundle
+consumers boot against the shim; the real modules-core port lands
+once codegen is real.
+
+### Expo CLI `linux` platform tolerance
+
+`@expo/config` and `@expo/config-plugins` were written when the
+platform set was `{ios, android, web}`. Recent versions accept
+`macos` / `windows` because `expo-desktop` registers them. Confirm
+no validator rejects `linux` in `app.json`'s `platforms` array on
+the SDK 54+ target band; if it does, the workaround is either an
+upstream PR or a pre-flight `app.json` patcher in the config plugin
+(same shape `expo-desktop` already uses for macOS/Windows).
+
+### Expo prebuild
+
+`expo-desktop` documents `npx expo prebuild` as iOS/Android-only and
+ships a separate `npx expo-desktop prebuild` that is "not yet
+implemented" per its README. rn-linux's `init-linux` is the
+equivalent today. Whichever side ends up owning Linux prebuild can
+share scaffolding with `init-linux`.
+
+---
+
+## Validation checklist
+
+A successful slot-in is:
+
+- [ ] `npx expo-desktop create-app` (or a similar scaffold path)
+      produces a project with `linux/` populated by rn-linux's template.
+- [ ] `react-native run-linux` from inside that project launches a
+      working GtkApplicationWindow with the bundle Metro served.
+- [ ] `globalThis.expo` exists before user code runs — verifiable
+      by adding `console.log(globalThis.expo)` to the entry and seeing
+      it print an object, not `undefined`.
+- [ ] An Expo module that the shim layer covers (e.g.
+      `expo-router`, `expo-status-bar`) imports and renders.
+- [ ] An Expo module NOT in the shim layer fails with a clear
+      resolver error pointing at the missing shim, not a Hermes-level
+      crash.
