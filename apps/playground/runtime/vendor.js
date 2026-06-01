@@ -131,6 +131,7 @@ const expoDeviceMod = require('@lucid-softworks/react-native-linux-expo/expo-dev
 const expoWatermarkMod = require('@lucid-softworks/react-native-linux-expo/expo-watermark');
 const expoFileSystemLegacyMod = require('@lucid-softworks/react-native-linux-expo/expo-file-system-legacy');
 const reactNativeMmkvMod = require('@lucid-softworks/react-native-linux-expo/react-native-mmkv');
+const reactNativeCssMod = require('@lucid-softworks/react-native-linux-expo/react-native-css');
 const netinfoMod = require('@lucid-softworks/react-native-linux-expo/react-native-community-netinfo');
 const errorBoundaryMod = require('@lucid-softworks/react-native-linux-expo/error-boundary');
 const hostConfigMod = require('./fabricHostConfig');
@@ -213,6 +214,7 @@ globalThis.__rnv = {
   expoWatermark: expoWatermarkMod,
   expoFileSystemLegacy: expoFileSystemLegacyMod,
   reactNativeMmkv: reactNativeMmkvMod,
+  reactNativeCss: reactNativeCssMod,
   netinfo: netinfoMod,
   errorBoundary: errorBoundaryMod,
   runtime: {

@@ -935,6 +935,8 @@ const appOpts = {
     'expo-watermark',
     'expo-file-system/legacy',
     'react-native-mmkv',
+    'react-native-css',
+    'nativewind',
     '@react-native-community/netinfo',
     './runtime',
   ],
@@ -1080,6 +1082,12 @@ const appOpts = {
       '  if (id === "expo-watermark") return rnv.expoWatermark;\n' +
       '  if (id === "expo-file-system/legacy") return rnv.expoFileSystemLegacy;\n' +
       '  if (id === "react-native-mmkv") return rnv.reactNativeMmkv;\n' +
+      // react-native-css / nativewind: the Tailwind→RN-style shim sits
+      // in vendor; subpath imports (.../style-collection etc.) all
+      // route through the same module since our shim exposes only the
+      // top-level API surface (useCssElement, styled, vars, ...).
+      '  if (id === "react-native-css" || id.indexOf("react-native-css/") === 0) return rnv.reactNativeCss;\n' +
+      '  if (id === "nativewind" || id.indexOf("nativewind/") === 0) return rnv.reactNativeCss;\n' +
       '  if (id === "@react-native-community/netinfo") return rnv.netinfo;\n' +
       '  if (id === "./runtime" || id === "./runtime/index") return rnv.runtime;\n' +
       '  if (id === "./fabric" || id === "./runtime/fabric") return rnv.runtime;\n' +
