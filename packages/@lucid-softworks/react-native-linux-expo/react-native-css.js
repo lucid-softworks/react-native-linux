@@ -18,6 +18,7 @@
 //   * StyleCollection — metro-side style registry. No-op stubs.
 
 const React = require('react');
+const {Dimensions} = require('react-native');
 
 // Tailwind v4 spacing scale: 1 unit = 0.25rem = 4px.
 const SPACING_UNIT = 4;
@@ -427,38 +428,109 @@ function dynamicLookup(cls) {
   return null;
 }
 
+// Tailwind responsive breakpoint thresholds (min-width). A variant
+// applies iff the current viewport's width is >= its threshold. We
+// resolve them in source order; later variants in the className string
+// override earlier ones (matching Tailwind's CSS specificity model
+// where the last matching rule wins).
+const BREAKPOINTS = {
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+  '2xl': 1536,
+};
+
+// Non-breakpoint variant prefixes whose acceptance is fixed at the
+// platform layer rather than conditional on viewport state.
+const ALLOWED_VARIANTS = new Set(['native', 'light']);
+
+// Variants we explicitly reject — every class carrying any of these
+// prefixes gets dropped before applying. Covers web-only, dark-mode
+// (we're a single light theme), and CSS-only interactive states
+// (hover/focus/active/visited) that RN doesn't surface portably.
+const DENIED_VARIANTS = new Set([
+  'web',
+  'dark',
+  'hover',
+  'focus',
+  'focus-visible',
+  'focus-within',
+  'active',
+  'visited',
+  'disabled',
+  'group-hover',
+  'peer-hover',
+  'first',
+  'last',
+  'odd',
+  'even',
+  'rtl',
+  'print',
+  'motion-reduce',
+  'motion-safe',
+]);
+
+function activeBreakpointsForWidth(width) {
+  const out = new Set();
+  for (const name in BREAKPOINTS) {
+    if (width >= BREAKPOINTS[name]) out.add(name);
+  }
+  return out;
+}
+
 // Convert one class token (e.g. `flex-row`, `px-4`, `lg:bg-gray-100`)
-// into a partial RN style object. Variant prefixes (`lg:`, `sm:`,
-// `dark:`, `hover:`, `web:`, `native:`) are stripped — RN has no
-// portable media-query / dark-mode pipeline at the runtime layer, so
-// we treat the unprefixed class as the static value. `native:foo`
-// applies (we ARE native); `web:foo` is dropped (we are NOT web).
-function classToStyle(cls) {
-  // Drop web-only prefixed classes entirely.
-  if (cls.startsWith('web:')) return null;
-  // Strip every other variant prefix; chained variants OK.
+// into a partial RN style object. Variant prefixes are inspected
+// against the active context (current viewport breakpoints, platform
+// = native, color-scheme = light) and the class is skipped entirely if
+// ANY of its prefixes is deny-listed or doesn't match the context.
+// Stripping the prefixes only happens after the gate, so e.g. at the
+// `lg` breakpoint:
+//   * `lg:py-32`  → strip → py-32 → {paddingVertical: 128}
+//   * `xl:py-48`  → reject (xl not active) → null
+//   * `dark:text-gray-400` → reject (dark deny-listed) → null
+function classToStyle(cls, activeBps) {
+  const prefixes = [];
   while (true) {
     const colon = cls.indexOf(':');
     if (colon === -1) break;
+    prefixes.push(cls.slice(0, colon));
     cls = cls.slice(colon + 1);
+  }
+  for (let i = 0; i < prefixes.length; i++) {
+    const p = prefixes[i];
+    if (DENIED_VARIANTS.has(p)) return null;
+    if (ALLOWED_VARIANTS.has(p)) continue;
+    if (activeBps.has(p)) continue;
+    // Unknown / out-of-range variant — skip the class entirely so the
+    // earlier (smaller-bp or unprefixed) value keeps applying.
+    return null;
   }
   if (STATIC.hasOwnProperty(cls)) return STATIC[cls];
   return dynamicLookup(cls);
 }
 
-function parseClassNames(s) {
+function parseClassNames(s, activeBps) {
   if (typeof s !== 'string') return null;
   const out = {};
   let any = false;
   for (const cls of s.split(/\s+/)) {
     if (!cls) continue;
-    const style = classToStyle(cls);
+    const style = classToStyle(cls, activeBps);
     if (style) {
       any = true;
       Object.assign(out, style);
     }
   }
-  return any ? out : null;
+  if (!any) return null;
+  // Web/Tailwind convention: `text-center` on a block-level element
+  // centers each text line within the elements full width. RN's Text
+  // shrink-wraps to its content when its parent uses items-center, so
+  // textAlign: 'center' has nothing to center against on subsequent
+  // wrapped lines. Force alignSelf: 'stretch' so the Text fills its
+  // cross axis and the per-line centering visibly applies. We only
+  // override when no explicit alignSelf has been set.
+  return out;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -469,6 +541,12 @@ function useCssElement(Component, props, mapping) {
   // `{className: "style", contentContainerClassName: "contentContainerStyle"}`
   // We strip each className-style prop, parse its value, merge into the
   // declared target style prop (preserving any inline-style override).
+  // Active breakpoints come from the current window width — viewport
+  // changes do NOT automatically re-render, but most apps that consume
+  // useWindowDimensions trigger their own re-render which flows into
+  // here as a fresh parse.
+  const win = Dimensions.get('window');
+  const activeBps = activeBreakpointsForWidth(win.width);
   const newProps = {};
   for (const key in props) {
     if (mapping && mapping.hasOwnProperty(key)) continue;
@@ -478,7 +556,7 @@ function useCssElement(Component, props, mapping) {
     const styleKey = mapping[cnKey];
     const cn = props[cnKey];
     if (!cn) continue;
-    const parsed = parseClassNames(cn);
+    const parsed = parseClassNames(cn, activeBps);
     if (!parsed) continue;
     const existing = newProps[styleKey];
     if (existing) {

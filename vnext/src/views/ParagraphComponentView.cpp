@@ -145,15 +145,28 @@ void ParagraphComponentView::updateState(facebook::react::State const& state) {
 
   // Horizontal alignment lives in the AttributedString's first
   // fragment's TextAttributes (RN funnels Text-style props there).
-  // gtk_label_set_xalign maps to 0.0 / 0.5 / 1.0 for left/center/right.
+  // Two GtkLabel knobs operate independently:
+  //   * gtk_label_set_xalign(0/0.5/1) — positions the whole text block
+  //     within the widget. Only visible when the widget is wider than
+  //     the natural-text bounding rectangle (Yoga gives the Text a
+  //     fixed cross-axis size via alignSelf:stretch or width).
+  //   * gtk_label_set_justify(LEFT/CENTER/RIGHT/FILL) — aligns each
+  //     wrapped line within the natural-text bounding rectangle. This
+  //     is the one that makes textAlign:'center' visible on multi-line
+  //     wrapped headlines even when alignItems on the parent shrinks
+  //     the widget to content width.
+  // We set BOTH for left/center/right so the visual matches whether
+  // the Text fills its row or has been shrink-wrapped by a flex parent.
   const auto& fragments = paragraphState.attributedString.getFragments();
   if (!fragments.empty() && fragments.front().textAttributes.alignment) {
     switch (*fragments.front().textAttributes.alignment) {
     case facebook::react::TextAlignment::Center:
       gtk_label_set_xalign(GTK_LABEL(widget_), 0.5f);
+      gtk_label_set_justify(GTK_LABEL(widget_), GTK_JUSTIFY_CENTER);
       break;
     case facebook::react::TextAlignment::Right:
       gtk_label_set_xalign(GTK_LABEL(widget_), 1.0f);
+      gtk_label_set_justify(GTK_LABEL(widget_), GTK_JUSTIFY_RIGHT);
       break;
     case facebook::react::TextAlignment::Justified:
       gtk_label_set_justify(GTK_LABEL(widget_), GTK_JUSTIFY_FILL);
@@ -164,6 +177,7 @@ void ParagraphComponentView::updateState(facebook::react::State const& state) {
     case facebook::react::TextAlignment::Left:
     default:
       gtk_label_set_xalign(GTK_LABEL(widget_), 0.0f);
+      gtk_label_set_justify(GTK_LABEL(widget_), GTK_JUSTIFY_LEFT);
       break;
     }
   }
