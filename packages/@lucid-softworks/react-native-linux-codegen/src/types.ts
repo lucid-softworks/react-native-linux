@@ -107,9 +107,15 @@ export function mapType(t: TypeAnnotation, ctx: 'param' | 'return'): CppType {
     throw new Error(`unsupported enum memberType: ${String(memberType)}`);
   }
   if (t.type === 'PromiseTypeAnnotation') {
+    // Promise is handled directly by the generator (it needs to emit
+    // resolve/reject param pairs + the Promise.callAsConstructor
+    // wrapper), so mapType doesn't try to express it as a single
+    // CppType. Returning here keeps the dispatcher honest by failing
+    // loudly if it's reached via the param/return path that doesn't
+    // know about promises.
     throw new Error(
-      'Promise return types are not yet supported by the Linux generator. ' +
-        'Tracked as a follow-up to the codegen MVP.',
+      'PromiseTypeAnnotation must be handled at the method level — ' +
+        'mapType cannot lower it to a single C++ type.',
     );
   }
   if (t.type === 'FunctionTypeAnnotation') {

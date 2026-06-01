@@ -73,7 +73,10 @@ export function generateModule(mod: SpecModule, opts: GenerateOptions = {}): str
   lines.push('#include <folly/dynamic.h>');
   lines.push('');
   lines.push('#include <cstdint>');
+  lines.push('#include <functional>');
+  lines.push('#include <memory>');
   lines.push('#include <string>');
+  lines.push('#include <utility>');
   lines.push('#include <vector>');
   lines.push('');
   lines.push('namespace rnlinux::codegen {');
@@ -120,45 +123,80 @@ export function generateModule(mod: SpecModule, opts: GenerateOptions = {}): str
   return lines.join('\n');
 }
 
+function isPromise(t: TypeAnnotation): boolean {
+  return t.type === 'PromiseTypeAnnotation';
+}
+
+// Lower a Promise<T> element type to the C++ type accepted by the
+// resolve callback. Void promises take a no-arg resolve; everything
+// else takes the mapped C++ type of the element.
+function promiseResolveType(t: TypeAnnotation): string | null {
+  const inner = t.elementType as TypeAnnotation | undefined;
+  if (!inner || inner.type === 'VoidTypeAnnotation') return null;
+  return mapType(inner, 'return').cpp;
+}
+
 function renderVirtualSignature(method: MethodShape): string {
-  const ret = mapType(method.typeAnnotation.returnTypeAnnotation, 'return');
   const params = method.typeAnnotation.params.map((p, i) => {
     const cppType = mapType(p.typeAnnotation, 'param').cpp;
     const argName = p.name || `arg${i}`;
     return `${cppType} ${argName}`;
   });
-  return `virtual ${ret.cpp} ${method.name}(${params.join(', ')})`;
+  const ret = method.typeAnnotation.returnTypeAnnotation;
+  if (isPromise(ret)) {
+    const resolveCpp = promiseResolveType(ret);
+    const resolveSig =
+      resolveCpp === null
+        ? 'std::function<void()> resolve'
+        : `std::function<void(${resolveCpp})> resolve`;
+    const rejectSig = 'std::function<void(folly::dynamic)> reject';
+    const all = [...params, resolveSig, rejectSig].join(', ');
+    return `virtual void ${method.name}(${all})`;
+  }
+  const retType = mapType(ret, 'return');
+  return `virtual ${retType.cpp} ${method.name}(${params.join(', ')})`;
+}
+
+interface UnpackedParam {
+  // Local variable name as it appears in the unpack line and the
+  // executor capture list. Same as the spec param name (or `argN`).
+  varName: string;
 }
 
 function renderDispatchBranch(method: MethodShape): string {
-  const ret = mapType(method.typeAnnotation.returnTypeAnnotation, 'return');
   const params = method.typeAnnotation.params;
   const paramCount = params.length;
+  const ret = method.typeAnnotation.returnTypeAnnotation;
 
-  // Build the body that unpacks args and calls the virtual. Each
-  // body line is rendered at the indent level that matches the
+  // Body lines are rendered at the indent level that matches the
   // surrounding lambda body (8 spaces here; an outer 4 gets added
   // when the branch is composed into the dispatcher).
   const BODY = '        ';
   const unpackLines: string[] = [];
-  const callArgs: string[] = [];
+  const unpacked: UnpackedParam[] = [];
   params.forEach((p, i) => {
     const argName = p.name || `arg${i}`;
     const pType = mapType(p.typeAnnotation, 'param');
     const unpack = pType.fromJsi!(`args[${i}]`, 'rt_');
     unpackLines.push(`${BODY}auto ${argName} = ${unpack};`);
-    callArgs.push(`std::move(${argName})`);
+    unpacked.push({varName: argName});
   });
 
-  const callExpr = `this->${method.name}(${callArgs.join(', ')})`;
+  if (isPromise(ret)) {
+    return renderPromiseDispatchBranch(method, unpackLines, unpacked, BODY);
+  }
+
+  const retType = mapType(ret, 'return');
+  const callArgs = unpacked.map(u => `std::move(${u.varName})`).join(', ');
+  const callExpr = `this->${method.name}(${callArgs})`;
 
   let returnExpr: string;
-  if (ret.cpp === 'void') {
+  if (retType.cpp === 'void') {
     unpackLines.push(`${BODY}${callExpr};`);
     returnExpr = 'facebook::jsi::Value::undefined()';
   } else {
     unpackLines.push(`${BODY}auto __result = ${callExpr};`);
-    returnExpr = ret.toJsi!('__result', 'rt_');
+    returnExpr = retType.toJsi!('__result', 'rt_');
   }
 
   return [
@@ -172,6 +210,97 @@ function renderDispatchBranch(method: MethodShape): string {
     `             size_t /*count*/) -> facebook::jsi::Value {`,
     ...unpackLines,
     `${BODY}return ${returnExpr};`,
+    `      });`,
+    `}`,
+  ].join('\n');
+}
+
+// Promise-returning methods: the host function constructs a JS
+// Promise via the global Promise constructor and threads
+// resolve/reject as std::function callbacks into the virtual. The
+// virtual's resolve takes the C++ form of Promise<T>'s element; the
+// reject always takes folly::dynamic (jsi-convertible).
+//
+// IMPORTANT (MVP): the captured runtime ref is only safe to use on
+// the JS thread. If the user wants to resolve from a worker thread
+// they need to hop back via RuntimeExecutor — that wiring is a
+// separate piece of work and not generated today.
+function renderPromiseDispatchBranch(
+  method: MethodShape,
+  unpackLines: string[],
+  unpacked: UnpackedParam[],
+  BODY: string,
+): string {
+  const ret = method.typeAnnotation.returnTypeAnnotation;
+  const resolveCpp = promiseResolveType(ret);
+  const paramCount = method.typeAnnotation.params.length;
+
+  // Build the resolve lambda body: convert the C++ value to jsi and
+  // call the captured resolve fn.
+  let resolveLambda: string;
+  if (resolveCpp === null) {
+    resolveLambda =
+      'std::function<void()> resolve = [resolveFn, &rt_exec]() { ' +
+      'resolveFn->call(rt_exec, facebook::jsi::Value::undefined()); };';
+  } else {
+    const elem = (ret.elementType as TypeAnnotation) ?? {type: 'VoidTypeAnnotation'};
+    const toJsi = mapType(elem, 'return').toJsi!('value', 'rt_exec');
+    resolveLambda =
+      `std::function<void(${resolveCpp})> resolve = ` +
+      `[resolveFn, &rt_exec](${resolveCpp} value) { ` +
+      `resolveFn->call(rt_exec, ${toJsi}); };`;
+  }
+
+  const rejectLambda =
+    'std::function<void(folly::dynamic)> reject = [rejectFn, &rt_exec](folly::dynamic value) { ' +
+    'rejectFn->call(rt_exec, facebook::jsi::valueFromDynamic(rt_exec, value)); };';
+
+  // Capture-by-move (init-capture) so the executor owns the unpacked
+  // args even though the outer host function lambda has already
+  // returned by the time the JS engine calls the executor.
+  const captureList =
+    unpacked.length === 0
+      ? '[self]'
+      : `[self, ${unpacked.map(u => `${u.varName} = std::move(${u.varName})`).join(', ')}]`;
+
+  const allCallArgs = [
+    ...unpacked.map(u => `std::move(${u.varName})`),
+    'std::move(resolve)',
+    'std::move(reject)',
+  ].join(', ');
+  const callExpr = `self->${method.name}(${allCallArgs})`;
+
+  return [
+    `if (methodName == "${method.name}") {`,
+    `  return facebook::jsi::Function::createFromHostFunction(`,
+    `      rt,`,
+    `      facebook::jsi::PropNameID::forUtf8(rt, "${method.name}"),`,
+    `      /*paramCount=*/${paramCount},`,
+    `      [this](facebook::jsi::Runtime& rt_, const facebook::jsi::Value& /*thisVal*/,`,
+    `             const facebook::jsi::Value* ${paramCount > 0 ? 'args' : '/*args*/'},`,
+    `             size_t /*count*/) -> facebook::jsi::Value {`,
+    ...unpackLines,
+    `${BODY}auto Promise = rt_.global().getPropertyAsFunction(rt_, "Promise");`,
+    `${BODY}auto self = this;`,
+    `${BODY}auto executor = facebook::jsi::Function::createFromHostFunction(`,
+    `${BODY}    rt_,`,
+    `${BODY}    facebook::jsi::PropNameID::forUtf8(rt_, "executor"),`,
+    `${BODY}    /*paramCount=*/2,`,
+    `${BODY}    ${captureList}(`,
+    `${BODY}        facebook::jsi::Runtime& rt_exec,`,
+    `${BODY}        const facebook::jsi::Value& /*thisVal*/,`,
+    `${BODY}        const facebook::jsi::Value* execArgs,`,
+    `${BODY}        size_t /*count*/) mutable -> facebook::jsi::Value {`,
+    `${BODY}      auto resolveFn = std::make_shared<facebook::jsi::Function>(`,
+    `${BODY}          execArgs[0].asObject(rt_exec).asFunction(rt_exec));`,
+    `${BODY}      auto rejectFn = std::make_shared<facebook::jsi::Function>(`,
+    `${BODY}          execArgs[1].asObject(rt_exec).asFunction(rt_exec));`,
+    `${BODY}      ${resolveLambda}`,
+    `${BODY}      ${rejectLambda}`,
+    `${BODY}      ${callExpr};`,
+    `${BODY}      return facebook::jsi::Value::undefined();`,
+    `${BODY}    });`,
+    `${BODY}return Promise.callAsConstructor(rt_, executor);`,
     `      });`,
     `}`,
   ].join('\n');

@@ -220,36 +220,80 @@ describe('generateModule — nullable + enum + dynamic arrays', () => {
   });
 });
 
-describe('generateModule — unsupported types throw with actionable messages', () => {
-  test('Promise return throws a follow-up-tracked error', () => {
-    expect(() =>
-      generateModule({
-        specName: 'NativeAsync',
+describe('generateModule — Promise returns', () => {
+  function asyncMod(): SpecModule {
+    return {
+      specName: 'NativeAsync',
+      moduleName: 'Async',
+      schema: {
+        type: 'NativeModule',
         moduleName: 'Async',
-        schema: {
-          type: 'NativeModule',
-          moduleName: 'Async',
-          spec: {
-            methods: [
-              {
-                name: 'doIt',
-                optional: false,
-                typeAnnotation: {
-                  type: 'FunctionTypeAnnotation',
-                  params: [],
-                  returnTypeAnnotation: {
-                    type: 'PromiseTypeAnnotation',
-                    elementType: {type: 'VoidTypeAnnotation'},
-                  },
+        spec: {
+          methods: [
+            {
+              name: 'doVoid',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [],
+                returnTypeAnnotation: {
+                  type: 'PromiseTypeAnnotation',
+                  elementType: {type: 'VoidTypeAnnotation'},
                 },
               },
-            ],
-          },
+            },
+            {
+              name: 'fetchUser',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [{name: 'id', typeAnnotation: {type: 'StringTypeAnnotation'}}],
+                returnTypeAnnotation: {
+                  type: 'PromiseTypeAnnotation',
+                  elementType: {type: 'ObjectTypeAnnotation', properties: []},
+                },
+              },
+            },
+          ],
         },
-      }),
-    ).toThrow(/Promise return types are not yet supported/);
+      },
+    };
+  }
+
+  const header = generateModule(asyncMod());
+
+  test('void promise virtual takes no-arg resolve + folly::dynamic reject', () => {
+    expect(header).toMatch(
+      /virtual void doVoid\(std::function<void\(\)> resolve, std::function<void\(folly::dynamic\)> reject\) = 0;/,
+    );
   });
 
+  test('object promise virtual takes resolve<folly::dynamic>', () => {
+    expect(header).toMatch(
+      /virtual void fetchUser\(std::string id, std::function<void\(folly::dynamic\)> resolve, std::function<void\(folly::dynamic\)> reject\) = 0;/,
+    );
+  });
+
+  test('dispatcher constructs a Promise via globalThis.Promise', () => {
+    expect(header).toMatch(/Promise = rt_\.global\(\)\.getPropertyAsFunction\(rt_, "Promise"\);/);
+    expect(header).toMatch(/Promise\.callAsConstructor\(rt_, executor\);/);
+  });
+
+  test('executor captures unpacked params by-move and forwards to virtual', () => {
+    expect(header).toMatch(/\[self, id = std::move\(id\)\]/);
+    expect(header).toMatch(
+      /self->fetchUser\(std::move\(id\), std::move\(resolve\), std::move\(reject\)\);/,
+    );
+  });
+
+  test('header pulls in <functional> + <memory> + <utility>', () => {
+    expect(header).toMatch(/#include <functional>/);
+    expect(header).toMatch(/#include <memory>/);
+    expect(header).toMatch(/#include <utility>/);
+  });
+});
+
+describe('generateModule — unsupported types throw with actionable messages', () => {
   test('Function (callback) param throws a follow-up-tracked error', () => {
     expect(() =>
       generateModule({
