@@ -32,6 +32,57 @@ recognises `react-native run-linux`, `react-native bundle-linux`,
 `react-native pack-linux`, and `react-native log-linux` — the same
 verb shape rnc-cli already uses for `run-macos` / `run-windows`.
 
+### TurboModule codegen
+
+`@lucid-softworks/react-native-linux-codegen` consumes
+`@react-native/codegen`'s `TypeScriptParser` output and emits one
+self-contained C++ header per NativeModule spec. Each header declares
+an abstract `<SpecName>Spec` extending `rnlinux::TurboModule` with
+one pure virtual per method, and inline overrides of
+`jsi::HostObject::get` / `getPropertyNames` that dispatch each spec
+method through `createFromHostFunction`. Implementers subclass and
+override one virtual per method — no JSI plumbing in user code.
+
+Type coverage today:
+
+| Spec type                     | C++                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `string`                      | `std::string`                                                                            |
+| `number` / `double` / `float` | `double`                                                                                 |
+| `Int32`                       | `int32_t`                                                                                |
+| `boolean`                     | `bool`                                                                                   |
+| `void` (return)               | `void`                                                                                   |
+| Object / Array                | `folly::dynamic` (via JSIDynamic conversions)                                            |
+| Nullable\<T>                  | inner C++ (MVP)                                                                          |
+| Enum\<string \| number>       | underlying primitive                                                                     |
+| `Promise<T>`                  | trailing `std::function<void(T)> resolve` + `std::function<void(folly::dynamic)> reject` |
+
+Promise resolution today is JS-thread-only (the captured runtime ref
+is valid for the executor lambda lifetime). Off-thread resolve via
+`RuntimeExecutor` is a follow-up. `Function` (callback) params still
+throw with an actionable message — also a follow-up.
+
+Wiring lives in two places:
+
+- **In-tree specs**: `scripts/codegen/run.js` walks
+  `packages/@lucid-softworks/react-native-linux/Libraries/` for
+  `Native*.ts` / `*NativeComponent.ts` and emits headers under
+  `${CMAKE_BINARY_DIR}/codegen/specs/`. CMake's `react_native_linux`
+  target depends on the resulting stamp.
+
+- **Third-party specs**: `react-native autolink-linux` walks
+  `ctx.dependencies` for the standard RN `codegenConfig` key. For
+  each dep with `type === 'modules'` (or no `type`), it locates spec
+  files under `jsSrcsDir`, codegens them into
+  `linux/build/codegen/<sanitised-dep-name>/specs/`, and the emitted
+  `autolinked.cmake` adds the dir to the dep's `cmakeTarget` via
+  `target_include_directories`. This is the path
+  `expo-desktop-modules-core` would slot in through.
+
+The first real consumer in-tree is `PlatformConstants` — the C++ impl
+extends the generated `NativePlatformConstantsLinuxSpec` and overrides
+a single `getConstants()` virtual.
+
 ### Pre-bundle JSI hooks: `addRuntimeInitializer`
 
 `expo-desktop-stubs` installs `globalThis.expo` via C++ JSI before
@@ -185,25 +236,33 @@ needed.
 
 ## Gaps
 
-### TurboModule codegen (the only real blocker for `expo-desktop-modules-core`)
+### TurboModule codegen follow-ups
 
-`expo-desktop-modules-core` ships as a TurboModule spec
-(`ExpoDesktopModulesCoreSpec`). rn-linux's autolink
-(`autolinkLinux.ts`) emits CMake `add_subdirectory(...)` lines per
-linked dep but does not invoke `@react-native/codegen` — and even if
-it did, `@react-native/codegen` only has first-class generators for
-ios and android. Adding a Linux generator is a fork of the codegen
-package mirroring `@react-native-windows/codegen`. See `TODO.md`
-("TurboModule manager + codegen") and `docs/design-turbomodule-manager.md`
-— scoped as a 4–6 week effort with phased milestones.
+The TurboModule codegen MVP is in (see above). Two known gaps remain
+for full coverage of arbitrary expo-modules-core specs:
 
-**Workaround for an early Linux slot-in:** ship the modules-core
-surface as JS shims under `@lucid-softworks/react-native-linux-expo`
-(`expo-modules-core.js` already exists — it provides
+1. **Off-thread Promise resolution.** Today the JSI runtime is
+   captured by reference inside the Promise executor lambda — safe
+   for synchronous resolve/reject inside the spec virtual, unsafe if
+   the user wants to call resolve from a worker thread. The fix is
+   to thread `RuntimeExecutor` (already in scope from
+   `RNLinuxHost.cpp:131`) through to the generated wrapper.
+2. **Function (callback) params.** Generated wrappers throw with
+   "Function (callback) parameters are not yet supported." Adding
+   them mirrors the Promise pattern (jsi::Function → std::function).
+
+A third nice-to-have is **strongly-typed object structs** instead of
+`folly::dynamic` everywhere. The MVP picks dynamic for object/array
+specs because it covers every shape without per-method struct
+generation; the cost is some C++-side type safety. Worth doing when
+a consumer asks for it.
+
+**JS-side fallback if neither lands soon:** `@lucid-softworks/
+react-native-linux-expo/expo-modules-core.js` already implements
 `requireNativeModule`, `EventEmitter`, `SharedRef`, `CodedError`
-against a JS-side `globalThis.expo.modules` registry). Bundle
-consumers boot against the shim; the real modules-core port lands
-once codegen is real.
+against a JS-side `globalThis.expo.modules` registry. Consumers can
+register modules from JS via `registerExpoModule(name, impl)` and
+skip the C++ codegen path entirely for the slot-in cutover.
 
 ### Expo CLI `linux` platform tolerance
 
