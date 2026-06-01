@@ -268,10 +268,14 @@ callbacks. Remaining edges:
    get synthesized names today (`<Method>Result_<Field>`). Named
    type aliases would get the alias name verbatim, deduping the
    struct list when the same shape appears under multiple methods.
-3. **Fabric component generators.** Props.h / ComponentDescriptor.h /
-   EventEmitters.h — separate pipeline, separate generator. None of
-   `expo-desktop-modules-core` needs this, but downstream Expo
-   packages with native views (`expo-image`, etc.) would.
+3. **Fabric component coverage.** The MVP component generator
+   lowers primitive props (bool/string/Int32/Double/Float) and
+   primitive-payload events to typed C++. Reserved prop types
+   (Color, Point, EdgeInsets, Size), Object/Array/Enum props, and
+   imperative commands still throw with actionable errors —
+   adding these is the path to running view-shipping Expo
+   packages (e.g. `expo-image`) end-to-end. None block
+   `expo-desktop-modules-core` itself.
 
 **JS-side fallback** for anything the codegen can't yet express:
 `@lucid-softworks/react-native-linux-expo/expo-modules-core.js`

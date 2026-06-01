@@ -1,11 +1,16 @@
 # @lucid-softworks/react-native-linux-codegen
 
-Linux-platform TurboModule code generator. Takes
-`@react-native/codegen`'s parsed schema and emits self-contained C++
-headers backed by `facebook::jsi::HostObject`.
+Linux-platform code generator covering both **TurboModules** and
+**Fabric components**. Takes `@react-native/codegen`'s parsed schema
+and emits self-contained C++ headers:
 
-This is the Linux equivalent of `GenerateModuleH.js` /
-`GenerateModuleObjCpp` from upstream codegen, plus
+- TurboModule specs → `<SpecName>Spec.h` with a JSI-HostObject-
+  backed abstract class.
+- Fabric component specs → `<ComponentName>Spec.h` with `Props`,
+  `EventEmitter`, `ShadowNode`, and `ComponentDescriptor` types.
+
+This is the Linux equivalent of upstream codegen's
+`GenerateModuleH.js` / `GenerateComponentDescriptorH.js`, plus
 `@react-native-windows/codegen`'s Windows-specific structuring.
 
 ## Usage
@@ -119,6 +124,45 @@ owns every line of JSI plumbing.
 | `Promise<T>`                  | trailing `std::function<void(T)> resolve, std::function<void(folly::dynamic)> reject`, posted via `RuntimeExecutor` |
 | `(...args) => void` callback  | `std::function<void(args...)>`, posted via `RuntimeExecutor`                                                        |
 
+## Fabric components
+
+`<FooView>NativeComponent.ts` specs lower to a `<ComponentName>Spec.h`
+that contains:
+
+- `inline constexpr const char <Name>ComponentName[]` — the Fabric
+  component-name template parameter.
+- `<Name>Props` extending `react::ViewProps`, with one typed field
+  per spec prop parsed via `convertRawProp` (defaults pulled from
+  the spec annotation).
+- `<Name>EventEmitter` extending `react::ViewEventEmitter` with one
+  `void onFoo(args...)` method per spec event, dispatching a typed
+  jsi payload through Fabric's event pipe.
+- `<Name>ShadowNode` (ConcreteViewShadowNode instantiation) +
+  `<Name>ComponentDescriptor` alias.
+- `inline void register<Name>(ComponentDescriptorProviderRegistry&)`
+  — one-liner registration helper.
+
+The implementer still writes a `LinuxComponentView` subclass that
+mounts/updates/unmounts the GTK widget (codegen can't know how
+your component renders). See `vnext/src/components/Switch.cpp`
+for a worked hand-written example of the same pattern.
+
+## Type coverage — components
+
+| Spec type                                         | C++                                                        |
+| ------------------------------------------------- | ---------------------------------------------------------- |
+| `boolean` prop                                    | `bool`                                                     |
+| `string` prop                                     | `std::string`                                              |
+| `Int32` prop                                      | `int32_t`                                                  |
+| `Double` / `Float` / `Number` prop                | `double` / `float`                                         |
+| Direct event with primitive payload               | typed `<Name><Event>` struct + `onFoo(...)` emitter method |
+| Bubble events                                     | (treated as direct today)                                  |
+| `ViewProps` extension                             | ✓                                                          |
+| Reserved prop types (Color/Point/EdgeInsets/Size) | ✗ throws                                                   |
+| Object / Array props                              | ✗ throws                                                   |
+| Enum props                                        | ✗ throws                                                   |
+| Commands                                          | ✗ throws                                                   |
+
 ## Known follow-ups
 
 - Non-void callback returns. `(...) => T` callbacks throw at
@@ -130,9 +174,11 @@ owns every line of JSI plumbing.
   path-derived names today (`<Method>Result_<Field>`). When the
   spec defines a named type alias, the generator could use the
   alias name directly and dedupe across methods.
-- Fabric component generators. TurboModules only for now; Props.h /
-  ComponentDescriptor.h / EventEmitters.h would need a separate
-  pipeline.
+- Component reserved prop types — Color / Point / EdgeInsets / Size.
+  Each maps to a different RN type with its own convertRawProp
+  specialisation.
+- Component commands (imperative method calls dispatched from JS).
+- Object / Array / Enum props on Fabric components.
 
 ## Compile-time guard
 
