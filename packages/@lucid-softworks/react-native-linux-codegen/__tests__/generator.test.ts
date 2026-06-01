@@ -309,8 +309,120 @@ describe('generateModule — Promise returns', () => {
   });
 });
 
+describe('generateModule — Function (callback) params', () => {
+  function callbackMod(): SpecModule {
+    return {
+      specName: 'NativeCallbacks',
+      moduleName: 'Callbacks',
+      schema: {
+        type: 'NativeModule',
+        moduleName: 'Callbacks',
+        spec: {
+          methods: [
+            {
+              name: 'onReady',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [
+                  {
+                    name: 'cb',
+                    typeAnnotation: {
+                      type: 'FunctionTypeAnnotation',
+                      params: [{name: 'msg', typeAnnotation: {type: 'StringTypeAnnotation'}}],
+                      returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+                    },
+                  },
+                ],
+                returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+              },
+            },
+            {
+              name: 'subscribe',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [
+                  {
+                    name: 'cb',
+                    typeAnnotation: {
+                      type: 'FunctionTypeAnnotation',
+                      params: [
+                        {name: 'count', typeAnnotation: {type: 'NumberTypeAnnotation'}},
+                        {name: 'ok', typeAnnotation: {type: 'BooleanTypeAnnotation'}},
+                      ],
+                      returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+                    },
+                  },
+                ],
+                returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+              },
+            },
+            {
+              name: 'fireAndForget',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [
+                  {
+                    name: 'done',
+                    typeAnnotation: {
+                      type: 'FunctionTypeAnnotation',
+                      params: [],
+                      returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+                    },
+                  },
+                ],
+                returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+              },
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  const header = generateModule(callbackMod());
+
+  test('virtual signature uses std::function<void(args...)>', () => {
+    expect(header).toMatch(/virtual void onReady\(std::function<void\(std::string\)> cb\) = 0;/);
+    expect(header).toMatch(/virtual void subscribe\(std::function<void\(double, bool\)> cb\) = 0;/);
+    expect(header).toMatch(/virtual void fireAndForget\(std::function<void\(\)> done\) = 0;/);
+  });
+
+  test('dispatcher captures the jsi::Function via shared_ptr', () => {
+    expect(header).toMatch(
+      /auto __fn_cb = std::make_shared<facebook::jsi::Function>\(\s*args\[0\]\.asObject\(rt_\)\.asFunction\(rt_\)\);/,
+    );
+  });
+
+  test('callback wrapper hops via __executor before calling', () => {
+    expect(header).toMatch(/auto __executor = rnlinux::getRuntimeExecutor\(\);/);
+    expect(header).toMatch(
+      /__executor\(\[__fn_cb, __cb_msg = std::move\(msg\)\]\(facebook::jsi::Runtime& __rt\) mutable {/,
+    );
+    expect(header).toMatch(
+      /__fn_cb->call\(__rt, facebook::jsi::String::createFromUtf8\(__rt, __cb_msg\)\);/,
+    );
+  });
+
+  test('multi-arg callback re-marshals each arg via the right toJsi', () => {
+    expect(header).toMatch(/__cb_count = std::move\(count\)/);
+    expect(header).toMatch(/__cb_ok = std::move\(ok\)/);
+    expect(header).toMatch(
+      /__fn_cb->call\(__rt, facebook::jsi::Value\(__cb_count\), facebook::jsi::Value\(__cb_ok\)\);/,
+    );
+  });
+
+  test('zero-arg callback wraps to std::function<void()> + no executor args', () => {
+    expect(header).toMatch(/std::function<void\(\)> done =/);
+    expect(header).toMatch(/__executor\(\[__fn_done\]\(facebook::jsi::Runtime& __rt\) mutable {/);
+    expect(header).toMatch(/__fn_done->call\(__rt\);/);
+  });
+});
+
 describe('generateModule — unsupported types throw with actionable messages', () => {
-  test('Function (callback) param throws a follow-up-tracked error', () => {
+  test('non-void callback return throws a follow-up-tracked error', () => {
     expect(() =>
       generateModule({
         specName: 'NativeCB',
@@ -321,7 +433,7 @@ describe('generateModule — unsupported types throw with actionable messages', 
           spec: {
             methods: [
               {
-                name: 'onReady',
+                name: 'onValue',
                 optional: false,
                 typeAnnotation: {
                   type: 'FunctionTypeAnnotation',
@@ -331,7 +443,7 @@ describe('generateModule — unsupported types throw with actionable messages', 
                       typeAnnotation: {
                         type: 'FunctionTypeAnnotation',
                         params: [],
-                        returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+                        returnTypeAnnotation: {type: 'StringTypeAnnotation'},
                       },
                     },
                   ],
@@ -342,6 +454,6 @@ describe('generateModule — unsupported types throw with actionable messages', 
           },
         },
       }),
-    ).toThrow(/Function \(callback\) parameters are not yet supported/);
+    ).toThrow(/Non-void callback returns are not yet supported/);
   });
 });

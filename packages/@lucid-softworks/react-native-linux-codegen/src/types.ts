@@ -119,10 +119,30 @@ export function mapType(t: TypeAnnotation, ctx: 'param' | 'return'): CppType {
     );
   }
   if (t.type === 'FunctionTypeAnnotation') {
-    throw new Error(
-      'Function (callback) parameters are not yet supported by the Linux generator. ' +
-        'Tracked as a follow-up to the codegen MVP.',
-    );
+    // Callback params. The C++ type is std::function<R(args...)>; the
+    // generator emits the fromJsi unpack (multi-line jsi::Function →
+    // std::function adapter using the RuntimeExecutor) directly, so
+    // mapType only owns the cpp signature here.
+    if (ctx !== 'param') {
+      throw new Error('FunctionTypeAnnotation is only supported as a param type');
+    }
+    const fn = t as {
+      params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>;
+      returnTypeAnnotation?: TypeAnnotation;
+    };
+    const argTypes = (fn.params ?? []).map(p => mapType(p.typeAnnotation, 'param').cpp);
+    const ret = fn.returnTypeAnnotation ?? {type: 'VoidTypeAnnotation'};
+    if (ret.type !== 'VoidTypeAnnotation') {
+      throw new Error(
+        'Non-void callback returns are not yet supported by the Linux generator. ' +
+          'Tracked as a follow-up to the codegen MVP.',
+      );
+    }
+    return {
+      cpp: `std::function<void(${argTypes.join(', ')})>`,
+      // No fromJsi/toJsi — the generator handles the multi-line
+      // jsi::Function → std::function wrap inline.
+    };
   }
   const primitive = PRIMITIVE[t.type];
   if (primitive) return primitive;

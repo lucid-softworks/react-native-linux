@@ -164,6 +164,10 @@ interface UnpackedParam {
   varName: string;
 }
 
+function isCallback(t: TypeAnnotation): boolean {
+  return t.type === 'FunctionTypeAnnotation';
+}
+
 function renderDispatchBranch(method: MethodShape): string {
   const params = method.typeAnnotation.params;
   const paramCount = params.length;
@@ -175,11 +179,22 @@ function renderDispatchBranch(method: MethodShape): string {
   const BODY = '        ';
   const unpackLines: string[] = [];
   const unpacked: UnpackedParam[] = [];
+
+  const hasCallback = params.some(p => isCallback(p.typeAnnotation));
+  const needsExecutor = hasCallback || isPromise(ret);
+  if (needsExecutor) {
+    unpackLines.push(`${BODY}auto __executor = rnlinux::getRuntimeExecutor();`);
+  }
+
   params.forEach((p, i) => {
     const argName = p.name || `arg${i}`;
-    const pType = mapType(p.typeAnnotation, 'param');
-    const unpack = pType.fromJsi!(`args[${i}]`, 'rt_');
-    unpackLines.push(`${BODY}auto ${argName} = ${unpack};`);
+    if (isCallback(p.typeAnnotation)) {
+      unpackLines.push(...renderCallbackUnpack(p.typeAnnotation, argName, i, BODY));
+    } else {
+      const pType = mapType(p.typeAnnotation, 'param');
+      const unpack = pType.fromJsi!(`args[${i}]`, 'rt_');
+      unpackLines.push(`${BODY}auto ${argName} = ${unpack};`);
+    }
     unpacked.push({varName: argName});
   });
 
@@ -216,16 +231,74 @@ function renderDispatchBranch(method: MethodShape): string {
   ].join('\n');
 }
 
+// Unpack a callback (Function-typed) param as a std::function. The
+// jsi::Function is wrapped via shared_ptr (jsi::Function is move-only,
+// std::function needs CopyConstructible), and the std::function body
+// hops to the JS thread via __executor before calling. C++ args
+// supplied by the user are moved into the executor's inner-lambda
+// capture and converted to jsi::Value on the JS-thread side.
+//
+// MVP only supports void-returning callbacks (`(...args) => void`),
+// which covers ~every TM spec in the wild (success/error /
+// onProgress / onChange patterns). Non-void returns throw earlier
+// from `mapType`.
+function renderCallbackUnpack(
+  t: TypeAnnotation,
+  varName: string,
+  argIndex: number,
+  BODY: string,
+): string[] {
+  const fn = t as {
+    params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>;
+  };
+  const cbParams = fn.params ?? [];
+  const argInfos = cbParams.map((p, i) => {
+    const cppType = mapType(p.typeAnnotation, 'param').cpp;
+    const name = p.name || `a${i}`;
+    const toJsi = mapType(p.typeAnnotation, 'param').toJsi;
+    if (!toJsi) {
+      throw new Error(
+        `Callback arg "${name}" has type ${p.typeAnnotation.type} which has no toJsi mapping — ` +
+          'nested callbacks / unsupported types are not yet handled.',
+      );
+    }
+    return {cppType, name, toJsi};
+  });
+
+  const fnSig = argInfos.map(a => `${a.cppType} ${a.name}`).join(', ');
+  const callArgs = argInfos.map(a => a.toJsi(`__cb_${a.name}`, '__rt')).join(', ');
+  const moveCaptures =
+    argInfos.length === 0
+      ? ''
+      : ', ' + argInfos.map(a => `__cb_${a.name} = std::move(${a.name})`).join(', ');
+  const outerCaptures =
+    argInfos.length === 0 ? `[__fn_${varName}, __executor]` : `[__fn_${varName}, __executor]`;
+
+  const cppType = `std::function<void(${argInfos.map(a => a.cppType).join(', ')})>`;
+
+  // jsi::Function isn't copy-constructible; wrap in shared_ptr so the
+  // std::function holding it can be passed by value into the virtual.
+  return [
+    `${BODY}auto __fn_${varName} = std::make_shared<facebook::jsi::Function>(`,
+    `${BODY}    args[${argIndex}].asObject(rt_).asFunction(rt_));`,
+    `${BODY}${cppType} ${varName} =`,
+    `${BODY}    ${outerCaptures}(${fnSig}) mutable {`,
+    `${BODY}      if (!__executor) return;`,
+    `${BODY}      __executor([__fn_${varName}${moveCaptures}](facebook::jsi::Runtime& __rt) mutable {`,
+    `${BODY}        __fn_${varName}->call(__rt${callArgs ? ', ' + callArgs : ''});`,
+    `${BODY}      });`,
+    `${BODY}    };`,
+  ];
+}
+
 // Promise-returning methods: the host function constructs a JS
 // Promise via the global Promise constructor and threads
 // resolve/reject as std::function callbacks into the virtual. The
 // virtual's resolve takes the C++ form of Promise<T>'s element; the
 // reject always takes folly::dynamic (jsi-convertible).
 //
-// IMPORTANT (MVP): the captured runtime ref is only safe to use on
-// the JS thread. If the user wants to resolve from a worker thread
-// they need to hop back via RuntimeExecutor — that wiring is a
-// separate piece of work and not generated today.
+// Resolve / reject lambdas hop back via the host's RuntimeExecutor
+// before touching the runtime, so user code can call them off-thread.
 function renderPromiseDispatchBranch(
   method: MethodShape,
   unpackLines: string[],
@@ -299,7 +372,8 @@ function renderPromiseDispatchBranch(
     ...unpackLines,
     `${BODY}auto Promise = rt_.global().getPropertyAsFunction(rt_, "Promise");`,
     `${BODY}auto self = this;`,
-    `${BODY}auto __executor = rnlinux::getRuntimeExecutor();`,
+    // `__executor` is already in scope — the dispatch-branch builder
+    // adds it before the unpack lines whenever this branch needs it.
     `${BODY}auto executor = facebook::jsi::Function::createFromHostFunction(`,
     `${BODY}    rt_,`,
     `${BODY}    facebook::jsi::PropNameID::forUtf8(rt_, "executor"),`,
