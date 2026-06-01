@@ -61,9 +61,20 @@ Type coverage today:
 
 Implementer-facing shape: instead of building `folly::dynamic::object(...)`
 chains, methods that return an object construct a brace-initialised struct
-and the generator handles the conversion. See `PlatformConstants.cpp` for
-a worked example. Nested anonymous objects get their own struct named
-`<Parent>_<Field>` (post-order declaration).
+and the generator handles the conversion. Each generated struct ships
+both a `toDynamic` helper and a `static fromDynamic` factory, so object
+params arrive pre-populated. Module registration is a one-liner:
+
+```cpp
+[[maybe_unused]] static const int kRegister =
+    codegen::NativeFooSpec::install<FooImpl>();
+```
+
+Nested anonymous objects get their own struct named `<Parent>_<Field>`
+(post-order declaration). See `PlatformConstants.cpp` and
+`CodegenSmoke.cpp` for worked examples — the smoke file is also a
+compile-time guard that exercises every non-trivial generator path
+(Promise, callback, object in/out).
 
 Wiring lives in two places:
 
