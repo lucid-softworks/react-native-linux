@@ -21,7 +21,7 @@
 // read from it; Link writes to it.
 
 const React = require('react');
-const {Pressable, Text, View} = require('react-native');
+const {Pressable, Text, View, StyleSheet} = require('react-native');
 const {ErrorBoundary} = require('./error-boundary');
 
 const DefaultTheme = {
@@ -581,20 +581,24 @@ function Link(props) {
       ...rest,
     });
   }
-  // Don't theme text unless the Link has no parent style — apps that
-  // pass their own style for the Pressable wrapper expect to control
-  // the text colour themselves.
+  // Style precedence:
+  //   * If `style` is set AND it carries an explicit color, honour it.
+  //   * If `style` is set but has no color, inherit the consumer flow
+  //     by not overriding — the Text falls back to the platform default
+  //     (black on light) which is what every Tailwind-styled Link
+  //     expects (the className is parsed into a style that intentionally
+  //     omits a colour for `font-medium` etc.).
+  //   * No `style` at all — paint the link in the theme primary colour
+  //     and bold-ish, matching expo-router's iOS/Android default.
+  const flat = style ? (StyleSheet.flatten ? StyleSheet.flatten(style) : style) : null;
+  const childStyle = (() => {
+    if (!style) return {color: DefaultTheme.colors.primary, fontWeight: '600'};
+    if (flat && flat.color) return {color: flat.color, fontWeight: flat.fontWeight || '600'};
+    return {fontWeight: '600'};
+  })();
   const styledChild =
     typeof children === 'string'
-      ? React.createElement(
-          Text,
-          {
-            style: style
-              ? {color: '#fff', fontWeight: '600'}
-              : {color: DefaultTheme.colors.primary, fontWeight: '600'},
-          },
-          children,
-        )
+      ? React.createElement(Text, {style: childStyle}, children)
       : children;
   return React.createElement(Pressable, {style, onPress: handle, ...rest}, styledChild);
 }
