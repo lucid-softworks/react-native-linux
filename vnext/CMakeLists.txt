@@ -147,6 +147,7 @@ set(RNL_SOURCES
   src/filepicker/FilePicker.cpp
   src/print/Print.cpp
   src/modules/PlatformConstants.cpp
+  src/modules/CodegenSmoke.cpp
   src/devtools/MetroReloadClient.cpp
 )
 
