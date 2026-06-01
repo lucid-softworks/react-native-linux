@@ -112,12 +112,63 @@ function useTheme() {
   return DefaultTheme;
 }
 
-// Navigator factories. createStackNavigator / createNativeStackNavigator /
-// createDrawerNavigator / createBottomTabNavigator all return
-// {Navigator, Screen, Group}. The Navigator renders the initial
-// screen's component; Group is a passthrough.
+// Navigator factories. Each createXxxNavigator handles BOTH forms:
+//
+//   Dynamic API (RN Navigation 6, still supported in 7):
+//     const Tab = createBottomTabNavigator();
+//     <Tab.Navigator>
+//       <Tab.Screen name="Home" component={Home} />
+//     </Tab.Navigator>
+//   → factory called with no args, returns {Navigator, Screen, Group}.
+//
+//   Static API (RN Navigation 7's preferred form):
+//     const HomeTabs = createBottomTabNavigator({
+//       screens: { Home: { screen: Home, options: {...} } },
+//     });
+//   → factory called with a config object, returns a Component that
+//     renders the configured initial screen (or the first one).
+//
+// Both forms walk to a "render the first screen" outcome on our side
+// since we don't do real routing.
 function makeNavigatorFactory() {
-  return function createNavigator() {
+  return function createNavigator(staticConfig) {
+    // Static API path: caller passed `{screens: {...}, initialRouteName?, ...}`.
+    // Return a component directly.
+    if (
+      staticConfig &&
+      typeof staticConfig === 'object' &&
+      staticConfig.screens &&
+      typeof staticConfig.screens === 'object'
+    ) {
+      function StaticNavigator(props) {
+        const screens = staticConfig.screens;
+        const keys = Object.keys(screens);
+        if (!keys.length) return null;
+        const initial = staticConfig.initialRouteName;
+        const pickedName = initial && screens[initial] ? initial : keys[0];
+        const picked = screens[pickedName];
+        // Each screen entry is EITHER a component directly, or an
+        // object {screen, options, initialParams?}.
+        const Component =
+          (picked && (picked.screen || (typeof picked === 'function' && picked))) || null;
+        if (!Component) return null;
+        const route = {key: pickedName, name: pickedName, params: picked.initialParams};
+        const navigation = React.useContext(NavigationContext);
+        return React.createElement(
+          RouteContext.Provider,
+          {value: route},
+          React.createElement(Component, {
+            ...(props || {}),
+            navigation,
+            route,
+          }),
+        );
+      }
+      // Real RN Navigation 7 attaches the static config to the returned
+      // component so callers can inspect / merge it. Keep that contract.
+      StaticNavigator.config = staticConfig;
+      return StaticNavigator;
+    }
     function Navigator(props) {
       // Walk children to find Screen entries — they're the source of
       // truth for what to render. Take the initialRouteName prop, or

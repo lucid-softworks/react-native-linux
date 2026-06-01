@@ -135,6 +135,34 @@ function useDelRowCallback(table, row) {
   const store = React.useContext(StoreCtx);
   return () => store && store.setRow(table, row, undefined);
 }
+function useDelTableCallback(_table) {
+  return () => {};
+}
+function useAddRowCallback(table, getRow) {
+  const store = React.useContext(StoreCtx);
+  return event => {
+    if (!store) return;
+    const row = typeof getRow === 'function' ? getRow(event) : getRow;
+    const id = 'r' + Object.keys(store.getTable(table) || {}).length;
+    store.setRow(table, id, row);
+  };
+}
+function useHasTable(table, _store) {
+  const store = _store || React.useContext(StoreCtx) || createStore();
+  const t = store.getTable(table);
+  return !!t && Object.keys(t).length > 0;
+}
+function useSortedRowIds(table, _cell, _descending, _offset, _limit, _store) {
+  const store = _store || React.useContext(StoreCtx) || createStore();
+  return store.getRowIds(table);
+}
+function useCreatePersister(_store, _create, _deps, _then) {
+  // Real impl runs `create(store)` once and threads its load/save
+  // through the lifecycle. We just no-op since our store is in-memory
+  // anyway.
+  React.useEffect(() => {}, []);
+  return null;
+}
 
 // /persisters/* sub-paths. Each persister is a thin wrapper that
 // in-memory persists, no-op load/save.
@@ -176,10 +204,16 @@ const uiReact = stamp({
   useValues,
   useSetCellCallback,
   useDelRowCallback,
+  useDelTableCallback,
+  useAddRowCallback,
+  useHasTable,
+  useSortedRowIds,
+  useCreatePersister,
   useCreateMergeableStore: useCreateStore,
 });
 const persisters = stamp({
   createBrowserPersister: createPersister,
+  createLocalPersister: createPersister,
   createExpoSqlitePersister: createPersister,
   createPersister,
 });

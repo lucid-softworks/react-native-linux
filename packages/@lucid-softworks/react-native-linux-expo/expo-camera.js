@@ -26,6 +26,21 @@ const CameraType = {
 const FlashMode = {off: 'off', on: 'on', auto: 'auto', torch: 'torch'};
 const VideoStabilization = {off: 'off', standard: 'standard', cinematic: 'cinematic', auto: 'auto'};
 const FocusMode = {on: 'on', off: 'off'};
+// Newer expo-camera adds `CameraMode` (`'picture' | 'video'`) and
+// React hooks for permissions.
+const CameraMode = {picture: 'picture', video: 'video'};
+function useCameraPermissions() {
+  return [
+    {granted: true, status: 'granted', canAskAgain: true},
+    () => Promise.resolve({granted: true, status: 'granted'}),
+  ];
+}
+function useMicrophonePermissions() {
+  return [
+    {granted: true, status: 'granted', canAskAgain: true},
+    () => Promise.resolve({granted: true, status: 'granted'}),
+  ];
+}
 
 const PermissionStatus = {
   GRANTED: 'granted',
@@ -152,7 +167,10 @@ const api = {
   FlashMode,
   VideoStabilization,
   FocusMode,
+  CameraMode,
   PermissionStatus,
+  useCameraPermissions,
+  useMicrophonePermissions,
   getCameraPermissionsAsync,
   requestCameraPermissionsAsync,
   getMicrophonePermissionsAsync,

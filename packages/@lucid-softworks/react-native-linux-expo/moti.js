@@ -84,6 +84,13 @@ module.exports.MotiView = MotiView;
 module.exports.MotiText = MotiText;
 module.exports.MotiImage = MotiImage;
 module.exports.MotiScrollView = MotiScrollView;
+// moti also re-exports the same components under the unprefixed
+// RN-style names (so apps can `import {View, Text} from 'moti'`
+// and treat them as drop-in animated replacements).
+module.exports.View = MotiView;
+module.exports.Text = MotiText;
+module.exports.Image = MotiImage;
+module.exports.ScrollView = MotiScrollView;
 module.exports.motify = motify;
 module.exports.useDynamicAnimation = useDynamicAnimation;
 module.exports.useAnimationState = useAnimationState;

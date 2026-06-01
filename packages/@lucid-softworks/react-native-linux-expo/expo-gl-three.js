@@ -109,6 +109,6 @@ function stamp(o) {
 module.exports = {
   expoGl: stamp(expoGl),
   expoThree: stamp(expoThree),
-  expoProcessing: stamp({default: Sketch, Sketch}),
+  expoProcessing: stamp({default: Sketch, Sketch, ProcessingView: Sketch}),
   three: stamp(Object.assign({default: THREE}, THREE)),
 };
