@@ -591,19 +591,33 @@ function compileBytecode(bundlePath, label) {
   // is an ARM64 Linux ELF, which `spawn` on macOS hits with an
   // `Exec format error` (status null in the log).
   const isMacOS = process.platform === 'darwin';
-  // RN 0.85 stopped shipping prebuilt hermesc under
-  // node_modules/react-native/sdks/hermesc/; it's now its own
-  // standalone npm package at node_modules/hermes-compiler/hermesc/.
-  // Older locations stay in the fallback chain so a downgrade to
-  // RN ≤ 0.84 still finds the binary.
+  // Order matters AND versions must match. The runtime is whatever
+  // Hermes commit FetchHermes.cmake pins (currently hermes-v0.16.0,
+  // the legacy VM). The bundler must produce bytecode that runtime
+  // can parse — and the bytecode format changed in Hermes V1.
+  //
+  // Local + CI Linux: prefer hermesc built FROM the same source tree
+  // we linked against. Two locations:
+  //   - vnext/build/bin/hermesc        (standalone vnext build)
+  //   - apps/playground/linux/build/bin/hermesc (playground build,
+  //     CI smoke job uses this one — the vnext build doesn't run
+  //     there)
+  // Only fall back to node_modules/hermes-compiler if neither built
+  // hermesc exists; it's Hermes V1 (CalVer 250829098.0.10) and
+  // produces bytecode the 0.16 runtime can't read. Skipping hermesc
+  // entirely is better than that mismatch — the C++ side then
+  // interprets the .js source which is slower but works.
+  const builtHermescPlayground = resolve(here, 'linux/build/bin/hermesc');
   const hermescCandidates = isMacOS
     ? [
+        resolve(here, '../../vnext/build/bin/hermesc'),
+        builtHermescPlayground,
         resolve(here, '../../node_modules/hermes-compiler/hermesc/osx-bin/hermesc'),
         resolve(here, '../../node_modules/react-native/sdks/hermesc/osx-bin/hermesc'),
-        resolve(here, '../../vnext/build/bin/hermesc'),
       ]
     : [
         resolve(here, '../../vnext/build/bin/hermesc'),
+        builtHermescPlayground,
         resolve(here, '../../node_modules/hermes-compiler/hermesc/linux64-bin/hermesc'),
         resolve(here, '../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc'),
       ];

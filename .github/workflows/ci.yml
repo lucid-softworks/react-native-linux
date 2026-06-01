@@ -299,14 +299,6 @@ jobs:
           path: apps/playground/linux/build/_deps
           key: playground-deps-ubuntu-24.04-${{ hashFiles('vnext/cmake/Fetch*.cmake') }}
 
-      - name: Bundle index.tsx (playground default surface)
-        # index.tsx is the Tabs UI with the most surface area — Pressables,
-        # FlatList, ScrollView, TextInput, Animated. Any C++ regression
-        # in the mounting layer is likeliest to show up here first.
-        working-directory: apps/playground
-        run: |
-          RN_ENTRY=index node bundle.mjs
-
       - name: Configure playground (incl. vnext as subdir)
         # The playground's CMakeLists adds vnext as a subdirectory, so
         # this single configure handles both. -DREACT_NATIVE_LINUX_DIR
@@ -317,6 +309,19 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DREACT_NATIVE_LINUX_DIR=${{ github.workspace }}/vnext \
             -DREACT_NATIVE_ROOT=${{ github.workspace }}/template/node_modules/react-native
+
+      - name: Bundle index.tsx (after the C++ build so the built hermesc exists)
+        # MUST run after the playground binary build. bundle.mjs prefers
+        # the hermesc compiled from the same Hermes source tree the
+        # runtime is linked against — node_modules/hermes-compiler ships
+        # Hermes V1 (CalVer 250829098.0.10), and its bytecode format is
+        # incompatible with the v0.16 runtime FetchHermes.cmake pins.
+        # Skipping hermesc entirely is better than the mismatch (the C++
+        # side then interprets the .js source); building it first guarantees
+        # we get matching bytecode.
+        working-directory: apps/playground
+        run: |
+          RN_ENTRY=index node bundle.mjs
 
       - name: Build playground binary
         run: |
