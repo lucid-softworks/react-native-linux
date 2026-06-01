@@ -1,5 +1,7 @@
 #pragma once
 
+#include "react-native-linux/RuntimeExecutor.h"
+
 #include <functional>
 #include <string>
 
@@ -10,11 +12,6 @@ class Runtime;
 }
 
 namespace rnlinux {
-
-// RuntimeExecutor shape matching facebook::react::RuntimeExecutor —
-// avoids pulling the React renderer header into every consumer of
-// these bindings.
-using RuntimeExecutor = std::function<void(std::function<void(facebook::jsi::Runtime&)>&&)>;
 
 // Install `globalThis.rnLinux` on the given JSI runtime. The bindings let a
 // JS bundle (running on this runtime) construct and manipulate GTK widgets

@@ -69,6 +69,7 @@ export function generateModule(mod: SpecModule, opts: GenerateOptions = {}): str
   lines.push('');
   lines.push('#include <jsi/jsi.h>');
   lines.push('#include <jsi/JSIDynamic.h>');
+  lines.push('#include <react-native-linux/RuntimeExecutor.h>');
   lines.push('#include <react-native-linux/TurboModuleRegistry.h>');
   lines.push('#include <folly/dynamic.h>');
   lines.push('');
@@ -235,33 +236,49 @@ function renderPromiseDispatchBranch(
   const resolveCpp = promiseResolveType(ret);
   const paramCount = method.typeAnnotation.params.length;
 
-  // Build the resolve lambda body: convert the C++ value to jsi and
-  // call the captured resolve fn.
+  // Resolve / reject lambdas hop back to the JS thread via the
+  // host's RuntimeExecutor before touching the runtime. Captured
+  // rt_exec is only valid while the executor lambda is on the
+  // stack, so we route every callback through `__executor` (which
+  // detects same-thread and invokes synchronously when the user
+  // resolves inline). The resolve/reject std::function values can
+  // safely be moved off-thread.
   let resolveLambda: string;
   if (resolveCpp === null) {
     resolveLambda =
-      'std::function<void()> resolve = [resolveFn, &rt_exec]() { ' +
-      'resolveFn->call(rt_exec, facebook::jsi::Value::undefined()); };';
+      'std::function<void()> resolve = [resolveFn, __executor]() { ' +
+      'if (!__executor) return; ' +
+      '__executor([resolveFn](facebook::jsi::Runtime& __rt) { ' +
+      'resolveFn->call(__rt, facebook::jsi::Value::undefined()); ' +
+      '}); };';
   } else {
     const elem = (ret.elementType as TypeAnnotation) ?? {type: 'VoidTypeAnnotation'};
-    const toJsi = mapType(elem, 'return').toJsi!('value', 'rt_exec');
+    const toJsi = mapType(elem, 'return').toJsi!('__value', '__rt');
     resolveLambda =
       `std::function<void(${resolveCpp})> resolve = ` +
-      `[resolveFn, &rt_exec](${resolveCpp} value) { ` +
-      `resolveFn->call(rt_exec, ${toJsi}); };`;
+      `[resolveFn, __executor](${resolveCpp} value) mutable { ` +
+      `if (!__executor) return; ` +
+      `__executor([resolveFn, __value = std::move(value)](facebook::jsi::Runtime& __rt) mutable { ` +
+      `resolveFn->call(__rt, ${toJsi}); ` +
+      `}); };`;
   }
 
   const rejectLambda =
-    'std::function<void(folly::dynamic)> reject = [rejectFn, &rt_exec](folly::dynamic value) { ' +
-    'rejectFn->call(rt_exec, facebook::jsi::valueFromDynamic(rt_exec, value)); };';
+    'std::function<void(folly::dynamic)> reject = ' +
+    '[rejectFn, __executor](folly::dynamic value) mutable { ' +
+    'if (!__executor) return; ' +
+    '__executor([rejectFn, __value = std::move(value)](facebook::jsi::Runtime& __rt) mutable { ' +
+    'rejectFn->call(__rt, facebook::jsi::valueFromDynamic(__rt, __value)); ' +
+    '}); };';
 
   // Capture-by-move (init-capture) so the executor owns the unpacked
   // args even though the outer host function lambda has already
-  // returned by the time the JS engine calls the executor.
+  // returned by the time the JS engine calls the executor. Also
+  // capture __executor by value so the resolve/reject lambdas can
+  // hop back to the JS thread later.
+  const moveCaptures = unpacked.map(u => `${u.varName} = std::move(${u.varName})`).join(', ');
   const captureList =
-    unpacked.length === 0
-      ? '[self]'
-      : `[self, ${unpacked.map(u => `${u.varName} = std::move(${u.varName})`).join(', ')}]`;
+    unpacked.length === 0 ? '[self, __executor]' : `[self, __executor, ${moveCaptures}]`;
 
   const allCallArgs = [
     ...unpacked.map(u => `std::move(${u.varName})`),
@@ -282,6 +299,7 @@ function renderPromiseDispatchBranch(
     ...unpackLines,
     `${BODY}auto Promise = rt_.global().getPropertyAsFunction(rt_, "Promise");`,
     `${BODY}auto self = this;`,
+    `${BODY}auto __executor = rnlinux::getRuntimeExecutor();`,
     `${BODY}auto executor = facebook::jsi::Function::createFromHostFunction(`,
     `${BODY}    rt_,`,
     `${BODY}    facebook::jsi::PropNameID::forUtf8(rt_, "executor"),`,

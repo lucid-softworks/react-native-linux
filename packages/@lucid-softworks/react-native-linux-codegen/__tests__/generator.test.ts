@@ -279,11 +279,27 @@ describe('generateModule — Promise returns', () => {
     expect(header).toMatch(/Promise\.callAsConstructor\(rt_, executor\);/);
   });
 
-  test('executor captures unpacked params by-move and forwards to virtual', () => {
-    expect(header).toMatch(/\[self, id = std::move\(id\)\]/);
+  test('executor captures unpacked params + __executor by-value', () => {
+    expect(header).toMatch(/\[self, __executor, id = std::move\(id\)\]/);
     expect(header).toMatch(
       /self->fetchUser\(std::move\(id\), std::move\(resolve\), std::move\(reject\)\);/,
     );
+  });
+
+  test('captures the RuntimeExecutor at dispatch time', () => {
+    expect(header).toMatch(/auto __executor = rnlinux::getRuntimeExecutor\(\);/);
+    expect(header).toMatch(/#include <react-native-linux\/RuntimeExecutor\.h>/);
+  });
+
+  test('resolve/reject post via the executor instead of capturing rt by ref', () => {
+    // No more `&rt_exec` ref captures inside the resolve/reject lambdas.
+    expect(header).not.toMatch(/\[resolveFn, &rt_exec\]/);
+    expect(header).not.toMatch(/\[rejectFn, &rt_exec\]/);
+    // Instead, each lambda captures __executor and hops via it.
+    expect(header).toMatch(/\[resolveFn, __executor\]/);
+    expect(header).toMatch(/\[rejectFn, __executor\]/);
+    expect(header).toMatch(/__executor\(\[resolveFn,/);
+    expect(header).toMatch(/__executor\(\[rejectFn,/);
   });
 
   test('header pulls in <functional> + <memory> + <utility>', () => {

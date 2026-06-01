@@ -414,6 +414,10 @@ void setRuntimeExecutorForJsi(RuntimeExecutor executor) {
   state().executor = std::move(executor);
 }
 
+RuntimeExecutor getRuntimeExecutor() {
+  return state().executor;
+}
+
 void registerAnimWidget(const std::string& nativeId, GtkWidget* widget) {
   if (nativeId.empty() || !widget)
     return;
