@@ -73,7 +73,12 @@ int main(int argc, char** argv) {
   cfg.applicationId = "works.lucidsoft.RNLinuxPlayground";
   cfg.bundleUrl = resolveBundleUrl();
   cfg.vendorBundleUrl = resolveVendorBundleUrl(cfg.bundleUrl);
-  cfg.windowTitle = "RN-Linux Playground";
+  // Window title takes the RN_WINDOW_TITLE env var when set so the
+  // matrix driver + interactive demos can label each run distinctly
+  // (the user sees "with-zustand" / "Version Demo" in the GTK
+  // titlebar instead of every example showing the same generic
+  // "RN-Linux Playground"). Fallback unchanged.
+  cfg.windowTitle = envOr("RN_WINDOW_TITLE", "RN-Linux Playground");
   cfg.initialWidth = 1024;
   cfg.initialHeight = 720;
 

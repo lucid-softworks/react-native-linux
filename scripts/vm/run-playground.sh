@@ -32,7 +32,7 @@ GSK_RENDERER="${RN_GSK_RENDERER:-ngl}"
 extra_env=()
 while IFS= read -r line; do
   extra_env+=("$line")
-done < <(env | grep -E '^RN_LINUX_' || true)
+done < <(env | grep -E '^RN_LINUX_|^RN_WINDOW_TITLE=' || true)
 
 nohup env DISPLAY=:1 \
   GSK_RENDERER="$GSK_RENDERER" \
