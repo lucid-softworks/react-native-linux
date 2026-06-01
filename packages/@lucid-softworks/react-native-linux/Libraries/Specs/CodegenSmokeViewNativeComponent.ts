@@ -1,5 +1,5 @@
 import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
-import type {ViewProps} from 'react-native';
+import type {ColorValue, ViewProps} from 'react-native';
 import type {
   Int32,
   Double,
@@ -22,6 +22,10 @@ interface NativeProps extends ViewProps {
   label?: WithDefault<string, 'default'>;
   count: Int32;
   ratio: Double;
+  // Reserved RN graphics type → facebook::react::SharedColor.
+  tint?: ColorValue;
+  // StringEnum → generated `enum class` + fromRawValue overload.
+  mode?: WithDefault<'small' | 'large' | 'auto', 'auto'>;
   onValueChange?: DirectEventHandler<ValueChangeEvent>;
 }
 

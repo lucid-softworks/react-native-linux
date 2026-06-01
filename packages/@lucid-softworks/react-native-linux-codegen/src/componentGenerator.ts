@@ -82,7 +82,22 @@ function quoteCppString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function propCppType(t: TypeAnnotation & {default?: unknown}): PropCpp {
+// Reserved RN graphics types — each has a dedicated `convertRawProp`
+// specialization in <react/renderer/core/propsConversions.h>. The
+// default for an unset prop in JS lands as a default-constructed
+// instance of the C++ type, which is what RN's other components do.
+const RESERVED_RN_TYPES: Record<string, string> = {
+  ColorPrimitive: 'facebook::react::SharedColor',
+  PointPrimitive: 'facebook::react::Point',
+  EdgeInsetsPrimitive: 'facebook::react::EdgeInsets',
+  DimensionPrimitive: 'facebook::react::Float',
+};
+
+function propCppType(
+  t: TypeAnnotation & {default?: unknown},
+  componentName: string,
+  propName: string,
+): PropCpp {
   // Nullable<T> → T (MVP simplification, mirrors the TM mapper).
   let inner: TypeAnnotation = t;
   if (inner.type === 'NullableTypeAnnotation') {
@@ -113,13 +128,56 @@ function propCppType(t: TypeAnnotation & {default?: unknown}): PropCpp {
         cpp: 'float',
         defaultExpr: `{${typeof def === 'number' ? def : 0}f}`,
       };
+    case 'ReservedPropTypeAnnotation': {
+      const reservedName = (inner as {name?: string}).name ?? '';
+      const cppType = RESERVED_RN_TYPES[reservedName];
+      if (!cppType) {
+        throw new Error(
+          `unsupported ReservedPropTypeAnnotation: "${reservedName}". ` +
+            `Supported: ${Object.keys(RESERVED_RN_TYPES).join(', ')}. ` +
+            'ImageSourcePrimitive needs the ImageManager hookup and is a tracked follow-up.',
+        );
+      }
+      // Default to value-initialised — RN's convertRawProp will fill
+      // it in from the raw value if present.
+      return {cpp: cppType, defaultExpr: '{}'};
+    }
+    case 'StringEnumTypeAnnotation': {
+      // The enum class itself is emitted as a sibling type
+      // `<Component><Prop>Enum`; the propCppType caller picks up the
+      // name through deterministic naming.
+      const enumName = stringEnumTypeName(componentName, propName);
+      const fallbackVar = `${enumName}::${enumCaseName(typeof def === 'string' ? def : '')}`;
+      const defaultExpr =
+        typeof def === 'string' && (inner as {options?: string[]}).options?.includes(def)
+          ? `{${fallbackVar}}`
+          : '{}';
+      return {cpp: enumName, defaultExpr};
+    }
     default:
       throw new Error(
         `unsupported component prop type: ${inner.type}. ` +
-          `Linux component codegen MVP covers boolean/string/Int32/Double/Float; ` +
-          'object/array/Color/Point/Enum props are tracked follow-ups.',
+          `Linux component codegen MVP covers boolean/string/Int32/Double/Float, ` +
+          'ColorPrimitive/PointPrimitive/EdgeInsetsPrimitive/DimensionPrimitive, ' +
+          'and StringEnumTypeAnnotation. ' +
+          'Object/Array/ImageSource and Int32 enums are tracked follow-ups.',
       );
   }
+}
+
+function stringEnumTypeName(componentName: string, propName: string): string {
+  return `${componentName}${propName.charAt(0).toUpperCase() + propName.slice(1)}`;
+}
+
+// Convert an enum-option JS string to a C++ enum-case name. Strips
+// non-identifier chars, PascalCases, and prefixes a leading digit
+// with `K` so it's a valid C++ identifier.
+function enumCaseName(option: string): string {
+  if (!option) return 'Unknown';
+  const parts = option.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const joined = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
+  if (/^[0-9]/.test(joined)) return `K${joined}`;
+  return joined || 'Unknown';
 }
 
 function eventPayloadField(t: TypeAnnotation): {
@@ -173,7 +231,11 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   lines.push('#include <react/renderer/core/EventDispatcher.h>');
   lines.push('#include <react/renderer/core/EventTarget.h>');
   lines.push('#include <react/renderer/core/PropsParserContext.h>');
+  lines.push('#include <react/renderer/core/RawValue.h>');
   lines.push('#include <react/renderer/core/propsConversions.h>');
+  lines.push('#include <react/renderer/graphics/Color.h>');
+  lines.push('#include <react/renderer/graphics/Point.h>');
+  lines.push('#include <react/renderer/graphics/RectangleEdges.h>');
   lines.push('');
   lines.push('#include <cstdint>');
   lines.push('#include <string>');
@@ -190,6 +252,18 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
     `inline constexpr const char ${componentName}ComponentName[] = ${quoteCppString(componentName)};`,
   );
   lines.push('');
+
+  // ─── String enums (declarations + fromRawValue overload) ────────
+  for (const prop of def.props) {
+    let inner = prop.typeAnnotation as TypeAnnotation;
+    if (inner.type === 'NullableTypeAnnotation') {
+      inner = (inner as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+    }
+    if (inner.type === 'StringEnumTypeAnnotation') {
+      lines.push(...renderStringEnum(componentName, prop.name, inner));
+      lines.push('');
+    }
+  }
 
   // ─── Event payload structs + EventEmitter ───────────────────────
   for (const event of def.events) {
@@ -230,7 +304,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   lines.push(`      : facebook::react::ViewProps(context, sourceProps, rawProps)`);
   for (let i = 0; i < def.props.length; i++) {
     const prop = def.props[i];
-    const mapped = propCppType(prop.typeAnnotation);
+    const mapped = propCppType(prop.typeAnnotation, componentName, prop.name);
     const def0 = defaultExprForConvert(prop, mapped);
     lines.push(
       `      , ${prop.name}(facebook::react::convertRawProp(context, rawProps, ${quoteCppString(prop.name)}, sourceProps.${prop.name}, ${def0}))${i === def.props.length - 1 ? ' {}' : ''}`,
@@ -242,7 +316,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   }
   lines.push('');
   for (const prop of def.props) {
-    const mapped = propCppType(prop.typeAnnotation);
+    const mapped = propCppType(prop.typeAnnotation, componentName, prop.name);
     lines.push(`  ${mapped.cpp} ${prop.name}${mapped.defaultExpr};`);
   }
   lines.push('};');
@@ -356,8 +430,6 @@ function renderEventEmitterMethod(event: EventShape, componentName: string): str
 // `std::string{...}` so overload resolution lands on the string
 // specialization; for the rest the literal expression suffices.
 function defaultExprForConvert(_prop: PropShape, mapped: PropCpp): string {
-  // Defer to the literal in mapped.defaultExpr stripped of its
-  // braces, with a type wrapper appropriate to the cpp type.
   const raw = mapped.defaultExpr.replace(/^\{|\}$/g, '');
   switch (mapped.cpp) {
     case 'std::string':
@@ -371,6 +443,57 @@ function defaultExprForConvert(_prop: PropShape, mapped: PropCpp): string {
     case 'bool':
       return raw;
     default:
+      // Reserved RN types and enums: `<Type>{<raw>}` covers both the
+      // value-init case (empty raw → default-ctor) and the enum case
+      // (raw is the qualified enum case name, e.g. `FooMode::Auto`).
+      // For SharedColor / Point / EdgeInsets / typed enums, the
+      // appropriate ctor is picked up by overload resolution.
+      if (raw === '') return `${mapped.cpp}{}`;
       return raw;
   }
+}
+
+// ─── StringEnum ────────────────────────────────────────────────────
+
+function renderStringEnum(
+  componentName: string,
+  propName: string,
+  t: TypeAnnotation & {options?: string[]; default?: string},
+): string[] {
+  const enumName = stringEnumTypeName(componentName, propName);
+  const options = t.options ?? [];
+  const cases = options.map(opt => ({jsName: opt, cppName: enumCaseName(opt)}));
+  const lines: string[] = [];
+
+  lines.push(`enum class ${enumName} {`);
+  for (const c of cases) {
+    lines.push(`  ${c.cppName},`);
+  }
+  lines.push('};');
+  lines.push('');
+
+  // RN's convertRawProp picks up a free-function `fromRawValue`
+  // overload via ADL — emit one targetting our enum.
+  lines.push(`inline void fromRawValue(const facebook::react::PropsParserContext& /*context*/,`);
+  lines.push(`                          const facebook::react::RawValue& value,`);
+  lines.push(`                          ${enumName}& result) {`);
+  lines.push('  auto string = static_cast<std::string>(value);');
+  for (const c of cases) {
+    lines.push(
+      `  if (string == ${quoteCppString(c.jsName)}) { result = ${enumName}::${c.cppName}; return; }`,
+    );
+  }
+  lines.push('  // Unknown enum case — leave at default-initialised value.');
+  lines.push('}');
+  lines.push('');
+  lines.push(`inline std::string toString(const ${enumName}& v) {`);
+  lines.push('  switch (v) {');
+  for (const c of cases) {
+    lines.push(`    case ${enumName}::${c.cppName}: return ${quoteCppString(c.jsName)};`);
+  }
+  lines.push('  }');
+  lines.push('  return "";');
+  lines.push('}');
+
+  return lines;
 }
