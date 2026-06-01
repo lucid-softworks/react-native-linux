@@ -207,13 +207,21 @@ once codegen is real.
 
 ### Expo CLI `linux` platform tolerance
 
-`@expo/config` and `@expo/config-plugins` were written when the
-platform set was `{ios, android, web}`. Recent versions accept
-`macos` / `windows` because `expo-desktop` registers them. Confirm
-no validator rejects `linux` in `app.json`'s `platforms` array on
-the SDK 54+ target band; if it does, the workaround is either an
-upstream PR or a pre-flight `app.json` patcher in the config plugin
-(same shape `expo-desktop` already uses for macOS/Windows).
+Verified against `@expo/config@56.0.9` (SDK 56): `getConfig()` accepts
+`platforms: ["ios", "android", "linux", "macos", "windows"]` and a
+sibling `linux: {...}` block in `app.json` — both round-trip without
+schema or validator errors, no patcher needed.
+
+Caveat: `@expo/config-types`'s `ExpoConfig.platforms` is typed as
+`('android' | 'ios' | 'web')[]`, so a TypeScript `app.config.ts`
+spelling `"linux"` would fail typecheck. Workarounds, in order of
+preference:
+
+1. Stay on `app.json` (JSON skips the union check).
+2. Cast through `as any` at the platforms array.
+3. Upstream the type widening so `linux` (and ideally `macos` /
+   `windows`) join the union — same change `expo-desktop` would
+   benefit from.
 
 ### Expo prebuild
 
