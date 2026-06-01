@@ -591,13 +591,20 @@ function compileBytecode(bundlePath, label) {
   // is an ARM64 Linux ELF, which `spawn` on macOS hits with an
   // `Exec format error` (status null in the log).
   const isMacOS = process.platform === 'darwin';
+  // RN 0.85 stopped shipping prebuilt hermesc under
+  // node_modules/react-native/sdks/hermesc/; it's now its own
+  // standalone npm package at node_modules/hermes-compiler/hermesc/.
+  // Older locations stay in the fallback chain so a downgrade to
+  // RN ≤ 0.84 still finds the binary.
   const hermescCandidates = isMacOS
     ? [
+        resolve(here, '../../node_modules/hermes-compiler/hermesc/osx-bin/hermesc'),
         resolve(here, '../../node_modules/react-native/sdks/hermesc/osx-bin/hermesc'),
         resolve(here, '../../vnext/build/bin/hermesc'),
       ]
     : [
         resolve(here, '../../vnext/build/bin/hermesc'),
+        resolve(here, '../../node_modules/hermes-compiler/hermesc/linux64-bin/hermesc'),
         resolve(here, '../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc'),
       ];
   const hermesc = hermescCandidates.find(existsSync);
