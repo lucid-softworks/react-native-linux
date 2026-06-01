@@ -46,6 +46,15 @@ describe('generateModule — PlatformConstants', () => {
     expect(header).toMatch(/static constexpr const char\* kModuleName = "PlatformConstants";/);
   });
 
+  test('exposes a one-liner install<Impl>() registration helper', () => {
+    expect(header).toMatch(/template <typename Impl>/);
+    expect(header).toMatch(/static int install\(\) \{/);
+    expect(header).toMatch(
+      /rnlinux::TurboModuleRegistry::instance\(\)\.registerModule\(\s*kModuleName,/,
+    );
+    expect(header).toMatch(/return std::make_shared<Impl>\(\);/);
+  });
+
   test('emits a typed-struct return for ObjectType returns', () => {
     expect(header).toMatch(/struct GetConstantsResult \{/);
     expect(header).toMatch(/virtual GetConstantsResult getConstants\(\) = 0;/);

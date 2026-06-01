@@ -255,6 +255,20 @@ export function generateModule(mod: SpecModule, opts: GenerateOptions = {}): str
   lines.push(' public:');
   lines.push(`  static constexpr const char* kModuleName = "${moduleName}";`);
   lines.push('');
+  lines.push('  // One-liner registration: instantiate this in a static');
+  lines.push('  // initializer to register the implementation under');
+  lines.push('  // kModuleName at library load time. Returns an int so it');
+  lines.push('  // can be assigned to a `static auto` for the init slot.');
+  lines.push('  template <typename Impl>');
+  lines.push('  static int install() {');
+  lines.push('    rnlinux::TurboModuleRegistry::instance().registerModule(');
+  lines.push('        kModuleName,');
+  lines.push('        [](facebook::jsi::Runtime&) -> std::shared_ptr<rnlinux::TurboModule> {');
+  lines.push('          return std::make_shared<Impl>();');
+  lines.push('        });');
+  lines.push('    return 0;');
+  lines.push('  }');
+  lines.push('');
   lines.push('  // Implementer overrides one virtual per spec method.');
   methodMeta.forEach((meta, idx) => {
     lines.push(`  ${renderVirtualSignature(methods[idx], meta)} = 0;`);
