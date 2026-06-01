@@ -23,6 +23,7 @@ import {
   readFile,
   readdirSync,
   existsSync,
+  statSync,
   unlinkSync,
 } from 'node:fs';
 import {createConnection} from 'node:net';
@@ -154,16 +155,96 @@ const expoRouterRoutesPlugin = {
         if (!rel.startsWith('/')) rel = '/' + rel;
         return rel.replace(/\.(tsx|ts|jsx|js)$/, '');
       };
-      const lines = files.map(
-        (f, i) =>
-          `var r${i} = require(${JSON.stringify(f)});\n` +
-          `routes[${JSON.stringify(routeKey(f))}] = r${i} && r${i}.default ? r${i}.default : r${i};`,
-      );
+      // Each route is wrapped in try/catch so a broken module (one
+      // whose top-level eval throws — common when a stubbed native
+      // module's stub itself throws on init) only loses that route
+      // instead of taking down the whole app. The failed route gets
+      // a fallback component that renders an error view; the rest of
+      // the route tree mounts cleanly.
+      const fallbackName = '__expoRouterRouteFallback';
+      const lines = files.map((f, i) => {
+        const key = routeKey(f);
+        return (
+          'try {\n' +
+          `  var r${i} = require(${JSON.stringify(f)});\n` +
+          `  routes[${JSON.stringify(key)}] = r${i} && r${i}.default ? r${i}.default : r${i};\n` +
+          '} catch (e' +
+          i +
+          ') {\n' +
+          `  console.warn('[expo-router] route load failed for ${key}:', e${i} && e${i}.message);\n` +
+          `  routes[${JSON.stringify(key)}] = ${fallbackName}(${JSON.stringify(key)}, e${i} && e${i}.message);\n` +
+          '}'
+        );
+      });
+      // Fallback component factory: returns a function component that
+      // renders a small "route X failed to load" UI. Used by the
+      // per-route try/catch wrapper above when a require throws.
+      const fallbackSrc =
+        "var __React = require('react');\n" +
+        "var __RN = require('react-native');\n" +
+        'function ' +
+        fallbackName +
+        '(routeKey, msg) {\n' +
+        '  return function RouteLoadFailed() {\n' +
+        '    return __React.createElement(\n' +
+        '      __RN.View,\n' +
+        "      {style: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fef2f2'}},\n" +
+        "      __React.createElement(__RN.Text, {style: {color: '#7f1d1d', fontWeight: '600', marginBottom: 8}}, 'route ' + routeKey + ' failed to load'),\n" +
+        "      __React.createElement(__RN.Text, {style: {color: '#991b1b', fontSize: 12, textAlign: 'center'}}, msg || ''),\n" +
+        '    );\n' +
+        '  };\n' +
+        '}\n';
       const contents =
         'var routes = (globalThis.__expoRouterRoutes = globalThis.__expoRouterRoutes || {});\n' +
+        fallbackSrc +
         lines.join('\n') +
         '\nmodule.exports = routes;\nmodule.exports.default = routes;\n';
       return {contents, loader: 'js', resolveDir: appRoot};
+    });
+  },
+};
+
+// TypeScript path-aliases (`@/components/foo`, `~/lib/auth`, ...) point
+// at the example's source tree but esbuild doesn't read tsconfig.json
+// for non-entry-tsconfig builds. Mirror the convention every
+// expo/examples ships: `@/*` (and `~/*`) resolve relative to the
+// directory that owns `src/`. For us that's the parent of
+// EXPO_ROUTER_APP_ROOT (the app/ dir lives one level under src/), so
+// `@/tw` lands at `<parent>/tw` (or `<parent>/tw/index.tsx`, esbuild
+// extension-resolves the rest).
+//
+// Runs BEFORE the stub-unresolved plugin so legitimate path aliases
+// don't get a Proxy stub.
+const tsPathAliasPlugin = {
+  name: 'ts-path-aliases',
+  setup(b) {
+    const appRoot = process.env.EXPO_ROUTER_APP_ROOT || null;
+    if (!appRoot) return;
+    // `<appRoot>/..` is `src/`. `<appRoot>/../..` is the example dir
+    // (where tsconfig lives). Most templates use `@/*` → `src/*` so we
+    // resolve aliases against the `src/` parent of the app dir.
+    const srcRoot = resolve(appRoot, '..');
+    b.onResolve({filter: /^(@|~)\//}, args => {
+      const rel = args.path.replace(/^(@|~)\//, '');
+      const candidate = resolve(srcRoot, rel);
+      // Probe candidate.tsx / .ts / .jsx / .js / index.tsx etc.
+      const variants = [
+        candidate + '.tsx',
+        candidate + '.ts',
+        candidate + '.jsx',
+        candidate + '.js',
+        resolve(candidate, 'index.tsx'),
+        resolve(candidate, 'index.ts'),
+        resolve(candidate, 'index.jsx'),
+        resolve(candidate, 'index.js'),
+      ];
+      for (const v of variants) {
+        if (existsSync(v) && statSync(v).isFile()) {
+          return {path: v};
+        }
+      }
+      // No match — let other plugins (incl. the stub fallback) handle.
+      return null;
     });
   },
 };
@@ -395,31 +476,93 @@ const stubUnresolvedPlugin = {
         'css',
         'token',
         'tokens',
+        // HTML-namespacing primitives — react-strict-dom and similar
+        // libraries expose `html.div`, `html.h1`, etc. Without these
+        // the chained access reads as undefined and JSX falls over.
+        'div',
+        'span',
+        'p',
+        'a',
+        'img',
+        'button',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'ul',
+        'ol',
+        'li',
+        'section',
+        'article',
+        'nav',
+        'main',
+        'aside',
+        'pre',
+        'code',
+        'small',
+        'strong',
+        'em',
+        'br',
+        'hr',
+        'table',
+        'thead',
+        'tbody',
+        'tr',
+        'td',
+        'th',
       ];
       return {
         contents:
           "const React = require('react');\n" +
           "const {View} = require('react-native');\n" +
           'function makeStubFn() {\n' +
-          '  function S(props) {\n' +
-          '    return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
+          '  // Use leafStub as the function body too — same heuristic\n' +
+          '  // (config-arg → return a stub function for chained use,\n' +
+          '  // props-arg → render a View). Without this, e.g.\n' +
+          '  // createAuthClient(config) returns a View element rather\n' +
+          '  // than a stub, so `authClient.useSession()` blows up.\n' +
+          '  function S(arg0, arg1) {\n' +
+          '    return leafStub(arg0, arg1);\n' +
           '  }\n' +
-          '  // Pre-populate a one-deep set of common sub-keys so\n' +
-          '  // `<X.Trigger>` JSX + `obj.useSession()` calls both find\n' +
-          '  // a real function to invoke. Unknown sub-keys return\n' +
-          '  // undefined which lets ES default-args (`{x = 0} = ...`)\n' +
-          '  // apply and React fall back gracefully.\n' +
           '  var subs = ' +
           JSON.stringify(subKeys) +
           ';\n' +
           '  for (var i = 0; i < subs.length; i++) {\n' +
-          '    // Each sub is its own ZERO-deep function: chains end one\n' +
-          '    // level deep to keep bundle size small and avoid cycles.\n' +
-          '    S[subs[i]] = function leafStub(props) {\n' +
-          '      return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
-          '    };\n' +
+          '    S[subs[i]] = leafStub;\n' +
           '  }\n' +
           '  return S;\n' +
+          '}\n' +
+          'function leafStub(arg0, arg1) {\n' +
+          '  // HOC-render: useFactory(Component, props, ...). Real\n' +
+          '  // factories like useCssElement return\n' +
+          '  // React.createElement(Component, props). Mirror that so the\n' +
+          '  // consumers wrapper component (`<Wrapped>`) mounts via the\n' +
+          '  // original component.\n' +
+          "  var arg0IsComp = typeof arg0 === 'function' ||\n" +
+          "    (arg0 && typeof arg0 === 'object' && arg0.$$typeof);\n" +
+          "  if (arg0IsComp && arg1 && typeof arg1 === 'object') {\n" +
+          '    return React.createElement(arg0, arg1);\n' +
+          '  }\n' +
+          '  if (arg0IsComp) return arg0;\n' +
+          '  // Config-factory pattern: createAuthClient({...}),\n' +
+          '  // createTRPCClient({...}), etc. Return a fresh stub function\n' +
+          '  // so consumers `client.useSession()` lands on a callable.\n' +
+          '  // JSX render passes a `props` object too — disambiguate by\n' +
+          '  // shape: if children or style is set, treat as React props.\n' +
+          '  if (\n' +
+          '    arg0 != null &&\n' +
+          "    typeof arg0 === 'object' &&\n" +
+          '    !Array.isArray(arg0) &&\n' +
+          '    arg0.children === undefined &&\n' +
+          '    arg0.style === undefined &&\n' +
+          '    arg0.key === undefined\n' +
+          '  ) {\n' +
+          '    return makeStubFn();\n' +
+          '  }\n' +
+          '  // Default render: arg0 is JSX props OR there are no args.\n' +
+          '  return React.createElement(View, {style: arg0 && arg0.style}, arg0 && arg0.children);\n' +
           '}\n' +
           'var keys = ' +
           JSON.stringify(extraKeys) +
@@ -847,6 +990,10 @@ const appOpts = {
       '  if (id === "@expo/metro-runtime") return rnv.expoMetroRuntime;\n' +
       '  if (id === "crypto" || id === "node:crypto") return rnv.nodeCrypto;\n' +
       '  if (id === "zustand") return rnv.zustand;\n' +
+      // zustand/middleware, zustand/vanilla, zustand/traditional — route
+      // any subpath through the base shim. Unknown export names will be
+      // undefined, callers either feature-test or fall to defaults.
+      '  if (id.indexOf("zustand/") === 0 && id !== "zustand/shallow") return rnv.zustand;\n' +
       // zustand/shallow ships BOTH `import shallow from "zustand/shallow"`
       // (the function as default) AND `import {shallow} from "zustand/shallow"`.
       // Return an __esModule namespace that satisfies both shapes; esbuild
@@ -943,10 +1090,13 @@ const appOpts = {
     svgPlaceholderPlugin,
     expoRouterRoutesPlugin,
     refreshTransformPlugin,
-    // Must be LAST so every real resolver gets first crack at each
-    // bare specifier. Stubs are only emitted when nothing else
-    // (node_modules + the runtime's external table + every plugin
-    // above) could resolve the import.
+    // Path-alias resolution + stub fallback both run last:
+    //   * tsPathAliasPlugin only fires when EXPO_ROUTER_APP_ROOT is set
+    //     AND the example actually has the matched src/ layout, so it
+    //     no-ops for the playground entries.
+    //   * stubUnresolvedPlugin catches any remaining bare specifier the
+    //     real resolvers couldn't find.
+    tsPathAliasPlugin,
     stubUnresolvedPlugin,
   ],
 };

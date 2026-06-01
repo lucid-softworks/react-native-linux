@@ -286,6 +286,14 @@ module.exports.useIsFocused = useIsFocused;
 module.exports.useTheme = useTheme;
 module.exports.DefaultTheme = DefaultTheme;
 module.exports.DarkTheme = DarkTheme;
+// @react-navigation/native used to ship a ThemeProvider that wraps its
+// children with a React context carrying the theme. Most consumers just
+// pass it down; without nav state we can degrade to a passthrough
+// fragment so `<ThemeProvider>{children}</ThemeProvider>` keeps the
+// tree intact.
+module.exports.ThemeProvider = function ThemeProvider(props) {
+  return React.createElement(React.Fragment, null, props && props.children);
+};
 module.exports.CommonActions = CommonActions;
 module.exports.StackActions = StackActions;
 module.exports.DrawerActions = DrawerActions;
