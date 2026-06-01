@@ -168,6 +168,137 @@ const expoRouterRoutesPlugin = {
   },
 };
 
+// Last-resort import resolver. When an example imports a bare module
+// (next-themes, zeego, clsx, …) that isn't in node_modules and isn't
+// shimmed in our umbrella package, esbuild normally errors out and the
+// whole bundle fails. For the smoke-matrix / playground demo path
+// that's a hostile failure mode — one unresolved widget shouldn't take
+// out the entire route tree.
+//
+// This plugin runs LAST in the chain (registered after every real
+// resolver). For any bare specifier still unresolved at that point it
+// emits a no-op stub: every property access returns a chainable Proxy
+// that's also callable, so `next-themes.useTheme()`, `<ThemeProvider/>`,
+// `Stripe.charges.create({...})` all silently degrade without runtime
+// crashes. The matched module is logged once so the dev triage path
+// stays visible.
+const stubUnresolvedPlugin = {
+  name: 'stub-unresolved-bare-imports',
+  setup(b) {
+    const NS = 'stub-unresolved';
+    const logged = new Set();
+    // Bare specifier = doesn't start with `.` or `/`. We skip `node:`
+    // built-ins and skip anything we've explicitly externalised (the
+    // banner shim already routes those via globalThis.__rnv).
+    // Walk up from the importer's dir looking for
+    // node_modules/<pkg>/package.json. Cheap and async-free; avoids
+    // calling b.resolve (which would re-enter our own onResolve and
+    // deadlock esbuild's worker pool — confirmed by inspecting
+    // goroutine traces from a crashed run).
+    const pkgRoot = process.cwd();
+    // Anything declared external (react, react-native, the expo
+    // umbrella, expo-router…) is routed via the vendor banners
+    // globalThis.__rnv table at runtime. Those aren't in node_modules
+    // necessarily, so we must skip them here or we'd wrongly stub them.
+    const externalSet = new Set((b.initialOptions.external || []).map(String));
+    function topPkgName(spec) {
+      // Scoped: '@scope/pkg' → '@scope/pkg'. Unscoped: 'foo/bar' → 'foo'.
+      if (spec[0] === '@') {
+        const parts = spec.split('/');
+        return parts.slice(0, 2).join('/');
+      }
+      return spec.split('/')[0];
+    }
+    function isResolvable(spec, fromFile) {
+      const top = topPkgName(spec);
+      // Repo-root check first — covers virtual namespaces whose
+      // `importer` isn't a real filesystem path, and the common case
+      // of a top-level node_modules install.
+      if (existsSync(resolve(pkgRoot, 'node_modules', top, 'package.json'))) {
+        return true;
+      }
+      // Walk up from the importer's dir for pnpm-style nested
+      // node_modules under apps/* / packages/*.
+      let dir = fromFile && fromFile[0] === '/' ? dirname(fromFile) : pkgRoot;
+      while (dir && dir !== '/' && dir.length >= pkgRoot.length) {
+        if (existsSync(resolve(dir, 'node_modules', top, 'package.json'))) {
+          return true;
+        }
+        const parent = dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+      return false;
+    }
+    b.onResolve({filter: /^[^./]/}, args => {
+      if (args.path.startsWith('node:')) return null;
+      // External or external-subpath: defer to esbuild's external
+      // handling. We can't just check exact membership because the
+      // external list is the top-level package only (e.g. `expo` covers
+      // `expo`, `expo/something`, but not deep aliases). The topPkgName
+      // helper gives us the package portion.
+      if (externalSet.has(args.path) || externalSet.has(topPkgName(args.path))) {
+        return null;
+      }
+      // If the package exists in node_modules anywhere up the tree,
+      // hand it back to the default resolver (return undefined). Only
+      // intercept when the package truly isn't installed.
+      if (isResolvable(args.path, args.importer)) return null;
+      if (!logged.has(args.path)) {
+        logged.add(args.path);
+        console.log(`[bundle] stubbing unresolved bare import: ${args.path}`);
+      }
+      // CSS-flavoured imports: tag the path so onLoad uses an empty
+      // CSS body. Routing JS stub content into a CSS context blows up
+      // esbuild's CSS parser.
+      const looksCss =
+        /\.(css|scss|sass|less|styl)$/.test(args.path) ||
+        (args.importer && /\.(css|scss|sass|less|styl)$/.test(args.importer));
+      return {path: args.path, namespace: NS, pluginData: {css: !!looksCss}};
+    });
+    b.onLoad({filter: /.*/, namespace: NS}, args => {
+      if (args.pluginData && args.pluginData.css) {
+        return {contents: '', loader: 'css'};
+      }
+      return loadStubModule();
+    });
+    function loadStubModule() {
+      // The stub: a Proxy that's callable, indexable, default-
+      // exportable, and forwards through arbitrary chains. Reactish
+      // components return a plain View so JSX in callers mounts.
+      return {
+        contents:
+          "const React = require('react');\n" +
+          "const {View} = require('react-native');\n" +
+          'function StubComponent(props) {\n' +
+          '  return React.createElement(View, {style: props && props.style}, props && props.children);\n' +
+          '}\n' +
+          'const handler = {\n' +
+          '  get(target, prop) {\n' +
+          "    if (prop === '__esModule') return true;\n" +
+          "    if (prop === 'default') return target;\n" +
+          '    return makeStub();\n' +
+          '  },\n' +
+          '  apply() { return makeStub(); },\n' +
+          '  construct() { return makeStub(); },\n' +
+          '};\n' +
+          'function makeStub() {\n' +
+          '  const f = function (props) {\n' +
+          "    if (props && (props.children || (typeof props === 'object' && props.style))) {\n" +
+          '      return StubComponent(props);\n' +
+          '    }\n' +
+          '    return null;\n' +
+          '  };\n' +
+          '  f.default = f;\n' +
+          '  return new Proxy(f, handler);\n' +
+          '}\n' +
+          'module.exports = makeStub();\n',
+        loader: 'js',
+      };
+    }
+  },
+};
+
 const refreshTransformPlugin = {
   name: 'react-refresh-swc',
   setup(b) {
@@ -654,7 +785,16 @@ const appOpts = {
       '  throw new Error("unknown vendor require: " + id);\n' +
       '};\n',
   },
-  plugins: [svgPlaceholderPlugin, expoRouterRoutesPlugin, refreshTransformPlugin],
+  plugins: [
+    svgPlaceholderPlugin,
+    expoRouterRoutesPlugin,
+    refreshTransformPlugin,
+    // Must be LAST so every real resolver gets first crack at each
+    // bare specifier. Stubs are only emitted when nothing else
+    // (node_modules + the runtime's external table + every plugin
+    // above) could resolve the import.
+    stubUnresolvedPlugin,
+  ],
 };
 
 // Pre-compile a bundle to Hermes bytecode. Hermes can execute .hbc
