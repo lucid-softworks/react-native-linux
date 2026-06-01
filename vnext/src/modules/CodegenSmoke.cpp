@@ -54,6 +54,12 @@ class CodegenSmokeModule final : public codegen::NativeCodegenSmokeSpec {
       cb("ready", 0);
     }
   }
+
+  void observe(std::function<void(codegen::Observe_Cb_Event)> cb) override {
+    if (cb) {
+      cb({.kind = "tick", .count = 0});
+    }
+  }
 };
 
 [[maybe_unused]] static const int kRegisterCodegenSmoke =

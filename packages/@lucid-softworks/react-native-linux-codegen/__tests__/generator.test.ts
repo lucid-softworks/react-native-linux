@@ -595,6 +595,70 @@ describe('generateModule — Function (callback) params', () => {
   });
 });
 
+describe('generateModule — object args in callback params', () => {
+  const mod: SpecModule = {
+    specName: 'NativeCBObj',
+    moduleName: 'CBObj',
+    schema: {
+      type: 'NativeModule',
+      moduleName: 'CBObj',
+      spec: {
+        methods: [
+          {
+            name: 'observe',
+            optional: false,
+            typeAnnotation: {
+              type: 'FunctionTypeAnnotation',
+              params: [
+                {
+                  name: 'cb',
+                  typeAnnotation: {
+                    type: 'FunctionTypeAnnotation',
+                    params: [
+                      {
+                        name: 'event',
+                        typeAnnotation: {
+                          type: 'ObjectTypeAnnotation',
+                          properties: [
+                            {name: 'kind', typeAnnotation: {type: 'StringTypeAnnotation'}},
+                            {name: 'count', typeAnnotation: {type: 'NumberTypeAnnotation'}},
+                          ],
+                        },
+                      },
+                    ],
+                    returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+                  },
+                },
+              ],
+              returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  const header = generateModule(mod);
+
+  test('struct is materialised for the callback arg', () => {
+    expect(header).toMatch(/struct Observe_Cb_Event \{/);
+    expect(header).toMatch(/std::string kind;/);
+    expect(header).toMatch(/double count;/);
+  });
+
+  test('virtual signature uses the struct inside the std::function', () => {
+    expect(header).toMatch(
+      /virtual void observe\(std::function<void\(Observe_Cb_Event\)> cb\) = 0;/,
+    );
+  });
+
+  test('callback wrapper sends the struct via toDynamic + valueFromDynamic', () => {
+    expect(header).toMatch(
+      /__fn_cb->call\(__rt, facebook::jsi::valueFromDynamic\(__rt, toDynamic\(__cb_event\)\)\);/,
+    );
+  });
+});
+
 describe('generateModule — unsupported types throw with actionable messages', () => {
   test('non-void callback return throws a follow-up-tracked error', () => {
     expect(() =>

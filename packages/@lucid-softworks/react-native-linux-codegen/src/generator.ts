@@ -318,19 +318,49 @@ interface MethodStructMeta {
   // type if the return is `Promise<Object>`. undefined for
   // non-object returns.
   returnStruct: string | undefined;
+  // For each method param indexed by position: if the param is a
+  // callback, the struct names of its individual args (parallel
+  // to the callback's args list). undefined for non-callback params,
+  // and entries within are undefined for non-object callback args.
+  callbackArgStructs: Array<Array<string | undefined> | undefined>;
 }
 
 function bindMethodStructs(method: MethodShape, structs: StructCollector): MethodStructMeta {
   const methodPascal = pascalCase(method.name);
+  const callbackArgStructs: Array<Array<string | undefined> | undefined> = [];
+
   const paramStructs: Array<string | undefined> = method.typeAnnotation.params.map((p, i) => {
     let t = p.typeAnnotation;
     if (t.type === 'NullableTypeAnnotation') {
       t = (t as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
     }
     if (t.type === 'ObjectTypeAnnotation') {
+      callbackArgStructs.push(undefined);
       const name = `${methodPascal}Param_${pascalCase(p.name || `Arg${i}`)}`;
       return structs.collect(name, t);
     }
+    if (t.type === 'FunctionTypeAnnotation') {
+      // Callback param. Walk its args and collect ObjectType ones
+      // into the same collector so they're available to both the
+      // virtual signature renderer and the callback wrapper.
+      const cbName = pascalCase(p.name || `Cb${i}`);
+      const cbParams =
+        (t as {params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>}).params ?? [];
+      const argNames: Array<string | undefined> = cbParams.map((cp, ci) => {
+        let argType = cp.typeAnnotation;
+        if (argType.type === 'NullableTypeAnnotation') {
+          argType = (argType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+        }
+        if (argType.type === 'ObjectTypeAnnotation') {
+          const name = `${methodPascal}_${cbName}_${pascalCase(cp.name || `Arg${ci}`)}`;
+          return structs.collect(name, argType);
+        }
+        return undefined;
+      });
+      callbackArgStructs.push(argNames);
+      return undefined;
+    }
+    callbackArgStructs.push(undefined);
     return undefined;
   });
 
@@ -344,20 +374,47 @@ function bindMethodStructs(method: MethodShape, structs: StructCollector): Metho
       returnStruct = structs.collect(`${methodPascal}Result`, elem);
     }
   }
-  return {paramStructs, returnStruct};
+  return {paramStructs, returnStruct, callbackArgStructs};
 }
 
 function isPromise(t: TypeAnnotation): boolean {
   return t.type === 'PromiseTypeAnnotation';
 }
 
-function paramCppType(t: TypeAnnotation, structName: string | undefined): string {
+function paramCppType(
+  t: TypeAnnotation,
+  structName: string | undefined,
+  callbackArgStructs?: Array<string | undefined>,
+): string {
   let inner: TypeAnnotation = t;
   if (inner.type === 'NullableTypeAnnotation') {
     inner = (inner as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
   }
   if (inner.type === 'ObjectTypeAnnotation') {
     return structName!;
+  }
+  if (inner.type === 'FunctionTypeAnnotation') {
+    // Callback param. Resolve each arg's C++ type with the matching
+    // struct name from the collector for ObjectType args.
+    const fn = inner as {
+      params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>;
+      returnTypeAnnotation?: TypeAnnotation;
+    };
+    const cbArgs = (fn.params ?? []).map((p, i) => {
+      let argType = p.typeAnnotation;
+      if (argType.type === 'NullableTypeAnnotation') {
+        argType = (argType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+      }
+      if (argType.type === 'ObjectTypeAnnotation') {
+        return callbackArgStructs?.[i] ?? 'folly::dynamic';
+      }
+      return mapType(argType, 'param').cpp;
+    });
+    const ret = fn.returnTypeAnnotation ?? {type: 'VoidTypeAnnotation'};
+    if (ret.type !== 'VoidTypeAnnotation') {
+      throw new Error('Non-void callback returns are not yet supported by the Linux generator.');
+    }
+    return `std::function<void(${cbArgs.join(', ')})>`;
   }
   return mapType(inner, 'param').cpp;
 }
@@ -375,7 +432,11 @@ function returnCppType(t: TypeAnnotation, structName: string | undefined): strin
 
 function renderVirtualSignature(method: MethodShape, meta: MethodStructMeta): string {
   const params = method.typeAnnotation.params.map((p, i) => {
-    const cppType = paramCppType(p.typeAnnotation, meta.paramStructs[i]);
+    const cppType = paramCppType(
+      p.typeAnnotation,
+      meta.paramStructs[i],
+      meta.callbackArgStructs[i],
+    );
     const argName = p.name || `arg${i}`;
     return `${cppType} ${argName}`;
   });
@@ -441,7 +502,9 @@ function renderDispatchBranch(method: MethodShape, meta: MethodStructMeta): stri
   params.forEach((p, i) => {
     const argName = p.name || `arg${i}`;
     if (isCallback(p.typeAnnotation)) {
-      unpackLines.push(...renderCallbackUnpack(p.typeAnnotation, argName, i, BODY));
+      unpackLines.push(
+        ...renderCallbackUnpack(p.typeAnnotation, argName, i, BODY, meta.callbackArgStructs[i]),
+      );
     } else if (isObject(p.typeAnnotation)) {
       // Object params: jsi::Value → folly::dynamic → typed struct.
       // The struct's static fromDynamic does the field-by-field
@@ -513,18 +576,42 @@ function renderCallbackUnpack(
   varName: string,
   argIndex: number,
   BODY: string,
+  argStructs?: Array<string | undefined>,
 ): string[] {
   const fn = t as {
     params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>;
   };
   const cbParams = fn.params ?? [];
   const argInfos = cbParams.map((p, i) => {
-    const cppType = mapType(p.typeAnnotation, 'param').cpp;
+    let argType = p.typeAnnotation;
+    if (argType.type === 'NullableTypeAnnotation') {
+      argType = (argType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+    }
     const name = p.name || `a${i}`;
-    const toJsi = mapType(p.typeAnnotation, 'param').toJsi;
+
+    if (argType.type === 'ObjectTypeAnnotation') {
+      const structName = argStructs?.[i];
+      if (!structName) {
+        throw new Error(
+          `Internal: callback arg "${name}" is an object but has no collected struct name`,
+        );
+      }
+      return {
+        cppType: structName,
+        name,
+        // Object args land as a typed C++ struct in user code and
+        // are converted back through the generated toDynamic helper
+        // before being handed to JS.
+        toJsi: (cppValue: string, rt: string) =>
+          `facebook::jsi::valueFromDynamic(${rt}, toDynamic(${cppValue}))`,
+      };
+    }
+
+    const cppType = mapType(argType, 'param').cpp;
+    const toJsi = mapType(argType, 'param').toJsi;
     if (!toJsi) {
       throw new Error(
-        `Callback arg "${name}" has type ${p.typeAnnotation.type} which has no toJsi mapping — ` +
+        `Callback arg "${name}" has type ${argType.type} which has no toJsi mapping — ` +
           'nested callbacks / unsupported types are not yet handled.',
       );
     }

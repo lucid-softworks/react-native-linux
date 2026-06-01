@@ -36,6 +36,11 @@ export interface Spec extends TurboModule {
   // Void-returning multi-arg callback — exercises the jsi::Function
   // → std::function adapter with per-arg toJsi marshalling.
   subscribe(cb: (eventName: string, count: number) => void): void;
+
+  // Callback with an object arg — exercises StructCollector recursing
+  // into callback arg types, the resulting `<Method>_<Cb>_<Arg>` struct
+  // name, and the toDynamic call inside the callback wrapper.
+  observe(cb: (event: {kind: string; count: number}) => void): void;
 }
 
 export default TurboModuleRegistry.get<Spec>('CodegenSmoke');
