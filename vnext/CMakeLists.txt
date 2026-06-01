@@ -205,6 +205,32 @@ file(GLOB RNL_RN_RENDERER_SOURCES CONFIGURE_DEPENDS
   # don't run.
   ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/tracing/PerformanceTracer.cpp
   ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/tracing/EventLoopReporter.cpp
+  # RN 0.85 split TraceEventSerializer + the ConsoleTask family into
+  # standalone TUs. PerformanceTracer + PerformanceEntryReporter
+  # reference them, so we pull them in here without dragging the rest
+  # of jsinspector-modern's web-socket transport.
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/tracing/TraceEventSerializer.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/ConsoleTaskOrchestrator.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/ConsoleTask.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/ConsoleTaskContext.cpp
+  # mimeTypeFromHeaders + resourceTypeFromMimeType live in the network
+  # subdir — also new in 0.85, called from PerformanceTracer when
+  # routing resource-timing events.
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/network/HttpUtils.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/jsinspector-modern/network/CdpNetwork.cpp
+  # RN 0.85 added a CDP metrics reporter + perf-issues reporter that
+  # Scheduler.cpp constructs unconditionally. Both depend on
+  # CdpInteractionTypes.
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/performance/cdpmetrics/CdpMetricsReporter.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/performance/cdpmetrics/CdpPerfIssuesReporter.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/performance/cdpmetrics/CdpInteractionTypes.cpp
+  # RN 0.85 introduced the C++ animation backend — Scheduler creates
+  # one per surface so it has to link. AnimationChoreographer is
+  # header-only.
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/animationbackend/AnimationBackend.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/animationbackend/AnimationBackendCommitHook.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/animationbackend/AnimatedPropsRegistry.cpp
+  ${REACT_NATIVE_ROOT}/ReactCommon/react/renderer/animationbackend/AnimatedPropSerializer.cpp
   # RuntimeScheduler hops onto the UI thread via this helper.
   ${REACT_NATIVE_ROOT}/ReactCommon/runtimeexecutor/platform/cxx/ReactCommon/RuntimeExecutorSyncUIThreadUtils.cpp
   # PerformanceTracer pulls oscompat for thread/process ids — RN

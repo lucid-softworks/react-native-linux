@@ -9,8 +9,8 @@
     "init-linux": "react-native init-linux"
   },
   "dependencies": {
-    "react": "19.1.7",
-    "react-native": "^0.81.0",
+    "react": "19.2.3",
+    "react-native": "^0.85.3",
     "@lucid-softworks/react-native-linux": "workspace:*"
   },
   "devDependencies": {
@@ -19,12 +19,12 @@
     "@babel/runtime": "^7.24.0",
     "@lucid-softworks/react-native-linux-cli": "workspace:*",
     "@react-native-community/cli": "^20.0.0",
-    "@react-native/babel-preset": "^0.81.0",
-    "@react-native/metro-config": "^0.81.0",
+    "@react-native/babel-preset": "^0.85.3",
+    "@react-native/metro-config": "^0.85.3",
     "@types/react": "^19.1.0",
     "babel-jest": "^29.7.0",
     "jest": "^29.7.0",
-    "react-test-renderer": "19.1.7",
+    "react-test-renderer": "19.2.3",
     "typescript": "^5.4.0"
   },
   "engines": {

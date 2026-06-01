@@ -177,7 +177,7 @@ void RNLinuxHost::start() {
     auto providers = impl_->descriptorProviders;
     toolbox.componentRegistryFactory =
         [providers](const facebook::react::EventDispatcher::Weak& eventDispatcher,
-                    const facebook::react::ContextContainer::Shared& cc) {
+                    const std::shared_ptr<const facebook::react::ContextContainer>& cc) {
           return providers->createComponentDescriptorRegistry({eventDispatcher, cc});
         };
   }

@@ -23,6 +23,11 @@ class LinuxSchedulerDelegate final : public facebook::react::SchedulerDelegate {
       const std::shared_ptr<const facebook::react::MountingCoordinator>& coordinator) override;
   void schedulerShouldRenderTransactions(
       const std::shared_ptr<const facebook::react::MountingCoordinator>& coordinator) override;
+  // RN 0.85 added this hook — fires when the React revision needs
+  // merging into the live tree (Server Components / View Transitions).
+  // We don't pipe React revision metadata through Fabric yet, so the
+  // implementation is a no-op.
+  void schedulerShouldMergeReactRevision(facebook::react::SurfaceId surfaceId) override;
   void schedulerDidRequestPreliminaryViewAllocation(
       const facebook::react::ShadowNode& shadowNode) override;
   void schedulerDidDispatchCommand(const facebook::react::ShadowView& shadowView,

@@ -18,8 +18,8 @@ endif()
 # string of the form `hermes-YYYY-MM-DD-RNvX.Y.Z-<sha>`. We pin the
 # <sha> part directly because the literal `hermes-…-<sha>` string is
 # RN's vendoring tag, not a tag on facebook/hermes.
-set(HERMES_COMMIT "e0fc67142ec0763c6b6153ca2bf96df815539782"
-    CACHE STRING "Hermes git commit to fetch (matches RN 0.81 .hermesversion)")
+set(HERMES_COMMIT "d5272104d38b7565a9b477ab422be2525d680503"
+    CACHE STRING "Hermes git commit to fetch (matches RN 0.85 .hermesversion = hermes-v0.16.0)")
 
 FetchContent_Declare(hermes
   GIT_REPOSITORY https://github.com/facebook/hermes.git
@@ -61,13 +61,20 @@ set(CMAKE_CXX_FLAGS "${_rnl_save_cxx_flags}")
 # 2023 cleanup that retired `hermesvm` from the public surface). Alias
 # it under the Hermes::Hermes name our vnext/CMakeLists.txt uses.
 if(NOT TARGET Hermes::Hermes)
-  if(TARGET libhermes)
+  # Order matters: Hermes 0.16 ships BOTH `hermes` (the hermesc CLI,
+  # an executable) and `hermesvm` (the JSI runtime library). ALIAS
+  # over an executable fails, so prefer the library targets first.
+  if(TARGET hermesvm)
+    # Hermes 0.16 (RN 0.85) renamed the public library to `hermesvm`,
+    # splitting the JSI surface out of the legacy `libhermes` target.
+    add_library(Hermes::Hermes ALIAS hermesvm)
+  elseif(TARGET libhermes)
     add_library(Hermes::Hermes ALIAS libhermes)
   elseif(TARGET hermes)
     add_library(Hermes::Hermes ALIAS hermes)
   else()
     message(FATAL_ERROR
-      "Hermes was fetched but neither `libhermes` nor `hermes` target exists. "
+      "Hermes was fetched but none of `hermesvm`/`libhermes`/`hermes` library targets exist. "
       "Has Hermes renamed its public library again?")
   endif()
 endif()

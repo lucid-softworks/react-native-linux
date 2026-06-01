@@ -66,7 +66,8 @@ void maybeLogCacheStats() {
 }
 } // namespace
 
-TextLayoutManager::TextLayoutManager(const ContextContainer::Shared& contextContainer)
+TextLayoutManager::TextLayoutManager(
+    const std::shared_ptr<const ContextContainer>& contextContainer)
     : contextContainer_(contextContainer)
     , textMeasureCache_(kSimpleThreadSafeCacheSizeCap) {}
 
