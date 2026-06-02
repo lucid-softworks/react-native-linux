@@ -373,6 +373,75 @@ describe('generateComponent — StringEnum props', () => {
   });
 });
 
+describe('generateComponent — Commands', () => {
+  const header = generateComponent({
+    specName: 'CmdViewNativeComponent',
+    componentName: 'CmdView',
+    def: {
+      extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+      events: [],
+      props: [],
+      commands: [
+        {
+          name: 'focus',
+          optional: false,
+          typeAnnotation: {
+            type: 'FunctionTypeAnnotation',
+            params: [],
+            returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+          },
+        },
+        {
+          name: 'setValue',
+          optional: false,
+          typeAnnotation: {
+            type: 'FunctionTypeAnnotation',
+            params: [
+              {name: 'value', typeAnnotation: {type: 'StringTypeAnnotation'}},
+              {name: 'force', typeAnnotation: {type: 'BooleanTypeAnnotation'}},
+            ],
+            returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+          },
+        },
+      ] as any,
+    },
+  });
+
+  test('emits a templated <Name>HandleCommand free function', () => {
+    expect(header).toMatch(/template <typename ViewT>/);
+    expect(header).toMatch(
+      /inline void CmdViewHandleCommand\(ViewT& view, const std::string& commandName, const folly::dynamic& args\)/,
+    );
+  });
+
+  test('no-arg command dispatches with no unpacking', () => {
+    expect(header).toMatch(/if \(commandName == "focus"\) \{/);
+    expect(header).toMatch(/view\.focus\(\);/);
+  });
+
+  test('multi-arg command unpacks each arg by folly::dynamic accessor', () => {
+    expect(header).toMatch(/if \(commandName == "setValue"\) \{/);
+    expect(header).toMatch(/if \(args\.size\(\) < 2\) return;/);
+    expect(header).toMatch(/auto value = args\[0\]\.asString\(\);/);
+    expect(header).toMatch(/auto force = args\[1\]\.asBool\(\);/);
+    expect(header).toMatch(/view\.setValue\(std::move\(value\), std::move\(force\)\);/);
+  });
+
+  test('Specs without commands omit the helper entirely', () => {
+    const plain = generateComponent({
+      specName: 'PlainNativeComponent',
+      componentName: 'Plain',
+      def: {
+        extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+        events: [],
+        props: [],
+        commands: [],
+      },
+    });
+    expect(plain).not.toMatch(/HandleCommand/);
+  });
+});
+
 describe('generateComponent — unsupported types raise actionable errors', () => {
   test('non-View extendsProps throws', () => {
     expect(() =>

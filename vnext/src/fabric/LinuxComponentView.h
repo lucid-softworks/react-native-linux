@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <folly/dynamic.h>
 #include <memory>
+#include <string>
 
 typedef struct _GtkWidget GtkWidget;
 
@@ -58,6 +60,14 @@ class LinuxComponentView {
   // ScrollViewComponentView measuring its content bounding box) hang
   // logic here.
   virtual void postLayoutPass() {}
+
+  // JS-dispatched imperative command (e.g. `ref.current.focus()`).
+  // The Fabric scheduler routes commands by tag through
+  // LinuxSchedulerDelegate, which calls this on the matching view.
+  // The default no-op is safe — components without commands stay
+  // silent. Components with commands override this and dispatch
+  // through the codegen-generated `<Name>HandleCommand` helper.
+  virtual void handleCommand(const std::string& /*name*/, const folly::dynamic& /*args*/) {}
 
  protected:
   Tag tag_;

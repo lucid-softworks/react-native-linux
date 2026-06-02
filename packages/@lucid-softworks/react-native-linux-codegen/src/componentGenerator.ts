@@ -46,11 +46,21 @@ interface EventShape {
   };
 }
 
+interface CommandShape {
+  name: string;
+  optional?: boolean;
+  typeAnnotation: {
+    type: 'FunctionTypeAnnotation';
+    params: Array<{name: string; typeAnnotation: TypeAnnotation}>;
+    returnTypeAnnotation: TypeAnnotation;
+  };
+}
+
 interface ComponentDef {
   extendsProps?: Array<{type: string; knownTypeName?: string}>;
   props: PropShape[];
   events: EventShape[];
-  commands?: unknown[];
+  commands?: CommandShape[];
 }
 
 // Container for one parsed component module. The driver in
@@ -253,6 +263,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   lines.push('#include <react/renderer/graphics/Color.h>');
   lines.push('#include <react/renderer/graphics/Point.h>');
   lines.push('#include <react/renderer/graphics/RectangleEdges.h>');
+  lines.push('#include <folly/dynamic.h>');
   // Conditional graphics-adjacent headers needed by any reserved
   // type the spec uses (e.g. ImageSource pulls in the image
   // component's conversions.h for its fromRawValue).
@@ -363,6 +374,13 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
     `using ${componentName}ComponentDescriptor = facebook::react::ConcreteComponentDescriptor<${componentName}ShadowNode>;`,
   );
   lines.push('');
+
+  // ─── Commands dispatch helper ───────────────────────────────────
+  const commands = def.commands ?? [];
+  if (commands.length > 0) {
+    lines.push(...renderCommandsHelper(componentName, commands));
+    lines.push('');
+  }
 
   // ─── Registration helper ────────────────────────────────────────
   lines.push('// Register the descriptor on a ComponentDescriptorProviderRegistry. ');
@@ -541,6 +559,66 @@ function renderStringEnum(
   lines.push('  return "";');
   lines.push('}');
 
+  return lines;
+}
+
+// ─── Commands ─────────────────────────────────────────────────────
+
+// Per-primitive accessor for an arg lifted out of `args[i]` (a
+// folly::dynamic). Mirrors the TM generator's fromDynamicForPrimitive
+// but kept local since the component generator has its own scope.
+function commandArgFromDynamic(typeName: string, expr: string): string {
+  switch (typeName) {
+    case 'StringTypeAnnotation':
+      return `${expr}.asString()`;
+    case 'BooleanTypeAnnotation':
+      return `${expr}.asBool()`;
+    case 'NumberTypeAnnotation':
+    case 'DoubleTypeAnnotation':
+    case 'FloatTypeAnnotation':
+      return `${expr}.asDouble()`;
+    case 'Int32TypeAnnotation':
+      return `static_cast<int32_t>(${expr}.asInt())`;
+    default:
+      throw new Error(`No command-arg fromDynamic mapping for ${typeName}`);
+  }
+}
+
+function renderCommandsHelper(componentName: string, commands: CommandShape[]): string[] {
+  const lines: string[] = [];
+  lines.push("// JS-dispatched imperative commands. Forward your view's ");
+  lines.push('// handleCommand override into this helper; each spec command');
+  lines.push('// unpacks its args from `folly::dynamic` and calls the matching');
+  lines.push('// method on `view`. The view is templated so any concrete');
+  lines.push('// LinuxComponentView subclass with the right methods plugs in.');
+  lines.push('template <typename ViewT>');
+  lines.push(
+    `inline void ${componentName}HandleCommand(ViewT& view, const std::string& commandName, const folly::dynamic& args) {`,
+  );
+  for (const cmd of commands) {
+    const params = cmd.typeAnnotation.params ?? [];
+    lines.push(`  if (commandName == ${quoteCppString(cmd.name)}) {`);
+    if (params.length > 0) {
+      lines.push(`    if (args.size() < ${params.length}) return;`);
+    }
+    const callArgs: string[] = [];
+    params.forEach((p, i) => {
+      let argType = p.typeAnnotation;
+      if (argType.type === 'NullableTypeAnnotation') {
+        argType = (argType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+      }
+      const expr = commandArgFromDynamic(argType.type, `args[${i}]`);
+      const localName = p.name || `arg${i}`;
+      lines.push(`    auto ${localName} = ${expr};`);
+      callArgs.push(`std::move(${localName})`);
+    });
+    lines.push(`    view.${cmd.name}(${callArgs.join(', ')});`);
+    lines.push('    return;');
+    lines.push('  }');
+  }
+  lines.push('  (void)view;');
+  lines.push('  (void)args;');
+  lines.push('}');
   return lines;
 }
 

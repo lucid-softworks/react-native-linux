@@ -1,5 +1,6 @@
 import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
-import type {ColorValue, ViewProps} from 'react-native';
+import codegenNativeCommands from 'react-native/Libraries/Utilities/codegenNativeCommands';
+import type {ColorValue, HostComponent, ViewProps} from 'react-native';
 import type {ImageSource} from 'react-native/Libraries/Image/ImageSource';
 import type {
   Int32,
@@ -33,5 +34,19 @@ interface NativeProps extends ViewProps {
   level?: WithDefault<0 | 1 | 2, 0>;
   onValueChange?: DirectEventHandler<ValueChangeEvent>;
 }
+
+interface NativeCommands {
+  // Compile-tests the commands codegen helper end-to-end.
+  focus: (viewRef: React.ElementRef<HostComponent<NativeProps>>) => void;
+  setValue: (
+    viewRef: React.ElementRef<HostComponent<NativeProps>>,
+    value: string,
+    force: boolean,
+  ) => void;
+}
+
+export const Commands = codegenNativeCommands<NativeCommands>({
+  supportedCommands: ['focus', 'setValue'],
+});
 
 export default codegenNativeComponent<NativeProps>('CodegenSmokeView') as unknown;

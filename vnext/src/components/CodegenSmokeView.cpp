@@ -45,5 +45,33 @@ static_assert(static_cast<int32_t>(SmokeLevel::K0) == 0);
 static_assert(static_cast<int32_t>(SmokeLevel::K1) == 1);
 static_assert(static_cast<int32_t>(SmokeLevel::K2) == 2);
 
+// Commands round-trip: stub view exposes matching methods, the
+// generated dispatcher dispatches by name. ODR-using the helper +
+// instantiating it on the stub forces every code path through the
+// compiler.
+namespace {
+
+struct StubCommandView {
+  int focusCount = 0;
+  int setValueCount = 0;
+  std::string lastValue;
+  bool lastForce = false;
+
+  void focus() { ++focusCount; }
+  void setValue(std::string value, bool force) {
+    ++setValueCount;
+    lastValue = std::move(value);
+    lastForce = force;
+  }
+};
+
+[[maybe_unused]] void smokeCommandDispatch() {
+  StubCommandView stub;
+  codegen::CodegenSmokeViewHandleCommand(stub, "focus", folly::dynamic::array());
+  codegen::CodegenSmokeViewHandleCommand(stub, "setValue", folly::dynamic::array("hello", true));
+}
+
+} // namespace
+
 } // namespace
 } // namespace rnlinux

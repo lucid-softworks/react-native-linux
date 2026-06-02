@@ -1,11 +1,14 @@
 #include "LinuxSchedulerDelegate.h"
 
+#include "LinuxComponentView.h"
+#include "LinuxComponentViewRegistry.h"
 #include "LinuxMountingManager.h"
 #include "react-native-linux/Logging.h"
 
 #include <gtk/gtk.h>
 #include <react/renderer/mounting/MountingCoordinator.h>
 #include <react/renderer/mounting/MountingTransaction.h>
+#include <react/renderer/mounting/ShadowView.h>
 
 namespace rnlinux {
 
@@ -85,12 +88,20 @@ void LinuxSchedulerDelegate::schedulerShouldMergeReactRevision(
 }
 
 void LinuxSchedulerDelegate::schedulerDidDispatchCommand(
-    const facebook::react::ShadowView& /*shadowView*/,
+    const facebook::react::ShadowView& shadowView,
     const std::string& commandName,
-    const folly::dynamic& /*args*/) {
-  RNL_LOGI("SchedulerDelegate") << "dispatchCommand: " << commandName << " (no handler yet)";
-  // TODO (Phase 9): route to LinuxComponentView::dispatchCommand once we
-  // support `focus()` / `scrollTo()` / etc.
+    const folly::dynamic& args) {
+  if (!mountingManager_) {
+    RNL_LOGW("SchedulerDelegate") << "dispatchCommand " << commandName << ": no mounting manager";
+    return;
+  }
+  auto* view = mountingManager_->registry().lookup(shadowView.tag);
+  if (!view) {
+    RNL_LOGW("SchedulerDelegate") << "dispatchCommand " << commandName << ": tag " << shadowView.tag
+                                  << " not in registry";
+    return;
+  }
+  view->handleCommand(commandName, args);
 }
 
 void LinuxSchedulerDelegate::schedulerDidSendAccessibilityEvent(
