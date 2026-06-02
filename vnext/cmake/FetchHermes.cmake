@@ -18,8 +18,8 @@ endif()
 # string of the form `hermes-YYYY-MM-DD-RNvX.Y.Z-<sha>`. We pin the
 # <sha> part directly because the literal `hermes-…-<sha>` string is
 # RN's vendoring tag, not a tag on facebook/hermes.
-set(HERMES_COMMIT "d5272104d38b7565a9b477ab422be2525d680503"
-    CACHE STRING "Hermes git commit to fetch (matches RN 0.85 .hermesversion = hermes-v0.16.0)")
+set(HERMES_COMMIT "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    CACHE STRING "Hermes git commit to fetch (matches RN 0.81 .hermesversion = hermes-2025-07-07-RNv0.81.0)")
 
 FetchContent_Declare(hermes
   GIT_REPOSITORY https://github.com/facebook/hermes.git

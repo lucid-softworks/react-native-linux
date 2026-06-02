@@ -81,12 +81,6 @@ void LinuxSchedulerDelegate::schedulerDidRequestPreliminaryViewAllocation(
   // commit. GTK widget construction is cheap, so a no-op is fine.
 }
 
-void LinuxSchedulerDelegate::schedulerShouldMergeReactRevision(
-    facebook::react::SurfaceId /*surfaceId*/) {
-  // New in 0.85 — React Server Components / View Transitions hook.
-  // No-op until we plumb revision metadata into the C++ side.
-}
-
 void LinuxSchedulerDelegate::schedulerDidDispatchCommand(
     const facebook::react::ShadowView& shadowView,
     const std::string& commandName,

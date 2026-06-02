@@ -26,7 +26,7 @@
     "test": "jest --passWithNoTests"
   },
   "dependencies": {
-    "@react-native/codegen": "*"
+    "@react-native/codegen": "^0.81.6"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
