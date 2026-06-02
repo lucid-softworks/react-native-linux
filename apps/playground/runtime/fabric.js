@@ -157,20 +157,22 @@ function runApplication(moduleName, parameters, _displayMode) {
   tryMount();
 }
 
-// Phase 2 of the EventEmitter migration. The C++ side dispatches
-// events through `eventEmitter_->dispatchEvent(name, payload)`; we
-// register an `nativeFabricUIManager.registerEventHandler` here that
-// the standard `UIManagerBinding::dispatchEvent` invokes with three
-// args: the fiber's instanceHandle, the event-type string, and the
-// payload object. We map the event type → prop name (`topClick` /
-// `click` → `onClick`), walk the fiber from instanceHandle up via
-// `fiber.return`, and invoke the first ancestor's `on<Name>` prop
-// with a synthetic-event-shaped payload (mirrors what the legacy
-// tag-registry path was producing via `makeSyntheticEvent`).
+// Fabric event dispatcher. The C++ side calls
+// `eventEmitter_->dispatchEvent(name, payload)` and the standard
+// `UIManagerBinding::dispatchEvent` invokes the handler registered
+// below with three args: the fiber's instanceHandle, the event-type
+// string, and the payload object. We map the event type → prop name
+// (`topClick` / `click` → `onClick`), then dispatch through React
+// Native's capture-then-bubble pipeline: capture-phase handlers
+// (`on<Name>Capture`) fire root→target, then bubble-phase handlers
+// (`on<Name>`) fire target→root. `event.stopPropagation()` halts the
+// remaining traversal — same semantics RN/Web userland already
+// expects.
 //
-// "First handler wins" mirrors the legacy tag-registry behavior;
-// React Native's full bubble + capture + stopPropagation semantics
-// land in a follow-up.
+// A couple of events (`changeText`, `valueChange`) don't bubble in
+// the RN model — their user-facing signature is `(text)` / `(value)`,
+// not a synthetic event. Those keep the legacy "first-match wins,
+// no propagation" walk.
 function eventTypeToPropName(type) {
   // `topX` is React Native's older internal prefix; modern Fabric
   // strips it but some bindings still emit it. Drop the prefix
@@ -193,6 +195,12 @@ function makeSyntheticFabricEvent(type, payload) {
     cancelable: true,
     defaultPrevented: false,
     _propagationStopped: false,
+    // currentTarget is rewritten per fiber as the dispatcher walks
+    // the ancestor chain; target stays pinned at the originating
+    // instanceHandle for the lifetime of the event. Both default to
+    // null so handlers that read them early don't crash.
+    target: null,
+    currentTarget: null,
     preventDefault() {
       this.defaultPrevented = true;
     },
@@ -221,22 +229,113 @@ function handlerArgForEvent(type, payload, syntheticEvent) {
   }
 }
 
+// Walk fiber.return collecting every ancestor up to root. Capped at
+// 64 to keep pathological trees from spinning the JS thread.
+function collectFiberChain(target) {
+  const chain = [];
+  let fiber = target;
+  while (fiber && chain.length < 64) {
+    chain.push(fiber);
+    fiber = fiber.return;
+  }
+  if (fiber) {
+    rnLinux.log('warn', '[fabric-events] chain truncated at 64 ancestors');
+  }
+  return chain;
+}
+
+function invokeHandler(handler, event, fiber, propName) {
+  // currentTarget rotates per fiber so handlers that introspect it
+  // see "the fiber my prop is attached to" rather than the original
+  // target. Same contract React DOM gives.
+  event.currentTarget = fiber;
+  try {
+    handler(event);
+  } catch (e) {
+    rnLinux.log('error', '[fabric-events] ' + propName + ' threw: ' + String(e));
+  }
+}
+
+// GTK4 propagates pointer events to every <View> ancestor's gesture
+// controller in BUBBLE order (deepest first). Each ancestor fires its
+// own event with a different `instanceHandle`, and our fiber walk
+// would re-run bubble for each one — userland would see a child
+// Pressable's onPress AND each parent's onClick, with duplicates per
+// gesture in the chain. The bubble walk from the deepest event
+// already visits every ancestor's `on<Name>` prop through the fiber
+// tree, so we dedupe the burst to a single dispatch per physical
+// action. Only the GTK-propagating pointer events need this; layout,
+// scroll, change, focus/blur, etc. are single-fire by construction.
+const GESTURE_BURST_TYPES = new Set([
+  'click',
+  'topClick',
+  'longPress',
+  'topLongPress',
+  'hoverIn',
+  'topHoverIn',
+  'hoverOut',
+  'topHoverOut',
+]);
+// Last fiber we accepted a gesture-burst event for. Detection of "is
+// this a duplicate from the same physical click?" walks the new
+// fiber's `return` chain looking for `lastBurstFiber`. If found, the
+// new event is an ANCESTOR of the previous one — i.e. the parent
+// View's GtkGesture re-firing for the same click — and we drop it.
+// The flag clears on a setTimeout(0) tick so the next idle round
+// (different physical action) starts fresh; queueMicrotask is too
+// aggressive — Hermes drains microtasks between consecutive event
+// dispatches inside the EventQueue flush loop.
+const lastBurst = {fiber: null, type: null, scheduled: false};
+function fiberHasAncestor(descendant, ancestor) {
+  let f = descendant;
+  let depth = 0;
+  while (f && depth < 64) {
+    if (f === ancestor) return true;
+    f = f.return;
+    depth++;
+  }
+  return false;
+}
+function isAncestorGestureBurst(type, instanceHandle) {
+  if (!GESTURE_BURST_TYPES.has(type)) return false;
+  if (
+    lastBurst.fiber &&
+    lastBurst.type === type &&
+    fiberHasAncestor(lastBurst.fiber, instanceHandle)
+  ) {
+    return true;
+  }
+  lastBurst.fiber = instanceHandle;
+  lastBurst.type = type;
+  if (!lastBurst.scheduled) {
+    lastBurst.scheduled = true;
+    setTimeout(() => {
+      lastBurst.fiber = null;
+      lastBurst.type = null;
+      lastBurst.scheduled = false;
+    }, 0);
+  }
+  return false;
+}
+
 function dispatchFabricEvent(instanceHandle, type, payload) {
   if (instanceHandle == null) return;
+  if (isAncestorGestureBurst(type, instanceHandle)) return;
   const propName = eventTypeToPropName(type);
   const event = makeSyntheticFabricEvent(type, payload);
   const handlerArg = handlerArgForEvent(type, payload, event);
-  // React fibers thread the tree via `return`. Each fiber's
-  // `memoizedProps` is the committed prop bag (`pendingProps` is
-  // mid-render). Walk until we find a fiber whose props carry an
-  // `on<Name>` function — that's the first ancestor that registered
-  // a handler for this event.
-  let fiber = instanceHandle;
-  let depth = 0;
-  while (fiber) {
-    const props = fiber.memoizedProps || fiber.pendingProps;
-    if (props) {
-      const handler = props[propName];
+
+  // Bare-payload events (changeText, valueChange) — RN delivers a
+  // plain string / bool, the handler has no synthetic event to call
+  // stopPropagation on, and the upstream RN behavior is "fire on the
+  // immediate component, nothing else." Walk to the first matching
+  // ancestor and stop.
+  if (handlerArg !== event) {
+    let fiber = instanceHandle;
+    let depth = 0;
+    while (fiber && depth < 64) {
+      const props = fiber.memoizedProps || fiber.pendingProps;
+      const handler = props && props[propName];
       if (typeof handler === 'function') {
         try {
           handler(handlerArg);
@@ -245,13 +344,51 @@ function dispatchFabricEvent(instanceHandle, type, payload) {
         }
         return;
       }
+      fiber = fiber.return;
+      depth++;
     }
-    fiber = fiber.return;
-    depth++;
-    if (depth > 64) {
-      // Pathological tree; bail rather than spin.
-      rnLinux.log('warn', '[fabric-events] ' + type + ' walk exceeded 64 ancestors');
-      return;
+    return;
+  }
+
+  // Full capture + bubble pipeline for synthetic-event handlers.
+  event.target = instanceHandle;
+  const chain = collectFiberChain(instanceHandle);
+  const captureName = propName + 'Capture';
+  // React's forwardRef / wrapper components carry the SAME `onClick`
+  // (and `onClickCapture`) function down to the host child they
+  // render. Walking the fiber chain would therefore invoke the same
+  // handler twice — once on the wrapper FC fiber, once on the host
+  // fiber. Track invoked handler identities per phase and skip
+  // repeats. (Same per-phase set is correct: a user installing the
+  // identical function as both Capture and bubble is intentional —
+  // those run in different phases.)
+  const seenCapture = new Set();
+  const seenBubble = new Set();
+
+  // Capture phase: root → target. Invokes `on<Name>Capture` props the
+  // parents installed to peek at the event before children handle it.
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (event._propagationStopped) return;
+    const fiber = chain[i];
+    const props = fiber.memoizedProps || fiber.pendingProps;
+    const handler = props && props[captureName];
+    if (typeof handler === 'function' && !seenCapture.has(handler)) {
+      seenCapture.add(handler);
+      invokeHandler(handler, event, fiber, captureName);
+    }
+  }
+
+  // Bubble phase: target → root. Standard `on<Name>` propagation.
+  // A handler can call event.stopPropagation() to halt the walk
+  // before the next ancestor fires — same contract as React DOM.
+  for (let i = 0; i < chain.length; i++) {
+    if (event._propagationStopped) return;
+    const fiber = chain[i];
+    const props = fiber.memoizedProps || fiber.pendingProps;
+    const handler = props && props[propName];
+    if (typeof handler === 'function' && !seenBubble.has(handler)) {
+      seenBubble.add(handler);
+      invokeHandler(handler, event, fiber, propName);
     }
   }
 }
