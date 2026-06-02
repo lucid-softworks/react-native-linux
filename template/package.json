@@ -14,7 +14,7 @@
     "@lucid-softworks/react-native-linux": "workspace:*"
   },
   "devDependencies": {
-    "@babel/core": "^7.24.0",
+    "@babel/core": "^7.29.7",
     "@babel/preset-env": "^7.24.0",
     "@babel/runtime": "^7.24.0",
     "@lucid-softworks/react-native-linux-cli": "workspace:*",
