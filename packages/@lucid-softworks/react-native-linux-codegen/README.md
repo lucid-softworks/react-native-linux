@@ -164,7 +164,8 @@ for a worked hand-written example of the same pattern.
 | Bubble events                                  | (treated as direct today)                                                                                     |
 | `ViewProps` extension                          | ✓                                                                                                             |
 | `ImageSource` (ImageSourcePrimitive)           | `facebook::react::ImageSource`                                                                                |
-| Object / Array props                           | ✗ throws                                                                                                      |
+| Object prop                                    | generated `struct` with `toDynamic` + `static fromDynamic` + ADL `fromRawValue` (recursive)                   |
+| `Array<T>` prop                                | `std::vector<T>` (T is primitive or generated item struct)                                                    |
 | `WithDefault<0\|1\|..., 0>` (Int32Enum)        | `enum class <Comp><Prop> : int32_t` + int-keyed `fromRawValue`                                                |
 | Commands (`codegenNativeCommands<...>`)        | templated `<Name>HandleCommand(view, name, args)` dispatcher; runtime via `LinuxComponentView::handleCommand` |
 
@@ -176,12 +177,10 @@ for a worked hand-written example of the same pattern.
   needs a sync return value, the generator would have to capture
   `rt_` by-pointer and document the call-from-JS-thread constraint.
 - `schema.aliasMap` name reuse. Inline anonymous objects get
-  path-derived names today (`<Method>Result_<Field>`). When the
+  path-derived names today (`<Method>Result_<Field>` on the TM
+  side, `<Comp><Prop>_<Field>` on the component side). When the
   spec defines a named type alias, the generator could use the
-  alias name directly and dedupe across methods.
-- Object / Array props on Fabric components. Less common than
-  on TurboModules; would mirror the TM-side StructCollector
-  pattern.
+  alias name directly and dedupe across methods/components.
 
 ## Compile-time guard
 

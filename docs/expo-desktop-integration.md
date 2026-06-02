@@ -268,15 +268,21 @@ callbacks. Remaining edges:
    get synthesized names today (`<Method>Result_<Field>`). Named
    type aliases would get the alias name verbatim, deduping the
    struct list when the same shape appears under multiple methods.
-3. **Fabric component coverage.** The component generator lowers
-   primitive props + Color/Point/EdgeInsets/Dimension/ImageSource
-   reserved types + String + Int32 enums + primitive-payload
-   events to typed C++, plus a `<Name>HandleCommand(view, name,
-args)` dispatcher for `codegenNativeCommands` (wired through
-   `LinuxComponentView::handleCommand` →
-   `LinuxSchedulerDelegate::schedulerDidDispatchCommand`). Only
-   Object / Array props on Fabric components remain unimplemented.
-   None block `expo-desktop-modules-core` itself.
+3. **Fabric component coverage.** The component generator handles
+   every prop shape the upstream codegen schema emits: primitives,
+   `ColorPrimitive`/`PointPrimitive`/`EdgeInsetsPrimitive`/
+   `DimensionPrimitive`/`ImageSourcePrimitive` reserved types,
+   String + Int32 enums (typed `enum class` + ADL `fromRawValue`),
+   Object props (generated `<Comp><Prop>` struct + `toDynamic`/
+   `fromDynamic`/`fromRawValue`), and `Array<T>` props
+   (`std::vector<T>` with item-struct generation when T is an
+   object). Events lower to typed `<Name><Event>` structs + emitter
+   methods; `codegenNativeCommands` produces a `<Name>HandleCommand`
+   dispatcher wired through `LinuxComponentView::handleCommand` →
+   `LinuxSchedulerDelegate::schedulerDidDispatchCommand`. Nothing
+   in the standard component spec surface blocks
+   `expo-desktop-modules-core` or downstream view-shipping Expo
+   packages today.
 
 **JS-side fallback** for anything the codegen can't yet express:
 `@lucid-softworks/react-native-linux-expo/expo-modules-core.js`
