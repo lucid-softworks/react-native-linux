@@ -100,7 +100,13 @@ a single `getConstants()` virtual.
 Verified against the upstream `expo-desktop-modules-core` spec files
 (`NativeExpoMainRuntimeInstaller.ts`, `NativeNativeUnimoduleProxy.ts`):
 both lower to valid C++ headers with the `install<Impl>()` registration
-helper. Consumer-side hookup is a static-init slot per module:
+helper. Runtime-verified end-to-end via
+`apps/playground/codegen-runtime-smoke.tsx` (`RN_ENTRY=codegen-runtime-smoke.tsx`)
+which dispatches every emitted code path (sync primitive, object in/out,
+`Promise<void>`, `Promise<typed object>`, void callback, void callback
+with object arg, non-void sync callback) and confirms each round-trip
+succeeds on the live Hermes runtime. Consumer-side hookup is a static-init
+slot per module:
 
 ```cpp
 [[maybe_unused]] static const int kRegisterInstaller =
