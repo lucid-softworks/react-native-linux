@@ -16,7 +16,7 @@ Decisions locked in (2026-05-21):
 
 Working end-to-end, verified live in the playground:
 
-- **Components:** View, ScrollView, Image (file:// + HTTP via libsoup3), Text (Pango-backed measurement), TextInput (GtkText + onChangeText), Pressable, Button, FlatList (header / footer / separators / numColumns), Modal (in-window overlay).
+- **Components:** View, ScrollView, Image (file:// + HTTP via libsoup3) + ImageBackground + `Image.getSize/prefetch/queryCache/clearMemoryCache/clearDiskCache/resolveAssetSource` statics, Text (Pango-backed measurement), TextInput (GtkText + onChangeText), Pressable (`pressed` / `hovered` tracked via touchStart/End/Cancel + hoverIn/Out, useState-driven render-prop form), TouchableOpacity / TouchableHighlight / TouchableWithoutFeedback (Pressable wrappers with the documented overlay), Button, FlatList (header / footer / separators / numColumns), Modal (in-window overlay).
 - **Styling:** `style={…}` / `style={[a, b]}` / `StyleSheet.create`. backgroundColor, color, fontSize, fontFamily, fontWeight, fontStyle, textAlign, borderRadius (per corner), borderWidth (per side), borderColor, opacity.
 - **Layout:** Yoga flexbox — flex, flexDirection, flexWrap, gap, justifyContent, alignItems / Self / Content, padding, margin, position absolute.
 - **Events:** onClick / onPress via GtkGestureClick → `dispatchFabricClick(tag)` registry; onChangeText via `dispatchFabricChangeText(tag, s)`.
@@ -148,7 +148,7 @@ Now that Hermes runs on its own pthread, every blocking native module that's rea
 
 In priority order — `[x]` = wired today, `[~]` = present but with known gaps, `[ ]` = not started.
 
-- [x] `View` / `Text` / `ScrollView` / `Image` / `TextInput` / `Pressable` / `Button` / `FlatList` / `Modal` (see status snapshot above)
+- [x] `View` / `Text` / `ScrollView` / `Image` / `TextInput` / `Pressable` / `TouchableOpacity` / `TouchableHighlight` / `TouchableWithoutFeedback` / `Button` / `FlatList` / `Modal` / `ImageBackground` (see status snapshot above)
 - [x] `StyleSheet.create / flatten / compose / hairlineWidth / absoluteFill`
 - [x] `Animated` (Value / timing / sequence / parallel / loop / interpolate / Easing) + `Animated.View / Text / Image / ScrollView` — JS driver default; native driver wired via `rnLinux.setNativeProp` + `setNativeProps` for opacity / transform.translateX/Y / scale / scaleX / scaleY. `useNativeDriver: true` is honored (per-host microtask-coalesced flush — see a1a84824). `interpolate({outputRange: ['red', 'blue']})` does real RGB lerp now (24a4c278) instead of snapping at the midpoint.
 - [x] Platform.OS = 'linux', Platform.select; Dimensions / Appearance / useColorScheme stubs

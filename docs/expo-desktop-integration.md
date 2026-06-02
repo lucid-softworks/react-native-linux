@@ -188,13 +188,18 @@ own `resolveRequest`.
 
 | Dimension      | rn-linux pin                                     | expo-desktop catalog band          |
 | -------------- | ------------------------------------------------ | ---------------------------------- |
-| `react-native` | `^0.85.3`                                        | `0.81 / 0.82 / 0.83 / 0.84 / 0.85` |
+| `react-native` | `^0.81.6`                                        | `0.81 / 0.82 / 0.83 / 0.84 / 0.85` |
 | `react`        | `19.2.3`                                         | `19.1 / 19.2`                      |
-| JS engine      | Hermes 0.12                                      | Hermes (platform binaries)         |
+| JS engine      | Hermes (RN 0.81's pinned commit `e0fc6714…`)     | Hermes (platform binaries)         |
 | `expo` peer    | `@expo/config` >=12, `@expo/config-plugins` >=54 | same                               |
 
-rn-linux sits at the top of expo-desktop's supported band on both
-RN and React. Hermes is shared. No version-level blocker.
+rn-linux sits at the bottom of expo-desktop's supported band on
+RN — chosen so dropping us into an existing 0.81 Expo app doesn't
+force the rest of the app to bump. React stays at 19.2.3 because
+RN 0.81 declares `react ^19.1.0` (which 19.2.3 satisfies), so
+none of the React-19-era reconciler features (6-arg cloneInstance,
+the modern createContainer signature) had to revert. Hermes is
+shared. No version-level blocker.
 
 ### Hermes globals
 
