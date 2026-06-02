@@ -203,10 +203,29 @@ function makeSyntheticFabricEvent(type, payload) {
   };
 }
 
+// Most RN events pass a synthetic event to the handler. A few don't:
+// onChangeText receives the plain text string, onValueChange (Switch)
+// receives the new bool. handlerArgForEvent picks the right shape for
+// each event type. The C++ side dispatches a folly::dynamic payload
+// regardless; this is purely the JS-side userland-API translation.
+function handlerArgForEvent(type, payload, syntheticEvent) {
+  switch (type) {
+    case 'changeText':
+    case 'topChangeText':
+      return payload && payload.text != null ? payload.text : '';
+    case 'valueChange':
+    case 'topValueChange':
+      return payload ? !!payload.value : false;
+    default:
+      return syntheticEvent;
+  }
+}
+
 function dispatchFabricEvent(instanceHandle, type, payload) {
   if (instanceHandle == null) return;
   const propName = eventTypeToPropName(type);
   const event = makeSyntheticFabricEvent(type, payload);
+  const handlerArg = handlerArgForEvent(type, payload, event);
   // React fibers thread the tree via `return`. Each fiber's
   // `memoizedProps` is the committed prop bag (`pendingProps` is
   // mid-render). Walk until we find a fiber whose props carry an
@@ -220,7 +239,7 @@ function dispatchFabricEvent(instanceHandle, type, payload) {
       const handler = props[propName];
       if (typeof handler === 'function') {
         try {
-          handler(event);
+          handler(handlerArg);
         } catch (e) {
           rnLinux.log('error', '[fabric-events] ' + propName + ' threw: ' + String(e));
         }

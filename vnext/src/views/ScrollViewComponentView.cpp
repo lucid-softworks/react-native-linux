@@ -4,10 +4,12 @@
 #include "SurfaceClamp.h"
 #include "react-native-linux/Logging.h"
 
+#include <folly/dynamic.h>
 #include <gtk/gtk.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
+#include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/core/LayoutMetrics.h>
 #include <string>
 #include <unordered_map>
@@ -82,7 +84,9 @@ ScrollViewComponentView::ScrollViewComponentView(Tag tag)
     if (self->refreshing_)
       return;
     self->refreshing_ = true;
-    dispatchFabricRefresh(self->tag_);
+    if (auto emitter = self->eventEmitter()) {
+      emitter->dispatchEvent("refresh", folly::dynamic::object());
+    }
   };
   g_signal_connect(scrolledWindow_, "edge-overshot", G_CALLBACK(+onOvershot), this);
 
@@ -111,7 +115,14 @@ void ScrollViewComponentView::emitScroll() {
       vadj ? gtk_adjustment_get_upper(vadj) - gtk_adjustment_get_lower(vadj) : 0.0;
   const double viewportW = hadj ? gtk_adjustment_get_page_size(hadj) : 0.0;
   const double viewportH = vadj ? gtk_adjustment_get_page_size(vadj) : 0.0;
-  dispatchFabricScroll(tag_, offsetX, offsetY, contentW, contentH, viewportW, viewportH);
+  if (auto emitter = eventEmitter()) {
+    emitter->dispatchEvent(
+        "scroll",
+        folly::dynamic::object                                                         //
+        ("contentOffset", folly::dynamic::object("x", offsetX)("y", offsetY))          //
+        ("contentSize", folly::dynamic::object("width", contentW)("height", contentH)) //
+        ("layoutMeasurement", folly::dynamic::object("width", viewportW)("height", viewportH)));
+  }
 }
 
 ScrollViewComponentView::~ScrollViewComponentView() {

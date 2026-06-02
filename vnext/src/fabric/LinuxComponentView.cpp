@@ -3,7 +3,9 @@
 #include "../jsi/RnLinuxBindings.h"
 #include "react-native-linux/Logging.h"
 
+#include <folly/dynamic.h>
 #include <gtk/gtk.h>
+#include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/core/LayoutMetrics.h>
 
 namespace rnlinux {
@@ -85,12 +87,17 @@ void LinuxComponentView::updateLayoutMetrics(facebook::react::LayoutMetrics cons
   layoutWidth_ = newW;
   layoutHeight_ = newH;
 
-  // Fire onLayout to JS. Cheap no-op unless this tag has a registered
-  // handler. Real RN libraries (Paper's TextInput container measure,
-  // FlatList's viewport tracking, every "size yourself to children"
-  // wrapper) depend on this; without it inputContainerLayout-style
-  // state defaults stay stuck forever.
-  dispatchFabricLayout(tag_, newX, newY, newW, newH);
+  // Fire onLayout to JS via the real Fabric event pipeline (Phase 3).
+  // Real RN libraries (Paper's TextInput container measure, FlatList's
+  // viewport tracking, every "size yourself to children" wrapper)
+  // depend on this; without it inputContainerLayout-style state
+  // defaults stay stuck forever.
+  if (eventEmitter_) {
+    eventEmitter_->dispatchEvent(
+        "layout",
+        folly::dynamic::object(
+            "layout", folly::dynamic::object("x", newX)("y", newY)("width", newW)("height", newH)));
+  }
 }
 
 void LinuxComponentView::mountChild(LinuxComponentView& child, int /*index*/) {

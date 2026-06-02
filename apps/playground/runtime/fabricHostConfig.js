@@ -157,9 +157,10 @@ function flattenStyle(style, out) {
 
 function buildFabricProps(type, props) {
   // children/key/ref are React-internal; never forward to Fabric.
-  // onClick is a JS function — it can't survive serialization into
-  // ViewProps. We register it separately against the Fabric tag (see
-  // syncClickHandler) and strip it from the prop bag here.
+  // Event handlers (onClick, onChangeText, …) are functions — they're
+  // dropped generically by the `typeof === 'function'` guard below.
+  // The Phase 3 EventEmitter pipeline reads them straight off the
+  // React fiber's memoizedProps, so they never need to reach Fabric.
   // For <text>, text-style props (color/fontSize/…) ride along as
   // top-level Paragraph props — BaseTextProps parses them into the
   // Paragraph's textAttributes.
@@ -178,11 +179,10 @@ function buildFabricProps(type, props) {
   const out = {};
   for (const k in props) {
     if (k === 'children' || k === 'key' || k === 'ref') continue;
-    if (k === 'onClick' || k === 'style') continue;
-    if (k === 'onChangeText') continue;
-    if (k === 'onScroll') continue;
-    if (k === 'onRefresh' || k === 'refreshing') continue;
-    if (k === 'onSubmitEditing' || k === 'onKeyPress') continue;
+    if (k === 'style') continue;
+    // `refreshing` is a non-function prop we mirror into the C++ view
+    // via scrollViewSetRefreshing rather than forwarding to Fabric.
+    if (k === 'refreshing') continue;
     // Skip undefined values so the C++ prop converter falls back to
     // its declared default instead of seeing a present-but-undefined
     // entry. (E.g. FlatList destructures `horizontal` out of its
@@ -198,9 +198,9 @@ function buildFabricProps(type, props) {
     // for a top-level function ("JS Functions are not convertible to
     // dynamic"). Real RN libraries (react-native-paper's TextInput,
     // most ref-forwarding wrappers) pass handler / callback / ref
-    // functions as top-level props on the host element. We register
-    // the handlers we care about via separate sync* paths against the
-    // Fabric tag, so dropping them from the prop bag is correct.
+    // functions as top-level props on the host element. The Phase 3
+    // EventEmitter dispatcher reads event handlers straight off the
+    // React fiber, so dropping them from the Fabric prop bag is fine.
     if (typeof props[k] === 'function') continue;
     out[k] = props[k];
   }
@@ -218,103 +218,14 @@ function buildFabricProps(type, props) {
   return out;
 }
 
-// Synthetic-event factory for press / change / scroll callbacks. RN's
-// `GestureResponderEvent` is a SyntheticEvent with `stopPropagation`
-// and `preventDefault` methods + a `nativeEvent` bag. Userland reaches
-// for those — akari's auth Pressables (and many react-navigation
-// pressables) call `e.stopPropagation()` synchronously — so passing
-// `undefined` would crash with "Cannot read properties of undefined".
-// (Local alias so we can land this without touching the file-top
-// `noop` const — keeps the diff tight.)
-function makeSyntheticEvent(type, nativeEvent) {
-  return {
-    type: type || 'press',
-    nativeEvent: nativeEvent || {},
-    stopPropagation: noop,
-    preventDefault: noop,
-    persist: noop,
-    target: null,
-    currentTarget: null,
-    timeStamp: Date.now(),
-    bubbles: false,
-    cancelable: true,
-    defaultPrevented: false,
-    isTrusted: true,
-  };
-}
-
-// Push (or remove) a click handler for a Fabric tag into the JSI
-// registry the C++ ViewComponentView gesture controller consults.
-// dispatchFabricClick calls us with no arguments, so we wrap the
-// userland handler to feed it a synthetic event — without this any
-// `(e) => e.stopPropagation()` style handler dies on the first tap.
-function syncClickHandler(tag, props) {
-  const onClick = props && typeof props.onClick === 'function' ? props.onClick : null;
-  if (!onClick) {
-    rnLinux.fabricOnClick(tag, null);
-    return;
-  }
-  rnLinux.fabricOnClick(tag, () => onClick(makeSyntheticEvent('press')));
-}
-
-function syncChangeTextHandler(tag, props) {
-  const handler = props && typeof props.onChangeText === 'function' ? props.onChangeText : null;
-  rnLinux.fabricOnChangeText(tag, handler);
-}
-
-// onLongPress fires once after GtkGestureLongPress hits its hold
-// threshold. Wrap into a press-style synthetic event so handlers can
-// share code with onPress.
-function syncLongPressHandler(tag, props) {
-  const onLongPress = props && typeof props.onLongPress === 'function' ? props.onLongPress : null;
-  if (!onLongPress) {
-    rnLinux.fabricOnLongPress(tag, null);
-    return;
-  }
-  rnLinux.fabricOnLongPress(tag, () => onLongPress(makeSyntheticEvent('press')));
-}
-
-// Hover-in / hover-out come from GtkEventControllerMotion. Both
-// Pressable's `onHoverIn` / `onHoverOut` and bare RN web-style
-// `onMouseEnter` / `onMouseLeave` props are forwarded here so existing
-// cross-platform code paths line up.
-function syncHoverHandlers(tag, props) {
-  const onHoverIn =
-    props && typeof props.onHoverIn === 'function'
-      ? props.onHoverIn
-      : props && typeof props.onMouseEnter === 'function'
-        ? props.onMouseEnter
-        : null;
-  const onHoverOut =
-    props && typeof props.onHoverOut === 'function'
-      ? props.onHoverOut
-      : props && typeof props.onMouseLeave === 'function'
-        ? props.onMouseLeave
-        : null;
-  rnLinux.fabricOnHoverIn(
-    tag,
-    onHoverIn ? () => onHoverIn(makeSyntheticEvent('mouseenter')) : null,
-  );
-  rnLinux.fabricOnHoverOut(
-    tag,
-    onHoverOut ? () => onHoverOut(makeSyntheticEvent('mouseleave')) : null,
-  );
-}
-
-function syncScrollHandler(tag, props) {
-  const handler = props && typeof props.onScroll === 'function' ? props.onScroll : null;
-  rnLinux.fabricOnScroll(tag, handler);
-}
-
 // PanResponder native handler binder. Reads the three
 // onPanResponder*Native props produced by the PanResponder shim
 // and registers them against the per-tag pan registries the C++
-// GtkGestureDrag dispatches into. Unlike the click/long-press
-// handlers we don't wrap through makeSyntheticEvent —
-// dispatchFabricPan* already emits the full
-// `{nativeEvent, gestureState}` shape RN consumers read, so passing
-// it straight through skips a needless allocation per move (these
-// fire at pointer rate, sometimes >> 60 Hz).
+// GtkGestureDrag dispatches into. PanResponder is the one event
+// surface that still rides the tag-keyed JSI registry — the
+// React responder negotiation it implements isn't representable
+// as plain bubbling props, and dispatchFabricPan* already emits
+// the full `{nativeEvent, gestureState}` shape userland reads.
 function syncPanHandlers(tag, props) {
   const grant =
     props && typeof props.onPanResponderGrantNative === 'function'
@@ -334,59 +245,14 @@ function syncPanHandlers(tag, props) {
 }
 
 // RefreshControl bridge. The ScrollView shim flattens its
-// `refreshControl={<RefreshControl onRefresh refreshing />}` prop into
-// top-level `onRefresh` + `refreshing` (see components.js). Here we
-// (a) bind the handler against the Fabric tag and (b) mirror
-// `refreshing` into the C++ view so a sustained gesture only fires
-// onRefresh once per cycle.
-function syncRefreshHandler(tag, props) {
-  const onRefresh = props && typeof props.onRefresh === 'function' ? props.onRefresh : null;
-  rnLinux.fabricOnRefresh(tag, onRefresh ? () => onRefresh() : null);
-  const refreshing = !!(props && props.refreshing);
-  rnLinux.scrollViewSetRefreshing(tag, refreshing);
-}
-
-function syncFocusHandlers(tag, props) {
-  const onFocus = props && typeof props.onFocus === 'function' ? props.onFocus : null;
-  const onBlur = props && typeof props.onBlur === 'function' ? props.onBlur : null;
-  rnLinux.fabricOnFocus(tag, onFocus);
-  rnLinux.fabricOnBlur(tag, onBlur);
-}
-
-// onLayout lives on every host element type — register / unregister
-// per-tag so dispatchFabricLayout (called from
-// LinuxComponentView::updateLayoutMetrics) knows which tags need a
-// callback. Function identity changes across renders, so we re-bind
-// on every commit; the C++ side keeps a single shared_ptr<jsi::Function>
-// alive per tag.
-function syncLayoutHandler(tag, props) {
-  const handler = props && typeof props.onLayout === 'function' ? props.onLayout : null;
-  rnLinux.fabricOnLayout(tag, handler);
-}
-
-function syncSwitchHandler(tag, props) {
-  const handler = props && typeof props.onValueChange === 'function' ? props.onValueChange : null;
-  rnLinux.fabricOnSwitchChange(tag, handler);
-}
-
-function syncSubmitEditingHandler(tag, props) {
-  const handler =
-    props && typeof props.onSubmitEditing === 'function' ? props.onSubmitEditing : null;
-  rnLinux.fabricOnSubmitEditing(tag, handler);
-}
-
-// onKeyPress is fired with a raw `key` string. We wrap into the
-// RN-shaped {nativeEvent: {key}} object so userland code that reads
-// `e.nativeEvent.key` works unchanged.
-function syncKeyPressHandler(tag, props) {
-  const user = props && typeof props.onKeyPress === 'function' ? props.onKeyPress : null;
-  if (!user) {
-    rnLinux.fabricOnKeyPress(tag, null);
-    return;
-  }
-  rnLinux.fabricOnKeyPress(tag, key => {
-    user({nativeEvent: {key}});
-  });
+// `refreshControl={<RefreshControl onRefresh refreshing />}` prop
+// into top-level `onRefresh` + `refreshing` (see components.js).
+// `onRefresh` itself flows through the Fabric event pipeline
+// (ScrollViewComponentView::onOvershot → `refresh` event); here we
+// only need to mirror `refreshing` into the C++ view so a sustained
+// gesture only fires onRefresh once per cycle.
+function syncRefreshingMirror(tag, props) {
+  rnLinux.scrollViewSetRefreshing(tag, !!(props && props.refreshing));
 }
 
 // Build the object react-reconciler sees as a host instance. Apps get
@@ -543,10 +409,7 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncLongPressHandler(tag, props);
-      syncHoverHandlers(tag, props);
       syncPanHandlers(tag, props);
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'View', type);
     }
 
@@ -559,9 +422,7 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncScrollHandler(tag, props);
-      syncRefreshHandler(tag, props);
-      syncLayoutHandler(tag, props);
+      syncRefreshingMirror(tag, props);
       return makeInstance(tag, fabricNode, 'ScrollView', type);
     }
 
@@ -574,7 +435,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'Image', type);
     }
 
@@ -587,11 +447,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncChangeTextHandler(tag, props);
-      syncSubmitEditingHandler(tag, props);
-      syncKeyPressHandler(tag, props);
-      syncFocusHandlers(tag, props);
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'TextInput', type);
     }
 
@@ -604,8 +459,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncSwitchHandler(tag, props);
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'Switch', type);
     }
 
@@ -618,7 +471,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'ActivityIndicator', type);
     }
 
@@ -631,7 +483,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'CameraView', type);
     }
 
@@ -647,7 +498,6 @@ const hostConfig = {
         buildFabricProps('text', props),
         internalInstanceHandle,
       );
-      syncLayoutHandler(tag, props);
       return makeInstance(tag, fabricNode, 'Paragraph', type);
     }
 
@@ -722,28 +572,18 @@ const hostConfig = {
     const fabricNode = keepChildren
       ? currentFabric.cloneNodeWithNewProps(currentInstance.fabricNode, fabricProps)
       : currentFabric.cloneNodeWithNewChildrenAndProps(currentInstance.fabricNode, fabricProps);
-    // Re-bind the click handler — JS function identity changes across
-    // renders, so we keep the C++ registry pointing at the freshest
-    // closure.
+    // Pan responder is the only event surface that still rides the
+    // tag-keyed JSI registry (PanResponder relies on the legacy
+    // responder negotiation it implements); rebind on every commit
+    // so the registry points at the freshest closure.
     if (type === 'view') {
-      syncLongPressHandler(currentInstance.tag, newProps);
-      syncHoverHandlers(currentInstance.tag, newProps);
       syncPanHandlers(currentInstance.tag, newProps);
     }
-    if (type === 'textinput') {
-      syncChangeTextHandler(currentInstance.tag, newProps);
-      syncSubmitEditingHandler(currentInstance.tag, newProps);
-      syncKeyPressHandler(currentInstance.tag, newProps);
-      syncFocusHandlers(currentInstance.tag, newProps);
-    }
+    // ScrollView mirrors `refreshing` into the C++ view so a sustained
+    // gesture only fires onRefresh once per cycle.
     if (type === 'scrollview') {
-      syncScrollHandler(currentInstance.tag, newProps);
-      syncRefreshHandler(currentInstance.tag, newProps);
+      syncRefreshingMirror(currentInstance.tag, newProps);
     }
-    if (type === 'switch') syncSwitchHandler(currentInstance.tag, newProps);
-    // onLayout lives on every host type; rebind on every commit so the
-    // freshest callback is in the registry.
-    syncLayoutHandler(currentInstance.tag, newProps);
     return makeInstance(currentInstance.tag, fabricNode, currentInstance.componentName, type);
   },
 

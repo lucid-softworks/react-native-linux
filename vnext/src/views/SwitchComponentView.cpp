@@ -3,7 +3,9 @@
 #include "../components/Switch.h"
 #include "../jsi/RnLinuxBindings.h"
 
+#include <folly/dynamic.h>
 #include <gtk/gtk.h>
+#include <react/renderer/core/EventEmitter.h>
 
 namespace rnlinux {
 
@@ -35,7 +37,13 @@ void SwitchComponentView::onActiveNotify(GtkWidget* widget,
   if (active == self->lastValue_)
     return;
   self->lastValue_ = active;
-  dispatchFabricSwitchChange(self->tag_, active);
+  // Phase 3: emit via the real Fabric event pipeline. The
+  // event name `valueChange` lines up with RN's standard Switch
+  // prop `onValueChange`. JS handler unwraps `payload.value`
+  // for the user.
+  if (auto emitter = self->eventEmitter()) {
+    emitter->dispatchEvent("valueChange", folly::dynamic::object("value", active));
+  }
 }
 
 void SwitchComponentView::updateProps(facebook::react::Props const& /*oldProps*/,

@@ -4,9 +4,11 @@
 #include "react-native-linux/Logging.h"
 
 #include <cstdio>
+#include <folly/dynamic.h>
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
 #include <react/renderer/components/iostextinput/TextInputProps.h>
+#include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/graphics/HostPlatformColor.h>
 #include <string>
 
@@ -95,13 +97,17 @@ gboolean onKeyPressed(GtkEventControllerKey* /*controller*/,
     const gint n = g_unichar_to_utf8(c, buf);
     s.assign(buf, n);
   }
-  dispatchFabricKeyPress(self->tag(), s);
+  if (auto emitter = self->eventEmitter()) {
+    emitter->dispatchEvent("keyPress", folly::dynamic::object("key", s));
+  }
   return FALSE; // don't swallow — let GtkText keep handling the key
 }
 
 void onActivate(GtkText* /*entry*/, gpointer userData) {
   auto* self = static_cast<TextInputComponentView*>(userData);
-  dispatchFabricSubmitEditing(self->tag());
+  if (auto emitter = self->eventEmitter()) {
+    emitter->dispatchEvent("submitEditing", folly::dynamic::object("text", self->lastText()));
+  }
 }
 } // namespace
 
@@ -145,7 +151,10 @@ TextInputComponentView::TextInputComponentView(Tag tag)
   g_signal_connect_data(focusCtl,
                         "enter",
                         G_CALLBACK(+[](GtkEventControllerFocus*, gpointer ud) {
-                          dispatchFabricFocus(static_cast<TextInputComponentView*>(ud)->tag());
+                          auto* self = static_cast<TextInputComponentView*>(ud);
+                          if (auto emitter = self->eventEmitter()) {
+                            emitter->dispatchEvent("focus", folly::dynamic::object());
+                          }
                         }),
                         this,
                         nullptr,
@@ -153,7 +162,10 @@ TextInputComponentView::TextInputComponentView(Tag tag)
   g_signal_connect_data(focusCtl,
                         "leave",
                         G_CALLBACK(+[](GtkEventControllerFocus*, gpointer ud) {
-                          dispatchFabricBlur(static_cast<TextInputComponentView*>(ud)->tag());
+                          auto* self = static_cast<TextInputComponentView*>(ud);
+                          if (auto emitter = self->eventEmitter()) {
+                            emitter->dispatchEvent("blur", folly::dynamic::object());
+                          }
                         }),
                         this,
                         nullptr,
@@ -222,7 +234,10 @@ void TextInputComponentView::onTextChanged(GtkWidget* editable, gpointer userDat
           auto* self2 = static_cast<TextInputComponentView*>(ud);
           self2->dispatchIdleId_ = 0;
           self2->lastDispatched_ = self2->lastText_;
-          dispatchFabricChangeText(self2->tag_, self2->lastDispatched_);
+          if (auto emitter = self2->eventEmitter()) {
+            emitter->dispatchEvent("changeText",
+                                   folly::dynamic::object("text", self2->lastDispatched_));
+          }
           return G_SOURCE_REMOVE;
         },
         self);

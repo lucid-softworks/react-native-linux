@@ -20,6 +20,11 @@ class TextInputComponentView final : public LinuxComponentView {
   void updateProps(facebook::react::Props const& oldProps,
                    facebook::react::Props const& newProps) override;
 
+  // Free-function GTK signal handlers in the .cpp need read access to the
+  // mirrored text for `submitEditing`; expose a const getter rather than
+  // friending each callback.
+  const std::string& lastText() const { return lastText_; }
+
  private:
   // Guard so programmatic gtk_editable_set_text from updateProps
   // doesn't re-enter and recurse via the changed signal.

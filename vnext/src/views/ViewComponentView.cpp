@@ -75,42 +75,52 @@ ViewComponentView::ViewComponentView(Tag tag)
       /*flags=*/static_cast<GConnectFlags>(0));
   gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(gesture));
 
-  // GtkGestureLongPress coexists with the click gesture — its "pressed"
-  // signal fires after the default hold threshold (~500 ms); a normal
-  // tap shorter than that still routes through click.released without
-  // triggering this one. dispatchFabricLongPress no-ops if JS hasn't
-  // registered a handler.
+  // GtkGestureLongPress coexists with the click gesture — its
+  // "pressed" signal fires after the default hold threshold
+  // (~500 ms); a normal tap routes through click.released without
+  // triggering this one. Dispatches through the Fabric event
+  // pipeline (Phase 3); JS handler walks the fiber tree to
+  // `onLongPress`.
   auto* longPress = gtk_gesture_long_press_new();
   g_signal_connect_data(
       longPress,
       "pressed",
-      G_CALLBACK(+[](GtkGestureLongPress* /*lp*/, double /*x*/, double /*y*/, gpointer ud) {
-        dispatchFabricLongPress(GPOINTER_TO_INT(ud));
+      G_CALLBACK(+[](GtkGestureLongPress* /*lp*/, double x, double y, gpointer ud) {
+        auto* self = static_cast<ViewComponentView*>(ud);
+        if (auto emitter = self->eventEmitter()) {
+          emitter->dispatchEvent("longPress",
+                                 folly::dynamic::object("locationX", x)("locationY", y));
+        }
       }),
-      GINT_TO_POINTER(static_cast<int>(tag)),
+      this,
       /*destroy=*/nullptr,
       /*flags=*/static_cast<GConnectFlags>(0));
   gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(longPress));
 
-  // GtkEventControllerMotion → onHoverIn / onHoverOut. Pointer-only by
-  // design (touch devices don't fire enter/leave), which matches RN's
-  // hover semantics exactly.
+  // GtkEventControllerMotion → `onHoverIn` / `onHoverOut`. Pointer-
+  // only by design; touch devices don't fire enter/leave.
   auto* motion = gtk_event_controller_motion_new();
   g_signal_connect_data(
       motion,
       "enter",
       G_CALLBACK(+[](GtkEventControllerMotion*, double /*x*/, double /*y*/, gpointer ud) {
-        dispatchFabricHoverIn(GPOINTER_TO_INT(ud));
+        auto* self = static_cast<ViewComponentView*>(ud);
+        if (auto emitter = self->eventEmitter()) {
+          emitter->dispatchEvent("hoverIn", folly::dynamic::object());
+        }
       }),
-      GINT_TO_POINTER(static_cast<int>(tag)),
+      this,
       /*destroy=*/nullptr,
       /*flags=*/static_cast<GConnectFlags>(0));
   g_signal_connect_data(motion,
                         "leave",
                         G_CALLBACK(+[](GtkEventControllerMotion*, gpointer ud) {
-                          dispatchFabricHoverOut(GPOINTER_TO_INT(ud));
+                          auto* self = static_cast<ViewComponentView*>(ud);
+                          if (auto emitter = self->eventEmitter()) {
+                            emitter->dispatchEvent("hoverOut", folly::dynamic::object());
+                          }
                         }),
-                        GINT_TO_POINTER(static_cast<int>(tag)),
+                        this,
                         /*destroy=*/nullptr,
                         /*flags=*/static_cast<GConnectFlags>(0));
   gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(motion));
