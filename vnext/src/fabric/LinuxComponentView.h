@@ -33,6 +33,14 @@ class LinuxComponentView {
   Tag tag() const { return tag_; }
   GtkWidget* widget() const { return widget_; }
 
+  // Accessor for the Fabric-installed event emitter. Returns a const
+  // pointer so callers can dispatch events but not mutate the emitter
+  // (assigning a new one is the host's job via `updateEventEmitter`).
+  // May be null between mount and the first updateEventEmitter call.
+  std::shared_ptr<facebook::react::EventEmitter const> eventEmitter() const {
+    return eventEmitter_;
+  }
+
   // Subclasses MUST call this after assigning widget_ in their
   // constructor. Ref-sinks the widget so its lifetime is tied to the
   // LinuxComponentView, not to whatever GtkFixed container it lands

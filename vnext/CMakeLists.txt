@@ -111,6 +111,7 @@ set(RNL_SOURCES
   src/AppContext.cpp
   src/fabric/LinuxComponentDescriptorRegistry.cpp
   src/fabric/ComponentBootstrap.cpp
+  src/fabric/IdleEventBeat.cpp
   src/fabric/LinuxSchedulerDelegate.cpp
   src/fabric/LinuxMountingManager.cpp
   src/fabric/LinuxComponentView.cpp

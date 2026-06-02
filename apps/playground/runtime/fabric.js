@@ -153,7 +153,55 @@ function runApplication(moduleName, parameters, _displayMode) {
     'info',
     '[fabric-render] runApplication module=' + moduleName + ' surface=' + parameters.rootTag,
   );
+  ensureFabricEventHandlerInstalled();
   tryMount();
+}
+
+// Phase 1 of the EventEmitter migration: install a `nativeFabricUIManager`
+// event handler that logs every event landing through the real Fabric
+// pipeline. No fiber walk + no `on<Name>` invocation yet — this exists
+// to verify that the chain `eventEmitter_->dispatchEvent → EventQueue
+// → IdleEventBeat::induce → RuntimeScheduler::scheduleWork → JS
+// thread → UIManagerBinding::dispatchEvent → this handler` actually
+// connects on the live runtime. The existing tag-registry dispatch
+// stays wired so user-visible behavior doesn't change.
+//
+// Phase 2 will swap one event (click) over: ViewComponentView calls
+// `emitter->dispatchEvent("click", ...)` instead of
+// `dispatchFabricClick(tag)`, and the handler here walks the fiber
+// tree from `eventTarget` to find the first ancestor with
+// `props.onClick`.
+let __fabricEventHandlerInstalled = false;
+function ensureFabricEventHandlerInstalled() {
+  if (__fabricEventHandlerInstalled) return;
+  const fabric = globalThis.nativeFabricUIManager;
+  if (!fabric || typeof fabric.registerEventHandler !== 'function') {
+    rnLinux.log(
+      'warn',
+      '[fabric-events] nativeFabricUIManager.registerEventHandler missing — Phase 1 wiring inert',
+    );
+    return;
+  }
+  fabric.registerEventHandler((eventTarget, type, _priority, payload) => {
+    // Phase 1 log only. Future phases dispatch to React event handlers
+    // by walking the fiber tree from `eventTarget`.
+    try {
+      const payloadJson =
+        payload === undefined || payload === null ? '' : ' payload=' + JSON.stringify(payload);
+      const targetTag =
+        eventTarget && typeof eventTarget === 'object' && 'tag' in eventTarget
+          ? eventTarget.tag
+          : '?';
+      rnLinux.log(
+        'info',
+        '[fabric-events] received type=' + type + ' target=' + targetTag + payloadJson,
+      );
+    } catch (e) {
+      rnLinux.log('error', '[fabric-events] handler threw: ' + String(e));
+    }
+  });
+  __fabricEventHandlerInstalled = true;
+  rnLinux.log('info', '[fabric-events] handler installed');
 }
 
 globalThis.RN$AppRegistry = {runApplication};

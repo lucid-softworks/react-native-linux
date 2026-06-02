@@ -1,5 +1,6 @@
 #include "react-native-linux/RNLinuxHost.h"
 
+#include "fabric/IdleEventBeat.h"
 #include "fabric/LinuxComponentDescriptorRegistry.h"
 #include "fabric/LinuxMountingManager.h"
 #include "fabric/LinuxSchedulerDelegate.h"
@@ -88,16 +89,6 @@ SyncBundleResult loadBundleSync(const std::string& url) {
   cv.wait(lk, [&] { return done; });
   return out;
 }
-
-// MVP EventBeat — does nothing. The base class' `request()` flips a flag,
-// `induce()` is a no-op, and we never actually deliver events through it.
-// Good enough to satisfy the Scheduler's "must be non-null" contract while
-// we don't have a JS thread. Real timers + GTK-driven beats land in Phase
-// 5.8.
-class NoopEventBeat final : public facebook::react::EventBeat {
- public:
-  using EventBeat::EventBeat;
-};
 
 } // namespace
 
@@ -214,13 +205,19 @@ void RNLinuxHost::start() {
       facebook::react::RuntimeSchedulerKey,
       std::weak_ptr<facebook::react::RuntimeScheduler>(impl_->runtimeScheduler));
 
-  // EventBeat factory: produce a noop beat. Sufficient to satisfy the
-  // Scheduler's non-null requirement; real event flow lands later.
+  // EventBeat factory: real glib-idle-driven beat that hops to JS via
+  // RuntimeScheduler::scheduleWork. Used by the EventQueue to coalesce
+  // event dispatch — when a view calls `eventEmitter_->dispatchEvent`,
+  // the queue calls our beat's `request()`, we schedule `induce()` on
+  // the GTK main loop, and `induce()` posts the beat callback to the
+  // JS thread where it walks back through `UIManagerBinding::dispatchEvent`
+  // into the JS handler registered via
+  // `nativeFabricUIManager.registerEventHandler`.
   auto& runtimeScheduler = *impl_->runtimeScheduler;
   toolbox.eventBeatFactory =
       [&runtimeScheduler](std::shared_ptr<facebook::react::EventBeat::OwnerBox> ownerBox)
       -> std::unique_ptr<facebook::react::EventBeat> {
-    return std::make_unique<NoopEventBeat>(std::move(ownerBox), runtimeScheduler);
+    return std::make_unique<IdleEventBeat>(std::move(ownerBox), runtimeScheduler);
   };
 
   impl_->scheduler = std::make_unique<facebook::react::Scheduler>(
