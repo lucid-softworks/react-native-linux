@@ -110,6 +110,7 @@ set(RNL_SOURCES
   src/CrashHandler.cpp
   src/AppContext.cpp
   src/fabric/LinuxComponentDescriptorRegistry.cpp
+  src/fabric/ComponentBootstrap.cpp
   src/fabric/LinuxSchedulerDelegate.cpp
   src/fabric/LinuxMountingManager.cpp
   src/fabric/LinuxComponentView.cpp

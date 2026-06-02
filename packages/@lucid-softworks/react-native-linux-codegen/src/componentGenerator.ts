@@ -446,6 +446,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   lines.push('#include <react/renderer/core/PropsParserContext.h>');
   lines.push('#include <react/renderer/core/RawValue.h>');
   lines.push('#include <react/renderer/core/propsConversions.h>');
+  lines.push('#include <react-native-linux/ComponentBootstrap.h>');
   lines.push('#include <react/renderer/graphics/Color.h>');
   lines.push('#include <react/renderer/graphics/Point.h>');
   lines.push('#include <react/renderer/graphics/RectangleEdges.h>');
@@ -580,16 +581,33 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
     lines.push('');
   }
 
-  // ─── Registration helper ────────────────────────────────────────
-  lines.push('// Register the descriptor on a ComponentDescriptorProviderRegistry. ');
-  lines.push('// Call from your component-registry bootstrap (or have it called by');
-  lines.push('// autolinked.cmake for third-party deps).');
+  // ─── Registration helpers ───────────────────────────────────────
+  // 1) Direct registration on a caller-supplied registry. Useful
+  //    for in-tree components that want explicit bootstrap order.
+  lines.push('// Direct registration on a caller-supplied registry. Useful for');
+  lines.push('// in-tree components that want explicit bootstrap order.');
   lines.push(
     `inline void register${componentName}(facebook::react::ComponentDescriptorProviderRegistry& registry) {`,
   );
   lines.push(
     `  registry.add(facebook::react::concreteComponentDescriptorProvider<${componentName}ComponentDescriptor>());`,
   );
+  lines.push('}');
+  lines.push('');
+  // 2) Static-init registration via LinuxComponentBootstrap. Drop
+  //    `static const int kReg<Name> = installComponent();` in your
+  //    impl TU and the descriptor lands in every host registry the
+  //    process builds. Same shape as TM's install<Impl>().
+  lines.push('// Static-init registration via LinuxComponentBootstrap. Drop');
+  lines.push('// `static const int kReg = installComponent();` in your impl TU and');
+  lines.push('// the descriptor lands in every host registry the process builds.');
+  lines.push("// Same shape as TM's install<Impl>().");
+  lines.push(`inline int installComponent() {`);
+  lines.push('  rnlinux::LinuxComponentBootstrap::registerInitializer(');
+  lines.push(`      [](facebook::react::ComponentDescriptorProviderRegistry& registry) {`);
+  lines.push(`        register${componentName}(registry);`);
+  lines.push('      });');
+  lines.push('  return 0;');
   lines.push('}');
   lines.push('');
   lines.push('} // namespace rnlinux::codegen');

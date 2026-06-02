@@ -4,6 +4,7 @@
 #include "../components/CameraView.h"
 #include "../components/Switch.h"
 #include "../components/TextInput.h"
+#include "react-native-linux/ComponentBootstrap.h"
 #include "react-native-linux/Logging.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProvider.h>
@@ -34,6 +35,11 @@ std::shared_ptr<ComponentDescriptorProviderRegistry> makeLinuxComponentDescripto
   registerCoreDescriptors(*registry);
   RNL_LOGI("ComponentDescriptorRegistry") << "registered core descriptors (View, Paragraph, "
                                              "RawText, Text, ScrollView, Image, TextInput)";
+  // Apply every initializer accumulated by codegen-emitted
+  // installComponent() calls — third-party autolinked components
+  // register through this hub and land here without anyone having
+  // to edit registerCoreDescriptors.
+  LinuxComponentBootstrap::applyAll(*registry);
   return registry;
 }
 

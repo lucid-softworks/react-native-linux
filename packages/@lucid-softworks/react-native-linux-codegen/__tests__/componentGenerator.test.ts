@@ -118,6 +118,17 @@ describe('generateComponent — FooView', () => {
       /registry\.add\(facebook::react::concreteComponentDescriptorProvider<FooViewComponentDescriptor>\(\)\)/,
     );
   });
+
+  test('emits installComponent() that pushes into LinuxComponentBootstrap', () => {
+    expect(header).toMatch(/inline int installComponent\(\) \{/);
+    expect(header).toMatch(/rnlinux::LinuxComponentBootstrap::registerInitializer\(/);
+    expect(header).toMatch(/registerFooView\(registry\);/);
+    expect(header).toMatch(/return 0;/);
+  });
+
+  test('includes ComponentBootstrap.h', () => {
+    expect(header).toMatch(/#include <react-native-linux\/ComponentBootstrap\.h>/);
+  });
 });
 
 describe('generateComponent — Reserved prop types', () => {

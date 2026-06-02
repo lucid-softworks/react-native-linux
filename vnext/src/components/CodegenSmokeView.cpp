@@ -79,6 +79,13 @@ struct StubCommandView {
   (void)back;
 }
 
+// Static-init registration. With this slot present, the smoke
+// component's descriptor lands in every host registry the process
+// builds — no edits to LinuxComponentDescriptorRegistry.cpp
+// required, mirroring how third-party autolinked components will
+// land via their own impl TUs.
+[[maybe_unused]] static const int kRegisterCodegenSmokeViewComponent = codegen::installComponent();
+
 [[maybe_unused]] void smokeCommandDispatch() {
   StubCommandView stub;
   codegen::CodegenSmokeViewHandleCommand(stub, "focus", folly::dynamic::array());
