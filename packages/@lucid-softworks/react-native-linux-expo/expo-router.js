@@ -701,16 +701,6 @@ module.exports = {
   NativeTabs: Object.assign(Tabs, {
     Trigger: Object.assign(Tabs.Screen, {Icon: Slot, Label: Slot}),
   }),
-  // expo-router/build/native-tabs additionally hoists Icon + Label
-  // as TOP-LEVEL named exports (`import {Icon, Label, NativeTabs}
-  // from "expo-router/build/native-tabs"`). Userland renders
-  // `<Icon sf="…" />` inside a `<NativeTabs.Trigger>`; without
-  // top-level slots they resolve to undefined and React throws
-  // "Element type is invalid" before the first frame. Same Slot
-  // (renders children, ignores SF Symbol / drawable props) covers
-  // both since we don't draw real icons on desktop yet.
-  Icon: Slot,
-  Label: Slot,
   Link,
   Slot,
   Redirect,
@@ -738,3 +728,18 @@ module.exports = {
   default: Stack,
   __esModule: true,
 };
+
+// expo-router/build/native-tabs additionally hoists Icon + Label as
+// TOP-LEVEL named exports (`import {Icon, Label, NativeTabs} from
+// "expo-router/build/native-tabs"`). Userland renders `<Icon …/>`
+// inside `<NativeTabs.Trigger>`; without top-level slots they
+// resolve to undefined and React throws "Element type is invalid"
+// before the first frame.
+//
+// We attach them via post-assign rather than inside the literal
+// above. Adding them as plain entries on the literal pushed the
+// vendor.bundle.hbc into a Hermes x86_64 bytecode bug that
+// silently blank-screens the host (same shape as the URL polyfill
+// v1 + LogBoxOverlay regressions). Tracked in task #69.
+module.exports.Icon = Slot;
+module.exports.Label = Slot;
