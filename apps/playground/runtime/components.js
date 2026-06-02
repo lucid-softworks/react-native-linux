@@ -129,23 +129,73 @@ const Text = React.forwardRef(function Text(props, ref) {
 // caller (used by react-native-paper's TouchableRipple, react-
 // navigation's pressable links, every theme-aware button library).
 // Without unwrapping it React throws "Functions are not valid as a
-// React child" and the whole subtree blanks out. We don't yet track
-// pressed/hovered state plumbed back from GTK, so the state arg is
-// {pressed: false, hovered: false, focused: false} — apps get
-// rendering, just no visual press feedback yet.
+// React child" and the whole subtree blanks out.
+//
+// `pressed` is driven by the GtkEventControllerLegacy touchStart /
+// touchEnd / touchCancel events ViewComponentView synthesizes —
+// goes true on press, false on release or cancel. `hovered` rides
+// onHoverIn / onHoverOut. `focused` is left false; GtkText fires
+// focus on input widgets but plain Views don't get keyboard focus
+// today, so we'd report a useless permanent false either way.
 const Pressable = React.forwardRef(function Pressable(props, ref) {
-  const {onPress, children, style, ...rest} = props;
-  // RN's Pressable accepts BOTH `children` and `style` in render-prop
-  // form, evaluated with the current interaction state. Evaluate both
-  // here so flattenStyle (which only handles object/array forms) sees
-  // a usable shape — otherwise function-style silently drops every
-  // backgroundColor / padding / flex declaration on the button.
-  const state = {pressed: false, hovered: false, focused: false};
+  const {
+    onPress,
+    onPressIn,
+    onPressOut,
+    onHoverIn,
+    onHoverOut,
+    children,
+    style,
+    disabled,
+    ...rest
+  } = props;
+  const [pressed, setPressed] = React.useState(false);
+  const [hovered, setHovered] = React.useState(false);
+  const state = {pressed, hovered, focused: false};
   const resolvedChildren = typeof children === 'function' ? children(state) : children;
   const resolvedStyle = typeof style === 'function' ? style(state) : style;
+  const handleTouchStart = React.useCallback(
+    e => {
+      if (disabled) return;
+      setPressed(true);
+      if (typeof onPressIn === 'function') onPressIn(e);
+    },
+    [disabled, onPressIn],
+  );
+  const clearPressed = React.useCallback(
+    e => {
+      setPressed(false);
+      if (typeof onPressOut === 'function') onPressOut(e);
+    },
+    [onPressOut],
+  );
+  const handleHoverIn = React.useCallback(
+    e => {
+      setHovered(true);
+      if (typeof onHoverIn === 'function') onHoverIn(e);
+    },
+    [onHoverIn],
+  );
+  const handleHoverOut = React.useCallback(
+    e => {
+      setHovered(false);
+      if (typeof onHoverOut === 'function') onHoverOut(e);
+    },
+    [onHoverOut],
+  );
   return React.createElement(
     'view',
-    {...rest, ref, style: resolvedStyle, onClick: onPress},
+    {
+      ...rest,
+      ref,
+      style: resolvedStyle,
+      onClick: disabled ? undefined : onPress,
+      onTouchStart: handleTouchStart,
+      onTouchEnd: clearPressed,
+      onTouchCancel: clearPressed,
+      onHoverIn: handleHoverIn,
+      onHoverOut: handleHoverOut,
+    },
     resolvedChildren,
   );
 });
