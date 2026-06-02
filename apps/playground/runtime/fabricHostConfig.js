@@ -543,7 +543,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncClickHandler(tag, props);
       syncLongPressHandler(tag, props);
       syncHoverHandlers(tag, props);
       syncPanHandlers(tag, props);
@@ -727,7 +726,6 @@ const hostConfig = {
     // renders, so we keep the C++ registry pointing at the freshest
     // closure.
     if (type === 'view') {
-      syncClickHandler(currentInstance.tag, newProps);
       syncLongPressHandler(currentInstance.tag, newProps);
       syncHoverHandlers(currentInstance.tag, newProps);
       syncPanHandlers(currentInstance.tag, newProps);

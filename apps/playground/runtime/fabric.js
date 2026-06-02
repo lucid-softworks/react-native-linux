@@ -157,20 +157,86 @@ function runApplication(moduleName, parameters, _displayMode) {
   tryMount();
 }
 
-// Phase 1 of the EventEmitter migration: install a `nativeFabricUIManager`
-// event handler that logs every event landing through the real Fabric
-// pipeline. No fiber walk + no `on<Name>` invocation yet — this exists
-// to verify that the chain `eventEmitter_->dispatchEvent → EventQueue
-// → IdleEventBeat::induce → RuntimeScheduler::scheduleWork → JS
-// thread → UIManagerBinding::dispatchEvent → this handler` actually
-// connects on the live runtime. The existing tag-registry dispatch
-// stays wired so user-visible behavior doesn't change.
+// Phase 2 of the EventEmitter migration. The C++ side dispatches
+// events through `eventEmitter_->dispatchEvent(name, payload)`; we
+// register an `nativeFabricUIManager.registerEventHandler` here that
+// the standard `UIManagerBinding::dispatchEvent` invokes with three
+// args: the fiber's instanceHandle, the event-type string, and the
+// payload object. We map the event type → prop name (`topClick` /
+// `click` → `onClick`), walk the fiber from instanceHandle up via
+// `fiber.return`, and invoke the first ancestor's `on<Name>` prop
+// with a synthetic-event-shaped payload (mirrors what the legacy
+// tag-registry path was producing via `makeSyntheticEvent`).
 //
-// Phase 2 will swap one event (click) over: ViewComponentView calls
-// `emitter->dispatchEvent("click", ...)` instead of
-// `dispatchFabricClick(tag)`, and the handler here walks the fiber
-// tree from `eventTarget` to find the first ancestor with
-// `props.onClick`.
+// "First handler wins" mirrors the legacy tag-registry behavior;
+// React Native's full bubble + capture + stopPropagation semantics
+// land in a follow-up.
+function eventTypeToPropName(type) {
+  // `topX` is React Native's older internal prefix; modern Fabric
+  // strips it but some bindings still emit it. Drop the prefix
+  // before PascalCasing so both forms map to `onX`.
+  if (type.startsWith('top') && type.length > 3 && type[3] >= 'A' && type[3] <= 'Z') {
+    return 'on' + type.slice(3);
+  }
+  return 'on' + type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function makeSyntheticFabricEvent(type, payload) {
+  // Mirrors the shape the legacy tag-registry path's makeSyntheticEvent
+  // produced so user code that destructures `nativeEvent` keeps
+  // working.
+  return {
+    nativeEvent: payload || {},
+    type,
+    timeStamp: 0,
+    bubbles: true,
+    cancelable: true,
+    defaultPrevented: false,
+    _propagationStopped: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this._propagationStopped = true;
+    },
+    persist() {},
+  };
+}
+
+function dispatchFabricEvent(instanceHandle, type, payload) {
+  if (instanceHandle == null) return;
+  const propName = eventTypeToPropName(type);
+  const event = makeSyntheticFabricEvent(type, payload);
+  // React fibers thread the tree via `return`. Each fiber's
+  // `memoizedProps` is the committed prop bag (`pendingProps` is
+  // mid-render). Walk until we find a fiber whose props carry an
+  // `on<Name>` function — that's the first ancestor that registered
+  // a handler for this event.
+  let fiber = instanceHandle;
+  let depth = 0;
+  while (fiber) {
+    const props = fiber.memoizedProps || fiber.pendingProps;
+    if (props) {
+      const handler = props[propName];
+      if (typeof handler === 'function') {
+        try {
+          handler(event);
+        } catch (e) {
+          rnLinux.log('error', '[fabric-events] ' + propName + ' threw: ' + String(e));
+        }
+        return;
+      }
+    }
+    fiber = fiber.return;
+    depth++;
+    if (depth > 64) {
+      // Pathological tree; bail rather than spin.
+      rnLinux.log('warn', '[fabric-events] ' + type + ' walk exceeded 64 ancestors');
+      return;
+    }
+  }
+}
+
 let __fabricEventHandlerInstalled = false;
 function ensureFabricEventHandlerInstalled() {
   if (__fabricEventHandlerInstalled) return;
@@ -178,27 +244,12 @@ function ensureFabricEventHandlerInstalled() {
   if (!fabric || typeof fabric.registerEventHandler !== 'function') {
     rnLinux.log(
       'warn',
-      '[fabric-events] nativeFabricUIManager.registerEventHandler missing — Phase 1 wiring inert',
+      '[fabric-events] nativeFabricUIManager.registerEventHandler missing — Phase 2 wiring inert',
     );
     return;
   }
-  fabric.registerEventHandler((eventTarget, type, _priority, payload) => {
-    // Phase 1 log only. Future phases dispatch to React event handlers
-    // by walking the fiber tree from `eventTarget`.
-    try {
-      const payloadJson =
-        payload === undefined || payload === null ? '' : ' payload=' + JSON.stringify(payload);
-      const targetTag =
-        eventTarget && typeof eventTarget === 'object' && 'tag' in eventTarget
-          ? eventTarget.tag
-          : '?';
-      rnLinux.log(
-        'info',
-        '[fabric-events] received type=' + type + ' target=' + targetTag + payloadJson,
-      );
-    } catch (e) {
-      rnLinux.log('error', '[fabric-events] handler threw: ' + String(e));
-    }
+  fabric.registerEventHandler((instanceHandle, type, payload) => {
+    dispatchFabricEvent(instanceHandle, type, payload);
   });
   __fabricEventHandlerInstalled = true;
   rnLinux.log('info', '[fabric-events] handler installed');

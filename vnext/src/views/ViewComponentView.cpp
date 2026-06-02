@@ -52,24 +52,20 @@ ViewComponentView::ViewComponentView(Tag tag)
                                              GTK_STYLE_PROVIDER(provider),
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
-  // Single GtkGestureClick per View. Today: dual-dispatch.
-  //   1. Legacy tag-registry path: `dispatchFabricClick(tag)` looks
-  //      up a JS-installed handler via `rnLinux.fabricOnClick(tag,
-  //      fn)`. User behavior (`onPress` firing) still flows
-  //      through this path during the Phase 1 migration.
-  //   2. Real Fabric event: if the view holds an EventEmitter
-  //      (Fabric attaches one to every shadow node), dispatch a
-  //      `click` RawEvent. The JS-side handler installed in
-  //      apps/playground/runtime/fabric.js logs it for now; the
-  //      switch to "first ancestor with onClick wins" happens in
-  //      Phase 2.
+  // Single GtkGestureClick per View. Phase 2 of the EventEmitter
+  // migration: dispatch through the standard Fabric event pipeline
+  // via `eventEmitter_->dispatchEvent("click", ...)`. The JS handler
+  // registered by `apps/playground/runtime/fabric.js` walks the
+  // fiber tree to find the first ancestor with an `onClick` prop
+  // and invokes it. The legacy `dispatchFabricClick(tag)` tag-registry
+  // path is gone for clicks (still wired for the other 11 events
+  // — Phase 3 migrates the rest).
   auto* gesture = gtk_gesture_click_new();
   g_signal_connect_data(
       gesture,
       "released",
       G_CALLBACK(+[](GtkGestureClick* /*gc*/, int /*n_press*/, double x, double y, gpointer ud) {
         auto* self = static_cast<ViewComponentView*>(ud);
-        dispatchFabricClick(self->tag());
         if (auto emitter = self->eventEmitter()) {
           emitter->dispatchEvent("click", folly::dynamic::object("locationX", x)("locationY", y));
         }
