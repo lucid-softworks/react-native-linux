@@ -701,6 +701,16 @@ module.exports = {
   NativeTabs: Object.assign(Tabs, {
     Trigger: Object.assign(Tabs.Screen, {Icon: Slot, Label: Slot}),
   }),
+  // expo-router/build/native-tabs additionally hoists Icon + Label
+  // as TOP-LEVEL named exports (`import {Icon, Label, NativeTabs}
+  // from "expo-router/build/native-tabs"`). Userland renders
+  // `<Icon sf="…" />` inside a `<NativeTabs.Trigger>`; without
+  // top-level slots they resolve to undefined and React throws
+  // "Element type is invalid" before the first frame. Same Slot
+  // (renders children, ignores SF Symbol / drawable props) covers
+  // both since we don't draw real icons on desktop yet.
+  Icon: Slot,
+  Label: Slot,
   Link,
   Slot,
   Redirect,
