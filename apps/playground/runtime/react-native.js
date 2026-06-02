@@ -765,6 +765,35 @@ const InteractionManager = {
   setDeadline: () => {},
 };
 
+// requireNativeComponent — third-party libraries (react-native-svg,
+// react-native-maps, react-native-video, react-native-webview,
+// every native-rendered chart lib) call this at import time to bind
+// a JS Element name to a host component. Without a shim the import
+// throws `requireNativeComponent is not a function` and the whole
+// library subtree dies before render.
+//
+// Until those libraries have real Linux backends, returning a View
+// passthrough lets the import succeed; the library will render
+// nothing but the rest of the app boots. Userland that needs the
+// actual native behavior either gates on `Platform.OS === 'linux'`
+// (returns the rest of the app) or hits the View placeholder.
+function requireNativeComponent(_name) {
+  return View;
+}
+
+// DevSettings — wraps the in-app dev menu. RN apps call
+// `DevSettings.reload()` for "reload bundle" and `addMenuItem` to
+// add custom entries to the dev shake menu (react-native-storybook,
+// MMKV's clear-storage helper, etc.). Reload routes through
+// rnLinux.reloadApp (Ctrl+R already triggers it natively); the menu
+// API is a no-op since we don't ship a Shake-to-menu surface yet.
+const DevSettings = {
+  reload() {
+    if (typeof rnLinux !== 'undefined' && rnLinux.reloadApp) rnLinux.reloadApp();
+  },
+  addMenuItem() {},
+};
+
 const BackHandler = {
   addEventListener: () => ({remove: () => {}}),
   removeEventListener: () => {},
@@ -842,10 +871,12 @@ module.exports = {
   Vibration,
   Share,
   findNodeHandle,
+  requireNativeComponent,
   UIManager,
   LayoutAnimation,
   InteractionManager,
   BackHandler,
+  DevSettings,
   PermissionsAndroid,
   StatusBar,
 };

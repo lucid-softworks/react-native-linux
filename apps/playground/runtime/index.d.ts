@@ -333,6 +333,16 @@ export function renderFabric(element: ReactNode): void;
 // new code should use renderFabric.
 export function render(element: ReactNode, onCommit?: () => void): unknown;
 
+// Legacy bridge helpers — see react-native.js for behavior. These
+// are present so import-time references in third-party libraries
+// don't fail under TS strict-mode.
+export function findNodeHandle(component: unknown): number | null;
+export function requireNativeComponent(name: string): typeof View;
+export const DevSettings: {
+  reload(): void;
+  addMenuItem(label?: string, fn?: () => void): void;
+};
+
 // The lightning-path JSI bridge surface. Hermes-side bindings
 // installed by vnext/src/jsi/RnLinuxBindings.cpp. The whole surface
 // is exposed via `rnLinux.X` globals.
