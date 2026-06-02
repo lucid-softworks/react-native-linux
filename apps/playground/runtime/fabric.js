@@ -360,45 +360,45 @@ const GESTURE_BURST_TYPES = new Set([
   'touchCancel',
   'topTouchCancel',
 ]);
-// Last fiber we accepted a gesture-burst event for. Detection of "is
-// this a duplicate from the same physical click?" walks the new
-// fiber's `return` chain looking for `lastBurstFiber`. If found, the
-// new event is an ANCESTOR of the previous one — i.e. the parent
-// View's GtkGesture re-firing for the same click — and we drop it.
-// The flag clears on a setTimeout(0) tick so the next idle round
-// (different physical action) starts fresh; queueMicrotask is too
-// aggressive — Hermes drains microtasks between consecutive event
-// dispatches inside the EventQueue flush loop.
-const lastBurst = {fiber: null, type: null, scheduled: false};
-function fiberHasAncestor(descendant, ancestor) {
-  let f = descendant;
-  let depth = 0;
-  while (f && depth < 64) {
-    if (f === ancestor) return true;
-    f = f.return;
-    depth++;
-  }
-  return false;
-}
+// Gesture-burst dedupe — GTK4 delivers a single physical pointer
+// action to every nested <View>'s controller in BUBBLE order
+// (deepest-first), so we get N events per click with N different
+// instanceHandles. We accept the first event of each (type, target)
+// pair within a short window and drop everything else of the same
+// type until that window expires. A 32 ms window covers any single
+// physical click — even a slow software-rendered Fabric mount
+// processes the whole burst in a few ms — without suppressing
+// rapid follow-up clicks the user actually makes (human double-
+// click floor is ~120 ms).
+//
+// We tried two fiber-walk approaches first (strict-ancestor match,
+// stateNode-tag ancestor set). Both worked between events of the
+// same TYPE before any state changed, but the burst includes events
+// like touchEnd / panResponderRelease / click in order, and each
+// handler that runs in between can trigger a React commit. After
+// the commit, the next event's `instanceHandle` is in a fresh fiber
+// tree whose `.return` chain no longer matches the stored ancestor
+// set. Tags-not-references doesn't save us because the SHAPE of the
+// chain shifts — outer's child fiber can land in a different
+// subtree position once Pressable's host re-renders. A time-window
+// is timing-coupled but immune to that whole class of edge case.
+const RECENT_BURST_WINDOW_MS = 32;
+const lastDispatchedByType = new Map();
 function isAncestorGestureBurst(type, instanceHandle) {
   if (!GESTURE_BURST_TYPES.has(type)) return false;
-  if (
-    lastBurst.fiber &&
-    lastBurst.type === type &&
-    fiberHasAncestor(lastBurst.fiber, instanceHandle)
-  ) {
+  const sn = instanceHandle && instanceHandle.stateNode;
+  const tag = sn && typeof sn.tag === 'number' ? sn.tag : null;
+  const now = Date.now();
+  const prev = lastDispatchedByType.get(type);
+  if (prev && now - prev.at < RECENT_BURST_WINDOW_MS && prev.tag !== tag) {
+    // Same event type, within burst window, different target — this
+    // is GTK's parent <View> re-firing the same physical action.
+    // Drop without updating `prev`: the first event of the burst
+    // (the deepest target, fired first by BUBBLE) stays the anchor
+    // for the full window.
     return true;
   }
-  lastBurst.fiber = instanceHandle;
-  lastBurst.type = type;
-  if (!lastBurst.scheduled) {
-    lastBurst.scheduled = true;
-    setTimeout(() => {
-      lastBurst.fiber = null;
-      lastBurst.type = null;
-      lastBurst.scheduled = false;
-    }, 0);
-  }
+  lastDispatchedByType.set(type, {tag, at: now});
   return false;
 }
 
