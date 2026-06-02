@@ -70,80 +70,19 @@ struct State {
   jsi::Runtime* runtime = nullptr;
   std::unordered_map<int, std::shared_ptr<jsi::Function>> clickHandlers;
 
-  // Fabric-tag-keyed click handlers — registered by JS via
-  // `rnLinux.fabricOnClick(tag, fn)`. Looked up by tag from the
-  // C++ component-view layer when its gesture fires.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricClickHandlers;
-
-  // Text-change handlers for TextInput. Keyed by Fabric tag; the
-  // C++ view (TextInputComponentView) dispatches with the new text.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricChangeTextHandlers;
-
-  // Scroll handlers for ScrollView. The C++ view subscribes to
-  // GtkAdjustment value-changed and routes through dispatchFabricScroll.
-  // Keyed by Fabric tag.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricScrollHandlers;
-
-  // RefreshControl onRefresh handlers. The C++ view subscribes to
-  // GtkScrolledWindow's "edge-overshot" signal (top edge only) and
-  // dispatches a single fire per refresh cycle; the JS app flips
-  // `refreshing` back to false when its async work completes, which
-  // re-arms the next fire via scrollViewSetRefreshing(tag, false).
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricRefreshHandlers;
-
   // Pan / drag handlers — registered by the PanResponder shim via
   // rnLinux.fabricOnPanStart/Move/Release(tag, fn). The View
   // component view runs a GtkGestureDrag per instance and dispatches
-  // into these. Three separate maps so the most common case
+  // into these. Pan is the only event surface still on the tag-
+  // registry path; the other 12 (click, change, focus, layout, …)
+  // moved onto Fabric's `EventEmitter::dispatchEvent` in commit
+  // `3846ca02`. PanResponder's responder-negotiation state machine
+  // isn't expressible as plain bubbling props, which is why it
+  // stays here. Three separate maps so the most common case
   // (Move-only consumer) doesn't iterate empty slots.
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricPanStartHandlers;
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricPanMoveHandlers;
   std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricPanReleaseHandlers;
-
-  // Switch onValueChange handlers. The C++ view subscribes to GtkSwitch
-  // notify::active and routes through dispatchFabricSwitchChange.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricSwitchHandlers;
-
-  // TextInput Enter-pressed (onSubmitEditing) handlers.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricSubmitEditingHandlers;
-
-  // TextInput per-keystroke (onKeyPress) handlers.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricKeyPressHandlers;
-
-  // TextInput focus / blur handlers. Paper's TextInput.Outlined animates
-  // its floating label off the JS-side `focused` state derived from
-  // these — without the dispatch the label stays inline and the typed
-  // text overlays it.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricFocusHandlers;
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricBlurHandlers;
-
-  // GtkGestureLongPress on every View — fires once when the user holds
-  // the primary button past the gesture's threshold (~500 ms by
-  // default). The click gesture is configured to coexist so a normal
-  // tap still routes through `fabricClickHandlers`.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricLongPressHandlers;
-
-  // GtkEventControllerMotion enter / leave on every View — Pressable's
-  // hover-state derives from these; raw onHoverIn / onHoverOut props
-  // also drop straight through. Pointer motion only — touch devices
-  // never fire enter/leave so mobile-style Pressables remain accurate.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricHoverInHandlers;
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricHoverOutHandlers;
-
-  // onLayout handlers — fired from LinuxComponentView::updateLayoutMetrics
-  // whenever a view's frame changes. Keyed by Fabric tag; payload mirrors
-  // RN's {nativeEvent: {layout: {x, y, width, height}}} shape so apps can
-  // copy-paste handlers across platforms. RN libraries (Paper's TextInput
-  // container width measurement, FlatList's onLayout-driven viewport
-  // tracking, every wrapper that reacts to its rendered size) depend on
-  // this — without it inputContainerLayout stays at the default {width:65}
-  // and floating labels render in a 65-px box.
-  std::unordered_map<int, std::shared_ptr<jsi::Function>> fabricLayoutHandlers;
-  // Last-dispatched layout per tag — skip redundant calls when the
-  // metrics didn't actually move/resize. updateLayoutMetrics can fire
-  // multiple times per commit (mounting transaction → state update →
-  // re-layout); JS handlers shouldn't see identical events back-to-back.
-  std::unordered_map<int, std::array<float, 4>> fabricLayoutLast;
 
   // Active intervals/timers. `handlerId → (sourceId, fn)`. We keep the
   // jsi::Function alive here so the GTK source can call back into JS
@@ -215,11 +154,11 @@ struct State {
   std::atomic<double> pendingDimScale{1};
   std::atomic<bool> dimPostInFlight{false};
 
-  // Phase 5.8: every C++→JS callback (dispatchFabric*, fetch result,
-  // GIO/libsoup signals) posts through this executor instead of
-  // dereferencing `runtime` directly. The runtime lives on a worker
-  // pthread now, so a direct call from a GTK / libsoup handler would
-  // trap Hermes' pthread-binding guard.
+  // Phase 5.8: every C++→JS callback (dispatchFabricPan*, fetch
+  // result, GIO/libsoup signals) posts through this executor instead
+  // of dereferencing `runtime` directly. The runtime lives on a
+  // worker pthread now, so a direct call from a GTK / libsoup handler
+  // would trap Hermes' pthread-binding guard.
   RuntimeExecutor executor;
 
   int registerWidget(GtkWidget* w) {
@@ -290,23 +229,9 @@ void resetRnLinuxBindings() {
   }
   state().timerHandlers.clear();
   state().clickHandlers.clear();
-  state().fabricClickHandlers.clear();
-  state().fabricChangeTextHandlers.clear();
-  state().fabricSwitchHandlers.clear();
-  state().fabricSubmitEditingHandlers.clear();
-  state().fabricKeyPressHandlers.clear();
-  state().fabricScrollHandlers.clear();
-  state().fabricRefreshHandlers.clear();
   state().fabricPanStartHandlers.clear();
   state().fabricPanMoveHandlers.clear();
   state().fabricPanReleaseHandlers.clear();
-  state().fabricLayoutHandlers.clear();
-  state().fabricLayoutLast.clear();
-  state().fabricFocusHandlers.clear();
-  state().fabricBlurHandlers.clear();
-  state().fabricLongPressHandlers.clear();
-  state().fabricHoverInHandlers.clear();
-  state().fabricHoverOutHandlers.clear();
   // Tear down the GeoClue client BEFORE the runtime goes away — its
   // signal callback dereferences state().runtime when a fix arrives,
   // and an in-flight reload could otherwise fire onLocationSignal
@@ -360,48 +285,6 @@ void resetRnLinuxBindings() {
   state().rootView = nullptr;
 }
 
-// Forward a caught JSError into JS's ErrorUtils.reportError so the
-// LogBox ErrorBoundary can render. Without this every uncaught throw
-// from an event handler died at the C++ log line and the user got no
-// in-window feedback.
-void reportJsErrorToErrorUtils(jsi::Runtime& rt, const jsi::JSError& e) {
-  try {
-    auto errorUtils = rt.global().getProperty(rt, "ErrorUtils");
-    if (!errorUtils.isObject())
-      return;
-    auto reportError = errorUtils.asObject(rt).getProperty(rt, "reportError");
-    if (!reportError.isObject())
-      return;
-    reportError.asObject(rt).asFunction(rt).call(rt, e.value());
-    rt.drainMicrotasks();
-  } catch (const std::exception&) {
-    // ErrorUtils path itself blew up — silent fallback so we don't loop.
-  }
-}
-
-void dispatchFabricClick(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricClickHandlers.find(tag);
-    if (it == s.fabricClickHandlers.end())
-      return;
-    try {
-      it->second->call(rt);
-      // React schedules state-update work on a microtask; drain so the
-      // resulting commit happens before this turn yields.
-      rt.drainMicrotasks();
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.getMessage();
-      reportJsErrorToErrorUtils(rt, e);
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric click handler threw: " << e.what();
-    }
-  });
-}
-
 void setFabricWidgetLookupForJsi(std::function<GtkWidget*(int)> lookup) {
   state().fabricLookup = std::move(lookup);
 }
@@ -428,150 +311,6 @@ void unregisterAnimWidget(const std::string& nativeId) {
   if (nativeId.empty())
     return;
   state().animWidgets.erase(nativeId);
-}
-
-void dispatchFabricChangeText(int tag, const std::string& text) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag, text](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricChangeTextHandlers.find(tag);
-    if (it == s.fabricChangeTextHandlers.end())
-      return;
-    try {
-      it->second->call(rt, jsi::String::createFromUtf8(rt, text));
-      rt.drainMicrotasks();
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric changeText handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricSubmitEditing(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricSubmitEditingHandlers.find(tag);
-    if (it == s.fabricSubmitEditingHandlers.end())
-      return;
-    try {
-      it->second->call(rt);
-      rt.drainMicrotasks();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric submitEditing handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricKeyPress(int tag, const std::string& key) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag, key](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricKeyPressHandlers.find(tag);
-    if (it == s.fabricKeyPressHandlers.end())
-      return;
-    try {
-      it->second->call(rt, jsi::String::createFromUtf8(rt, key));
-      rt.drainMicrotasks();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric keyPress handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricSwitchChange(int tag, bool value) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag, value](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricSwitchHandlers.find(tag);
-    if (it == s.fabricSwitchHandlers.end())
-      return;
-    try {
-      it->second->call(rt, jsi::Value(value));
-      rt.drainMicrotasks();
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric switchChange handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricScroll(int tag,
-                          double offsetX,
-                          double offsetY,
-                          double contentWidth,
-                          double contentHeight,
-                          double viewportWidth,
-                          double viewportHeight) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag, offsetX, offsetY, contentWidth, contentHeight, viewportWidth, viewportHeight](
-                 jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricScrollHandlers.find(tag);
-    if (it == s.fabricScrollHandlers.end())
-      return;
-    try {
-      // Synthesize a nativeEvent that matches RN's shape so apps that
-      // copy-paste FlatList/ScrollView handlers don't have to learn a
-      // new event format.
-      jsi::Object offset(rt);
-      offset.setProperty(rt, "x", offsetX);
-      offset.setProperty(rt, "y", offsetY);
-      jsi::Object contentSize(rt);
-      contentSize.setProperty(rt, "width", contentWidth);
-      contentSize.setProperty(rt, "height", contentHeight);
-      jsi::Object layout(rt);
-      layout.setProperty(rt, "width", viewportWidth);
-      layout.setProperty(rt, "height", viewportHeight);
-      jsi::Object nativeEvent(rt);
-      nativeEvent.setProperty(rt, "contentOffset", offset);
-      nativeEvent.setProperty(rt, "contentSize", contentSize);
-      nativeEvent.setProperty(rt, "layoutMeasurement", layout);
-      jsi::Object event(rt);
-      event.setProperty(rt, "nativeEvent", nativeEvent);
-      it->second->call(rt, event);
-      // NOTE: deliberately no drainMicrotasks here. Scroll fires up to
-      // 60 Hz and FlatList's setScrollY only changes when the window
-      // window of items actually shifts — let React batch with the
-      // surrounding work instead of forcing a commit per pixel.
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric scroll handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricRefresh(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricRefreshHandlers.find(tag);
-    if (it == s.fabricRefreshHandlers.end())
-      return;
-    try {
-      it->second->call(rt);
-      rt.drainMicrotasks();
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric refresh handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric refresh handler threw: " << e.what();
-    }
-  });
 }
 
 namespace {
@@ -669,159 +408,6 @@ void dispatchFabricPanRelease(
       RNL_LOGE("rnLinux") << "pan-release handler threw: " << e.getMessage();
     } catch (const std::exception& e) {
       RNL_LOGE("rnLinux") << "pan-release handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricFocus(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricFocusHandlers.find(tag);
-    if (it == s.fabricFocusHandlers.end())
-      return;
-    try {
-      jsi::Object nativeEvent(rt);
-      nativeEvent.setProperty(rt, "target", tag);
-      jsi::Object event(rt);
-      event.setProperty(rt, "nativeEvent", nativeEvent);
-      event.setProperty(rt, "target", tag);
-      it->second->call(rt, event);
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric focus handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricBlur(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricBlurHandlers.find(tag);
-    if (it == s.fabricBlurHandlers.end())
-      return;
-    try {
-      jsi::Object nativeEvent(rt);
-      nativeEvent.setProperty(rt, "target", tag);
-      jsi::Object event(rt);
-      event.setProperty(rt, "nativeEvent", nativeEvent);
-      event.setProperty(rt, "target", tag);
-      it->second->call(rt, event);
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric blur handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricLongPress(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricLongPressHandlers.find(tag);
-    if (it == s.fabricLongPressHandlers.end())
-      return;
-    try {
-      it->second->call(rt);
-      rt.drainMicrotasks();
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric longPress handler threw: " << e.getMessage();
-      reportJsErrorToErrorUtils(rt, e);
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric longPress handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricHoverIn(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricHoverInHandlers.find(tag);
-    if (it == s.fabricHoverInHandlers.end())
-      return;
-    try {
-      it->second->call(rt);
-      // No drainMicrotasks — hover transitions are often visual-only
-      // (CSS-style highlight) and rarely schedule state work; the next
-      // unrelated tick will pick up any setState that did fire.
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric hoverIn handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric hoverIn handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricHoverOut(int tag) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  s.executor([tag](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricHoverOutHandlers.find(tag);
-    if (it == s.fabricHoverOutHandlers.end())
-      return;
-    try {
-      it->second->call(rt);
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric hoverOut handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric hoverOut handler threw: " << e.what();
-    }
-  });
-}
-
-void dispatchFabricLayout(int tag, float x, float y, float w, float h) {
-  auto& s = state();
-  if (!s.executor)
-    return;
-  // Skip if this view's layout hasn't actually changed since the last
-  // dispatch — a single React commit can fire updateLayoutMetrics
-  // multiple times (Yoga relayout passes, state-driven re-runs), and
-  // RN apps loop forever if onLayout keeps re-firing for the same
-  // metrics (handler calls setState → re-render → re-layout → re-fire).
-  // The dedupe is intentionally on the *main* thread side: layout
-  // events fire at high rate (every Yoga pass) and we want to drop
-  // duplicates before they queue up on the worker.
-  std::array<float, 4> next{x, y, w, h};
-  auto& last = s.fabricLayoutLast[tag];
-  if (last == next)
-    return;
-  last = next;
-  s.executor([tag, x, y, w, h](jsi::Runtime& rt) {
-    auto& s = state();
-    auto it = s.fabricLayoutHandlers.find(tag);
-    if (it == s.fabricLayoutHandlers.end())
-      return;
-    try {
-      jsi::Object layout(rt);
-      layout.setProperty(rt, "x", static_cast<double>(x));
-      layout.setProperty(rt, "y", static_cast<double>(y));
-      layout.setProperty(rt, "width", static_cast<double>(w));
-      layout.setProperty(rt, "height", static_cast<double>(h));
-      jsi::Object nativeEvent(rt);
-      nativeEvent.setProperty(rt, "layout", layout);
-      nativeEvent.setProperty(rt, "target", tag);
-      jsi::Object event(rt);
-      event.setProperty(rt, "nativeEvent", nativeEvent);
-      event.setProperty(rt, "target", tag);
-      it->second->call(rt, event);
-    } catch (const jsi::JSError& e) {
-      RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.getMessage();
-    } catch (const std::exception& e) {
-      RNL_LOGE("rnLinux") << "fabric layout handler threw: " << e.what();
     }
   });
 }
@@ -1345,89 +931,6 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value{handlerId};
       });
 
-  // Fabric click registry. The Fabric host config (apps/playground/runtime/
-  // fabricHostConfig.js) calls this whenever a <View onClick={fn}> shadow
-  // node is created or its handler changes. We key by the Fabric tag —
-  // ViewComponentView's gesture controller looks the function up via
-  // dispatchFabricClick(tag) when GtkGestureClick fires.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnClick",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricClickHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricClickHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // Long-press registry — sibling of fabricOnClick. Pressable /
-  // Touchable subscribe via the Fabric host config when an
-  // `onLongPress` prop appears on a <View>.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnLongPress",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricLongPressHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricLongPressHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // Hover-in / hover-out registries — siblings of fabricOnClick. Backs
-  // Pressable's `onHoverIn` / `onHoverOut` (and bare `onMouseEnter` /
-  // `onMouseLeave` props). Pointer motion only — touch devices never
-  // fire these.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnHoverIn",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricHoverInHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricHoverInHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnHoverOut",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricHoverOutHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricHoverOutHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
   // Native-driver hook for Animated. Bypasses React/Fabric: JS hands
   // us a stable nativeID and we poke the GTK widget directly, 60 Hz,
   // skipping reconcile → commit → mount per frame. arg0 is either an
@@ -1749,113 +1252,14 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         return jsi::Value::undefined();
       });
 
-  // Sibling of fabricOnClick — registers the JS function invoked
-  // whenever a TextInput's GtkText "changed" signal fires.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnChangeText",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricChangeTextHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricChangeTextHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // TextInput "activate" (Enter) → JS onSubmitEditing.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnSubmitEditing",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricSubmitEditingHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricSubmitEditingHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // TextInput key-press → JS onKeyPress.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnKeyPress",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricKeyPressHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricKeyPressHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // Sibling of fabricOnClick — registers the JS function invoked
-  // whenever a GtkSwitch's active state flips. The callback receives
-  // the new boolean value as its only argument.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnSwitchChange",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricSwitchHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricSwitchHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // RefreshControl onRefresh handler — registered by the ScrollView
-  // shim when its child <RefreshControl onRefresh={…}/> exists.
-  // No arguments; the JS handler is a bare callback that flips its
-  // own `refreshing` state to true.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnRefresh",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricRefreshHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricRefreshHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
   // PanResponder handlers — register the JS callbacks the View
-  // component view's GtkGestureDrag dispatches into. All three follow
-  // the same shape as fabricOnRefresh: pass null/undefined to
-  // deregister, otherwise install the function as the per-tag entry.
-  // The PanResponder shim in JS wraps an app's `onPanResponderGrant`/
-  // `Move`/`Release` callbacks into these three registries.
+  // component view's GtkGestureDrag dispatches into. Pan is the last
+  // event surface on the legacy tag-keyed JSI registry path (every
+  // other event flows through the Fabric EventEmitter pipeline as of
+  // commit 3846ca02). Pass null/undefined to deregister, otherwise
+  // install the function as the per-tag entry. The PanResponder shim
+  // in JS wraps an app's `onPanResponderGrant`/`Move`/`Release`
+  // callbacks into these three registries.
   auto bindPan = [&](const char* name, auto* mapPtr) {
     bindMethod(rt,
                rnLinux,
@@ -1882,7 +1286,7 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
   // Flip the per-ScrollView refreshing flag. JS calls this whenever
   // its RefreshControl.refreshing prop changes — true after onRefresh
   // fires + the app is loading, false once the load completes. The
-  // C++ view gates the next dispatchFabricRefresh on this flag so a
+  // C++ view gates the next `refresh` event on this flag so a
   // sustained overshoot only fires once per cycle.
   bindMethod(
       rt,
@@ -1895,91 +1299,6 @@ void installRnLinuxBindings(jsi::Runtime& rt, GtkWidget* rootView) {
         const int tag = static_cast<int>(args[0].asNumber());
         const bool refreshing = args[1].getBool();
         rnlinux::ScrollViewComponentView::setRefreshing(tag, refreshing);
-        return jsi::Value::undefined();
-      });
-
-  // Sibling of fabricOnClick — registers the JS function invoked
-  // whenever a ScrollView's GtkAdjustment fires "value-changed".
-  // The callback receives a single nativeEvent argument; see
-  // dispatchFabricScroll for shape.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnScroll",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricScrollHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricScrollHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // TextInput onFocus / onBlur. Paper relies on these to flip its
-  // `focused` state and animate the floating label off the input
-  // baseline up to the outline notch.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnFocus",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricFocusHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricFocusHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnBlur",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricBlurHandlers.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricBlurHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
-        return jsi::Value::undefined();
-      });
-
-  // onLayout handler registry — dispatched from
-  // LinuxComponentView::updateLayoutMetrics whenever any view's frame
-  // changes. JS apps register via `rnLinux.fabricOnLayout(tag, fn)`.
-  // Paper's TextInput container width measurement, Reanimated's
-  // measurement hooks, FlatList's viewport tracking, and many wrapper
-  // libraries depend on this.
-  bindMethod(
-      rt,
-      rnLinux,
-      "fabricOnLayout",
-      2,
-      [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
-        if (count < 2)
-          return jsi::Value::undefined();
-        int tag = static_cast<int>(args[0].asNumber());
-        if (args[1].isNull() || args[1].isUndefined()) {
-          state().fabricLayoutHandlers.erase(tag);
-          state().fabricLayoutLast.erase(tag);
-          return jsi::Value::undefined();
-        }
-        state().fabricLayoutHandlers[tag] =
-            std::make_shared<jsi::Function>(args[1].asObject(rt).asFunction(rt));
         return jsi::Value::undefined();
       });
 
