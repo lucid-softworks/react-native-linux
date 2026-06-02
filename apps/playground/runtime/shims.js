@@ -544,6 +544,188 @@ if (typeof globalThis.URLSearchParams === 'undefined') {
   globalThis.URLSearchParams = URLSearchParams;
 }
 
+// URL — Hermes 0.12 doesn't ship it. Real RN apps reach for it
+// through countless paths (next-on-pages, satori, expo-router's
+// deep-link resolver, every "construct a download URL from a base
+// + path" pattern). Without it the property access throws
+// `ReferenceError: Property 'URL' doesn't exist` at module load.
+//
+// Spec compliance is partial — enough for the read-only shape
+// userland builds: parsing href + base, the standard string
+// accessors (href / origin / protocol / hostname / host / pathname
+// / search / hash), searchParams as a URLSearchParams view, and
+// toString(). The serialisation re-builds from the parts, so
+// mutations through searchParams flow back into href correctly.
+if (typeof globalThis.URL === 'undefined') {
+  // Match an absolute URL into 6 capture groups:
+  //   1: protocol (https:)
+  //   2: host (with optional port)
+  //   3: pathname (starting with '/')
+  //   4: search (starting with '?', or '')
+  //   5: hash (starting with '#', or '')
+  const ABSOLUTE_RE = /^([a-zA-Z][a-zA-Z0-9+\-.]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/;
+  function _parseAbsolute(href) {
+    const m = ABSOLUTE_RE.exec(String(href));
+    if (!m) return null;
+    return {
+      protocol: m[1] || '',
+      host: m[2] || '',
+      pathname: m[3] || '',
+      search: m[4] || '',
+      hash: m[5] || '',
+    };
+  }
+  function _resolve(href, base) {
+    const abs = _parseAbsolute(href);
+    if (abs) return abs;
+    if (base == null) {
+      throw new TypeError('URL: invalid URL "' + href + '" without base');
+    }
+    const baseParts = base instanceof URL ? base : new URL(base);
+    const rel = String(href);
+    if (rel.length === 0) {
+      return {
+        protocol: baseParts.protocol,
+        host: baseParts.host,
+        pathname: baseParts.pathname,
+        search: baseParts.search,
+        hash: '',
+      };
+    }
+    if (rel.charAt(0) === '#') {
+      return {
+        protocol: baseParts.protocol,
+        host: baseParts.host,
+        pathname: baseParts.pathname,
+        search: baseParts.search,
+        hash: rel,
+      };
+    }
+    if (rel.charAt(0) === '?') {
+      const split = rel.indexOf('#');
+      return {
+        protocol: baseParts.protocol,
+        host: baseParts.host,
+        pathname: baseParts.pathname,
+        search: split < 0 ? rel : rel.slice(0, split),
+        hash: split < 0 ? '' : rel.slice(split),
+      };
+    }
+    if (rel.charAt(0) === '/') {
+      // Absolute path on the base's host. Split off search/hash.
+      const qIdx = rel.indexOf('?');
+      const hIdx = rel.indexOf('#');
+      const pathEnd =
+        qIdx < 0 ? (hIdx < 0 ? rel.length : hIdx) : hIdx < 0 ? qIdx : Math.min(qIdx, hIdx);
+      const sEnd = hIdx < 0 ? rel.length : hIdx;
+      return {
+        protocol: baseParts.protocol,
+        host: baseParts.host,
+        pathname: rel.slice(0, pathEnd),
+        search: qIdx < 0 ? '' : rel.slice(qIdx, sEnd),
+        hash: hIdx < 0 ? '' : rel.slice(hIdx),
+      };
+    }
+    // Relative path — drop the last segment of base's pathname and
+    // append.
+    const lastSlash = baseParts.pathname.lastIndexOf('/');
+    const basePath = lastSlash < 0 ? '/' : baseParts.pathname.slice(0, lastSlash + 1);
+    const qIdx = rel.indexOf('?');
+    const hIdx = rel.indexOf('#');
+    const pathEnd =
+      qIdx < 0 ? (hIdx < 0 ? rel.length : hIdx) : hIdx < 0 ? qIdx : Math.min(qIdx, hIdx);
+    const sEnd = hIdx < 0 ? rel.length : hIdx;
+    return {
+      protocol: baseParts.protocol,
+      host: baseParts.host,
+      pathname: basePath + rel.slice(0, pathEnd),
+      search: qIdx < 0 ? '' : rel.slice(qIdx, sEnd),
+      hash: hIdx < 0 ? '' : rel.slice(hIdx),
+    };
+  }
+  function URL(href, base) {
+    if (!(this instanceof URL)) {
+      throw new TypeError("Constructor URL requires 'new'");
+    }
+    const parts = _resolve(href, base);
+    if (!parts) {
+      throw new TypeError('URL: invalid URL "' + href + '"');
+    }
+    const colon = parts.host.indexOf(':');
+    Object.defineProperty(this, '_parts', {value: parts, writable: true});
+    this.protocol = parts.protocol;
+    this.host = parts.host;
+    this.hostname = colon < 0 ? parts.host : parts.host.slice(0, colon);
+    this.port = colon < 0 ? '' : parts.host.slice(colon + 1);
+    this.pathname = parts.pathname;
+    this.hash = parts.hash;
+    // searchParams is bidirectional — writes to it must reflect in
+    // search / href. We construct it from the search and re-build
+    // search on toString().
+    const initialSearch = parts.search.charAt(0) === '?' ? parts.search.slice(1) : parts.search;
+    this._searchParams = new URLSearchParams(initialSearch);
+    this.search = parts.search;
+  }
+  Object.defineProperty(URL.prototype, 'searchParams', {
+    get() {
+      return this._searchParams;
+    },
+  });
+  Object.defineProperty(URL.prototype, 'origin', {
+    get() {
+      if (!this.protocol || !this.host) return 'null';
+      return this.protocol + '//' + this.host;
+    },
+  });
+  Object.defineProperty(URL.prototype, 'href', {
+    get() {
+      // Re-serialise from current parts so mutations to searchParams
+      // round-trip through href.
+      const sp = this._searchParams.toString();
+      const search = sp.length === 0 ? '' : '?' + sp;
+      const hostPart = this.host ? '//' + this.host : '';
+      return this.protocol + hostPart + this.pathname + search + this.hash;
+    },
+    set(v) {
+      const parts = _parseAbsolute(v);
+      if (!parts) throw new TypeError('URL.href: invalid value');
+      this.protocol = parts.protocol;
+      this.host = parts.host;
+      const colon = parts.host.indexOf(':');
+      this.hostname = colon < 0 ? parts.host : parts.host.slice(0, colon);
+      this.port = colon < 0 ? '' : parts.host.slice(colon + 1);
+      this.pathname = parts.pathname;
+      this.hash = parts.hash;
+      const initialSearch = parts.search.charAt(0) === '?' ? parts.search.slice(1) : parts.search;
+      this._searchParams = new URLSearchParams(initialSearch);
+      this.search = parts.search;
+    },
+  });
+  URL.prototype.toString = function () {
+    return this.href;
+  };
+  URL.prototype.toJSON = function () {
+    return this.href;
+  };
+  // Static methods spec'd on URL — `createObjectURL` / `revokeObjectURL`
+  // aren't meaningful without Blob URL plumbing, but real apps gate on
+  // their presence (or call them with a real Blob). Return a no-op
+  // string and a no-op revoke.
+  URL.createObjectURL = function () {
+    return 'blob:rn-linux/' + Math.random().toString(36).slice(2);
+  };
+  URL.revokeObjectURL = function () {};
+  URL.canParse = function (href, base) {
+    try {
+      new URL(href, base);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+  globalThis.URL = URL;
+}
+
 // ───────────────────────────────────────────────────────────────────
 // fetch() — minimal whatwg-fetch surface, backed by rnLinux.fetch()
 // which delegates to libsoup-3 in our C++ host. Hermes doesn't ship
