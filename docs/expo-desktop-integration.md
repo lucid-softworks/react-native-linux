@@ -271,10 +271,12 @@ callbacks. Remaining edges:
 3. **Fabric component coverage.** The component generator lowers
    primitive props + Color/Point/EdgeInsets/Dimension/ImageSource
    reserved types + String + Int32 enums + primitive-payload
-   events to typed C++. Still throws: Object / Array props and
-   commands (imperative method calls). None block
-   `expo-desktop-modules-core` itself; commands block components
-   with imperative APIs (TextInput-style `.focus()` etc.).
+   events to typed C++, plus a `<Name>HandleCommand(view, name,
+args)` dispatcher for `codegenNativeCommands` (wired through
+   `LinuxComponentView::handleCommand` →
+   `LinuxSchedulerDelegate::schedulerDidDispatchCommand`). Only
+   Object / Array props on Fabric components remain unimplemented.
+   None block `expo-desktop-modules-core` itself.
 
 **JS-side fallback** for anything the codegen can't yet express:
 `@lucid-softworks/react-native-linux-expo/expo-modules-core.js`
