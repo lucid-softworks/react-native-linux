@@ -2,17 +2,24 @@
 
 ## Status
 
-Phase 1 + Phase 2 landed. Phase 3 (migrate the remaining 11 events
-off the tag registry) is the open piece.
+All three phases landed (`1f0a89da` / `adb853d5` / `3846ca02`). Every
+component event — click, longPress, hoverIn/Out, focus/blur,
+submitEditing, keyPress, changeText, switchChange, scroll, refresh,
+layout — now flows through `eventEmitter_->dispatchEvent` and the
+JS-side fiber walk. PanResponder is the only event surface still
+on the legacy tag-keyed JSI registry, because the responder-
+negotiation state machine it implements isn't expressible as plain
+bubbling props.
 
-The "Wiring gap" debugging notes below described a previous attempt
-that got `induce()` firing but no JS handler running. That bug does
-NOT reproduce on the current runtime — the chain
+The chain
 `emitter->dispatchEvent → EventQueue → IdleEventBeat::request →
 g_idle_add → induce → RuntimeScheduler::scheduleWork → JS thread →
 UIManagerBinding::dispatchEvent → registered handler → fiber walk
-→ on<Name>` works end-to-end. Verified live with click in the
-playground (commit `adb853d5`).
+→ on<Name>` is verified live in the playground (click + hover +
+layout observed with valid `instanceHandle` end-to-end). The
+"Wiring gap" debugging notes below describe a previous attempt
+that hit a bug that does NOT reproduce on the current runtime —
+kept here for the next time something similar shows up.
 
 ## What we have today
 
