@@ -52,7 +52,7 @@ Type coverage today:
 | `Int32`                       | `int32_t`                                                                                                                                                    |
 | `boolean`                     | `bool`                                                                                                                                                       |
 | `void` (return)               | `void`                                                                                                                                                       |
-| Object                        | generated `struct` with named fields + `toDynamic()` helper (recursive)                                                                                      |
+| Object                        | generated `struct` with named fields + `toDynamic()` + `static fromDynamic()` (recursive); named type aliases deduped from `schema.aliasMap`                 |
 | Array / generic object        | `folly::dynamic`                                                                                                                                             |
 | Nullable\<T>                  | inner C++ (MVP)                                                                                                                                              |
 | Enum\<string \| number>       | underlying primitive                                                                                                                                         |
@@ -96,6 +96,18 @@ Wiring lives in two places:
 The first real consumer in-tree is `PlatformConstants` — the C++ impl
 extends the generated `NativePlatformConstantsLinuxSpec` and overrides
 a single `getConstants()` virtual.
+
+Verified against the upstream `expo-desktop-modules-core` spec files
+(`NativeExpoMainRuntimeInstaller.ts`, `NativeNativeUnimoduleProxy.ts`):
+both lower to valid C++ headers with the `install<Impl>()` registration
+helper. Consumer-side hookup is a static-init slot per module:
+
+```cpp
+[[maybe_unused]] static const int kRegisterInstaller =
+    codegen::NativeExpoMainRuntimeInstallerSpec::install<MainRuntimeInstaller>();
+[[maybe_unused]] static const int kRegisterProxy =
+    codegen::NativeNativeUnimoduleProxySpec::install<UnimoduleProxy>();
+```
 
 ### Pre-bundle JSI hooks: `addRuntimeInitializer`
 

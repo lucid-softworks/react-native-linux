@@ -659,6 +659,86 @@ describe('generateModule — object args in callback params', () => {
   });
 });
 
+describe('generateModule — TypeAlias dedup via schema.aliasMap', () => {
+  function aliasedMod(): SpecModule {
+    return {
+      specName: 'NativeFoo',
+      moduleName: 'Foo',
+      schema: {
+        type: 'NativeModule',
+        moduleName: 'Foo',
+        // The parser carries User in aliasMap and references it from
+        // each method via TypeAliasTypeAnnotation rather than inlining
+        // the ObjectTypeAnnotation. We replicate that shape verbatim.
+        aliasMap: {
+          User: {
+            type: 'ObjectTypeAnnotation',
+            properties: [
+              {name: 'name', optional: false, typeAnnotation: {type: 'StringTypeAnnotation'}},
+              {name: 'age', optional: false, typeAnnotation: {type: 'NumberTypeAnnotation'}},
+            ],
+          },
+        } as any,
+        spec: {
+          methods: [
+            {
+              name: 'getUser',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [],
+                returnTypeAnnotation: {type: 'TypeAliasTypeAnnotation', name: 'User'} as any,
+              },
+            },
+            {
+              name: 'saveUser',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [
+                  {
+                    name: 'user',
+                    typeAnnotation: {type: 'TypeAliasTypeAnnotation', name: 'User'} as any,
+                  },
+                ],
+                returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+              },
+            },
+          ],
+        },
+      } as any,
+    };
+  }
+
+  const header = generateModule(aliasedMod());
+
+  test('emits the alias struct exactly once under its declared name', () => {
+    const userStructCount = (header.match(/^struct User \{/gm) ?? []).length;
+    expect(userStructCount).toBe(1);
+  });
+
+  test('does not synthesize per-use struct names like SaveUserParam_User or GetUserResult', () => {
+    expect(header).not.toMatch(/SaveUserParam_User/);
+    expect(header).not.toMatch(/GetUserResult/);
+  });
+
+  test('method signatures reference the alias name directly', () => {
+    expect(header).toMatch(/virtual User getUser\(\) = 0;/);
+    expect(header).toMatch(/virtual void saveUser\(User user\) = 0;/);
+  });
+
+  test('Object-param unpack uses User::fromDynamic', () => {
+    expect(header).toMatch(
+      /auto user = User::fromDynamic\(facebook::jsi::dynamicFromValue\(rt_, args\[0\]\)\);/,
+    );
+  });
+
+  test('Object-return wraps via toDynamic of the alias', () => {
+    expect(header).toMatch(/auto __result = this->getUser\(\);/);
+    expect(header).toMatch(/return facebook::jsi::valueFromDynamic\(rt_, toDynamic\(__result\)\);/);
+  });
+});
+
 describe('generateModule — unsupported types throw with actionable messages', () => {
   test('non-void callback return throws a follow-up-tracked error', () => {
     expect(() =>

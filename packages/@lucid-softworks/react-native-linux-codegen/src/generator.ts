@@ -67,14 +67,49 @@ class StructCollector {
   // references one that hasn't been declared yet.
   readonly structs: StructDef[] = [];
 
+  // Names already registered. Lets aliasMap-driven preregistration
+  // skip re-emitting the same struct when method-side calls land
+  // on a known alias.
+  private readonly registered = new Set<string>();
+
+  // Resolution table for TypeAliasTypeAnnotation → underlying
+  // ObjectTypeAnnotation. Populated by `prepopulateAliasMap` before
+  // any method-side collection so an alias reference inside a
+  // method (or inside another alias's field) lands on the pre-
+  // registered name instead of synthesising a duplicate.
+  private readonly aliasMap = new Map<string, TypeAnnotation>();
+
+  // Pre-register every alias defined by the parser at
+  // `schema.aliasMap[<Name>]`. Each entry becomes a struct named
+  // after the alias itself; nested aliases inside one alias's
+  // fields resolve through this same table.
+  prepopulateAliasMap(aliasMap: Record<string, TypeAnnotation> | undefined): void {
+    if (!aliasMap) return;
+    for (const name of Object.keys(aliasMap)) {
+      this.aliasMap.set(name, aliasMap[name]);
+    }
+    for (const name of Object.keys(aliasMap)) {
+      this.collect(name, aliasMap[name]);
+    }
+  }
+
   // Visit an ObjectTypeAnnotation, register it under `name`, and
-  // return that name. Recurses into nested object fields.
+  // return that name. If `t` is a TypeAliasTypeAnnotation, resolves
+  // to the alias name (already registered) without re-emitting.
+  // Recurses into nested object fields.
   collect(name: string, t: TypeAnnotation): string {
+    if (t.type === 'TypeAliasTypeAnnotation') {
+      const aliasName = (t as {name?: string}).name;
+      if (aliasName) return aliasName;
+      throw new Error('TypeAliasTypeAnnotation without a name');
+    }
     if (t.type !== 'ObjectTypeAnnotation') {
       throw new Error(
         `StructCollector.collect called with ${t.type}, expected ObjectTypeAnnotation`,
       );
     }
+    if (this.registered.has(name)) return name;
+    this.registered.add(name);
     const props =
       (
         t as {
@@ -92,6 +127,17 @@ class StructCollector {
       const fieldName = prop.name;
       const propPascal = pascalCase(fieldName);
       const fieldExpr = `d["${fieldName}"]`;
+      if (propType.type === 'TypeAliasTypeAnnotation') {
+        const aliasName = (propType as {name?: string}).name;
+        if (!aliasName) throw new Error('alias ref without a name');
+        struct.properties.push({
+          name: fieldName,
+          cppType: aliasName,
+          toDynamicExpr: `toDynamic(v.${fieldName})`,
+          fromDynamicExpr: `${aliasName}::fromDynamic(${fieldExpr})`,
+        });
+        continue;
+      }
       if (propType.type === 'ObjectTypeAnnotation') {
         const nestedName = `${name}_${propPascal}`;
         this.collect(nestedName, propType);
@@ -222,8 +268,12 @@ export function generateModule(mod: SpecModule, opts: GenerateOptions = {}): str
 
   // Phase 1: collect every ObjectTypeAnnotation reachable from a
   // method param or return into a flat list of structs (post-order,
-  // so declarations precede their references).
+  // so declarations precede their references). Aliases from the
+  // parser's aliasMap are pre-registered under their declared
+  // names so shared types resolve to a single struct instead of
+  // duplicating per use site.
   const structs = new StructCollector();
+  structs.prepopulateAliasMap((schema as {aliasMap?: Record<string, TypeAnnotation>}).aliasMap);
   const methodMeta = methods.map(method => bindMethodStructs(method, structs));
 
   const lines: string[] = [];
@@ -334,6 +384,10 @@ function bindMethodStructs(method: MethodShape, structs: StructCollector): Metho
     if (t.type === 'NullableTypeAnnotation') {
       t = (t as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
     }
+    if (t.type === 'TypeAliasTypeAnnotation') {
+      callbackArgStructs.push(undefined);
+      return (t as {name?: string}).name;
+    }
     if (t.type === 'ObjectTypeAnnotation') {
       callbackArgStructs.push(undefined);
       const name = `${methodPascal}Param_${pascalCase(p.name || `Arg${i}`)}`;
@@ -351,6 +405,9 @@ function bindMethodStructs(method: MethodShape, structs: StructCollector): Metho
         if (argType.type === 'NullableTypeAnnotation') {
           argType = (argType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
         }
+        if (argType.type === 'TypeAliasTypeAnnotation') {
+          return (argType as {name?: string}).name;
+        }
         if (argType.type === 'ObjectTypeAnnotation') {
           const name = `${methodPascal}_${cbName}_${pascalCase(cp.name || `Arg${ci}`)}`;
           return structs.collect(name, argType);
@@ -366,11 +423,15 @@ function bindMethodStructs(method: MethodShape, structs: StructCollector): Metho
 
   let returnStruct: string | undefined;
   const ret = method.typeAnnotation.returnTypeAnnotation;
-  if (ret.type === 'ObjectTypeAnnotation') {
+  if (ret.type === 'TypeAliasTypeAnnotation') {
+    returnStruct = (ret as {name?: string}).name;
+  } else if (ret.type === 'ObjectTypeAnnotation') {
     returnStruct = structs.collect(`${methodPascal}Result`, ret);
   } else if (ret.type === 'PromiseTypeAnnotation') {
     const elem = (ret as {elementType?: TypeAnnotation}).elementType;
-    if (elem && elem.type === 'ObjectTypeAnnotation') {
+    if (elem && elem.type === 'TypeAliasTypeAnnotation') {
+      returnStruct = (elem as {name?: string}).name;
+    } else if (elem && elem.type === 'ObjectTypeAnnotation') {
       returnStruct = structs.collect(`${methodPascal}Result`, elem);
     }
   }
@@ -390,12 +451,12 @@ function paramCppType(
   if (inner.type === 'NullableTypeAnnotation') {
     inner = (inner as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
   }
-  if (inner.type === 'ObjectTypeAnnotation') {
+  if (inner.type === 'ObjectTypeAnnotation' || inner.type === 'TypeAliasTypeAnnotation') {
     return structName!;
   }
   if (inner.type === 'FunctionTypeAnnotation') {
     // Callback param. Resolve each arg's C++ type with the matching
-    // struct name from the collector for ObjectType args.
+    // struct name from the collector for ObjectType / alias args.
     const fn = inner as {
       params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>;
       returnTypeAnnotation?: TypeAnnotation;
@@ -405,7 +466,7 @@ function paramCppType(
       if (argType.type === 'NullableTypeAnnotation') {
         argType = (argType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
       }
-      if (argType.type === 'ObjectTypeAnnotation') {
+      if (argType.type === 'ObjectTypeAnnotation' || argType.type === 'TypeAliasTypeAnnotation') {
         return callbackArgStructs?.[i] ?? 'folly::dynamic';
       }
       return mapType(argType, 'param').cpp;
@@ -424,7 +485,7 @@ function returnCppType(t: TypeAnnotation, structName: string | undefined): strin
   if (inner.type === 'NullableTypeAnnotation') {
     inner = (inner as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
   }
-  if (inner.type === 'ObjectTypeAnnotation') {
+  if (inner.type === 'ObjectTypeAnnotation' || inner.type === 'TypeAliasTypeAnnotation') {
     return structName!;
   }
   return mapType(inner, 'return').cpp;
@@ -443,10 +504,12 @@ function renderVirtualSignature(method: MethodShape, meta: MethodStructMeta): st
   const ret = method.typeAnnotation.returnTypeAnnotation;
   if (isPromise(ret)) {
     const elem = (ret as {elementType?: TypeAnnotation}).elementType;
+    const isElemObjectish =
+      elem && (elem.type === 'ObjectTypeAnnotation' || elem.type === 'TypeAliasTypeAnnotation');
     const resolveCpp =
       elem && elem.type === 'VoidTypeAnnotation'
         ? null
-        : elem && elem.type === 'ObjectTypeAnnotation'
+        : isElemObjectish
           ? meta.returnStruct!
           : elem
             ? mapType(elem, 'return').cpp
@@ -478,7 +541,7 @@ function isObject(t: TypeAnnotation): boolean {
   if (inner.type === 'NullableTypeAnnotation') {
     inner = (inner as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
   }
-  return inner.type === 'ObjectTypeAnnotation';
+  return inner.type === 'ObjectTypeAnnotation' || inner.type === 'TypeAliasTypeAnnotation';
 }
 
 function renderDispatchBranch(method: MethodShape, meta: MethodStructMeta): string {
@@ -675,7 +738,7 @@ function renderPromiseDispatchBranch(
       '__executor([resolveFn](facebook::jsi::Runtime& __rt) { ' +
       'resolveFn->call(__rt, facebook::jsi::Value::undefined()); ' +
       '}); };';
-  } else if (elem.type === 'ObjectTypeAnnotation') {
+  } else if (elem.type === 'ObjectTypeAnnotation' || elem.type === 'TypeAliasTypeAnnotation') {
     const structName = meta.returnStruct!;
     resolveLambda =
       `std::function<void(${structName})> resolve = ` +

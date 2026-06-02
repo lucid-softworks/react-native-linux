@@ -53,10 +53,14 @@ export interface Spec extends TurboModule {
 
 …the generator emits a `Native<SpecName>Spec.h` that contains:
 
-- Generated structs for every `ObjectTypeAnnotation` reached from a
-  param or return (recursive, post-order naming
-  `<Method>Result_<Field>`), each with `toDynamic` and `static
-fromDynamic` helpers.
+- Generated structs for every `ObjectTypeAnnotation` reached from
+  a param or return (recursive, post-order naming
+  `<Method>Result_<Field>` for inline anonymous shapes), each with
+  `toDynamic` and `static fromDynamic` helpers. Named type aliases
+  declared at the spec level (`export type User = {...}`) are
+  pre-registered from `schema.aliasMap` under the alias name and
+  dedupe across every use site — both `getUser(): User` and
+  `saveUser(user: User)` resolve to a single `User` struct.
 - The spec class `Native<SpecName>Spec` extending
   `rnlinux::TurboModule` with one pure virtual per method,
   signature lowered to typed C++.
@@ -176,11 +180,6 @@ for a worked hand-written example of the same pattern.
   `(...) => void` (success/error / on-event patterns); when one
   needs a sync return value, the generator would have to capture
   `rt_` by-pointer and document the call-from-JS-thread constraint.
-- `schema.aliasMap` name reuse. Inline anonymous objects get
-  path-derived names today (`<Method>Result_<Field>` on the TM
-  side, `<Comp><Prop>_<Field>` on the component side). When the
-  spec defines a named type alias, the generator could use the
-  alias name directly and dedupe across methods/components.
 
 ## Compile-time guard
 
