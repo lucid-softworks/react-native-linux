@@ -149,19 +149,24 @@ for a worked hand-written example of the same pattern.
 
 ## Type coverage — components
 
-| Spec type                                         | C++                                                        |
-| ------------------------------------------------- | ---------------------------------------------------------- |
-| `boolean` prop                                    | `bool`                                                     |
-| `string` prop                                     | `std::string`                                              |
-| `Int32` prop                                      | `int32_t`                                                  |
-| `Double` / `Float` / `Number` prop                | `double` / `float`                                         |
-| Direct event with primitive payload               | typed `<Name><Event>` struct + `onFoo(...)` emitter method |
-| Bubble events                                     | (treated as direct today)                                  |
-| `ViewProps` extension                             | ✓                                                          |
-| Reserved prop types (Color/Point/EdgeInsets/Size) | ✗ throws                                                   |
-| Object / Array props                              | ✗ throws                                                   |
-| Enum props                                        | ✗ throws                                                   |
-| Commands                                          | ✗ throws                                                   |
+| Spec type                                      | C++                                                         |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| `boolean` prop                                 | `bool`                                                      |
+| `string` prop                                  | `std::string`                                               |
+| `Int32` prop                                   | `int32_t`                                                   |
+| `Double` / `Float` / `Number` prop             | `double` / `float`                                          |
+| `ColorValue` (ColorPrimitive)                  | `facebook::react::SharedColor`                              |
+| `PointValue` (PointPrimitive)                  | `facebook::react::Point`                                    |
+| `EdgeInsetsValue` (EdgeInsetsPrimitive)        | `facebook::react::EdgeInsets`                               |
+| Dimension (DimensionPrimitive)                 | `facebook::react::Float`                                    |
+| `WithDefault<"a"\|"b"\|..., ...>` (StringEnum) | `enum class <Comp><Prop>` + ADL `fromRawValue` + `toString` |
+| Direct event with primitive payload            | typed `<Name><Event>` struct + `onFoo(...)` emitter method  |
+| Bubble events                                  | (treated as direct today)                                   |
+| `ViewProps` extension                          | ✓                                                           |
+| `ImageSource` prop                             | ✗ throws (needs ImageManager hookup)                        |
+| Object / Array props                           | ✗ throws                                                    |
+| Int32 enum props                               | ✗ throws (only StringEnum today)                            |
+| Commands                                       | ✗ throws                                                    |
 
 ## Known follow-ups
 
@@ -174,11 +179,21 @@ for a worked hand-written example of the same pattern.
   path-derived names today (`<Method>Result_<Field>`). When the
   spec defines a named type alias, the generator could use the
   alias name directly and dedupe across methods.
-- Component reserved prop types — Color / Point / EdgeInsets / Size.
-  Each maps to a different RN type with its own convertRawProp
-  specialisation.
-- Component commands (imperative method calls dispatched from JS).
-- Object / Array / Enum props on Fabric components.
+- `ImageSourcePrimitive` props. Lowering to `react::ImageSource`
+  is straightforward but the runtime side needs the ImageManager
+  / cache pipe wired, which the Linux runtime doesn't expose yet
+  for codegen-driven components.
+- `Int32EnumTypeAnnotation` props (numeric enums). String enums
+  already work end-to-end; the numeric variant follows the same
+  shape with an integer-keyed `fromRawValue`.
+- Component commands. Imperative methods (e.g. `.focus()`,
+  `.scrollTo(...)`) dispatched from JS — the schema carries
+  `commands: [{name, typeAnnotation: FunctionTypeAnnotation}]`
+  and the C++ side needs a `handleCommand(rt, name, args)` impl
+  generated alongside the ShadowNode.
+- Object / Array props on Fabric components. Less common than
+  on TurboModules; would mirror the TM-side StructCollector
+  pattern.
 
 ## Compile-time guard
 
