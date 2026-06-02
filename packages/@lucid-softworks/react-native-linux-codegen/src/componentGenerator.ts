@@ -109,10 +109,161 @@ const RESERVED_RN_TYPES: Record<string, {cpp: string; extraInclude?: string}> = 
   },
 };
 
+// Component-side object-prop struct collector. Mirrors the
+// TurboModule generator's StructCollector but is scoped to one
+// component's prop tree.
+interface PropStructProperty {
+  name: string;
+  cppType: string;
+  toDynamicExpr: string;
+  fromDynamicExpr: string;
+}
+
+interface PropStructDef {
+  name: string;
+  properties: PropStructProperty[];
+}
+
+class PropStructCollector {
+  readonly structs: PropStructDef[] = [];
+
+  collect(name: string, t: TypeAnnotation): string {
+    if (t.type !== 'ObjectTypeAnnotation') {
+      throw new Error(
+        `PropStructCollector.collect called with ${t.type}, expected ObjectTypeAnnotation`,
+      );
+    }
+    const props =
+      (t as {properties?: Array<{name: string; typeAnnotation: TypeAnnotation}>}).properties ?? [];
+    const struct: PropStructDef = {name, properties: []};
+    for (const prop of props) {
+      let propType = prop.typeAnnotation;
+      if (propType.type === 'NullableTypeAnnotation') {
+        propType = (propType as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+      }
+      const fieldName = prop.name;
+      const propPascal = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+      const fieldExpr = `d["${fieldName}"]`;
+      if (propType.type === 'ObjectTypeAnnotation') {
+        const nestedName = `${name}_${propPascal}`;
+        this.collect(nestedName, propType);
+        struct.properties.push({
+          name: fieldName,
+          cppType: nestedName,
+          toDynamicExpr: `toDynamic(v.${fieldName})`,
+          fromDynamicExpr: `${nestedName}::fromDynamic(${fieldExpr})`,
+        });
+        continue;
+      }
+      if (
+        propType.type === 'ArrayTypeAnnotation' ||
+        propType.type === 'GenericObjectTypeAnnotation'
+      ) {
+        struct.properties.push({
+          name: fieldName,
+          cppType: 'folly::dynamic',
+          toDynamicExpr: `v.${fieldName}`,
+          fromDynamicExpr: fieldExpr,
+        });
+        continue;
+      }
+      const mapped = primitiveCppType(propType.type);
+      struct.properties.push({
+        name: fieldName,
+        cppType: mapped,
+        toDynamicExpr: `v.${fieldName}`,
+        fromDynamicExpr: dynamicFieldAccessor(propType.type, fieldExpr),
+      });
+    }
+    this.structs.push(struct);
+    return name;
+  }
+}
+
+function primitiveCppType(typeName: string): string {
+  switch (typeName) {
+    case 'StringTypeAnnotation':
+      return 'std::string';
+    case 'BooleanTypeAnnotation':
+      return 'bool';
+    case 'NumberTypeAnnotation':
+    case 'DoubleTypeAnnotation':
+      return 'double';
+    case 'FloatTypeAnnotation':
+      return 'float';
+    case 'Int32TypeAnnotation':
+      return 'int32_t';
+    default:
+      throw new Error(`No primitive C++ type for ${typeName}`);
+  }
+}
+
+function dynamicFieldAccessor(typeName: string, fieldExpr: string): string {
+  switch (typeName) {
+    case 'StringTypeAnnotation':
+      return `${fieldExpr}.asString()`;
+    case 'BooleanTypeAnnotation':
+      return `${fieldExpr}.asBool()`;
+    case 'NumberTypeAnnotation':
+    case 'DoubleTypeAnnotation':
+    case 'FloatTypeAnnotation':
+      return `${fieldExpr}.asDouble()`;
+    case 'Int32TypeAnnotation':
+      return `static_cast<int32_t>(${fieldExpr}.asInt())`;
+    default:
+      throw new Error(`No dynamic-field accessor for ${typeName}`);
+  }
+}
+
+function renderPropStructDecls(structs: PropStructDef[]): string[] {
+  const lines: string[] = [];
+  for (const s of structs) {
+    lines.push(`struct ${s.name} {`);
+    for (const p of s.properties) {
+      lines.push(`  ${p.cppType} ${p.name};`);
+    }
+    lines.push('');
+    lines.push(`  static ${s.name} fromDynamic(const folly::dynamic& d) {`);
+    if (s.properties.length === 0) {
+      lines.push('    (void)d;');
+      lines.push('    return {};');
+    } else {
+      lines.push('    return {');
+      for (const p of s.properties) {
+        lines.push(`        .${p.name} = ${p.fromDynamicExpr},`);
+      }
+      lines.push('    };');
+    }
+    lines.push('  }');
+    lines.push('};');
+    lines.push('');
+    lines.push(`inline folly::dynamic toDynamic(const ${s.name}& v) {`);
+    if (s.properties.length === 0) {
+      lines.push('  return folly::dynamic::object();');
+    } else {
+      const head = '  return folly::dynamic::object';
+      const tail = s.properties.map(p => `("${p.name}", ${p.toDynamicExpr})`).join('');
+      lines.push(`${head}${tail};`);
+    }
+    lines.push('}');
+    lines.push('');
+    // ADL fromRawValue overload — RN's convertRawProp picks it up
+    // for any field declared with this struct type.
+    lines.push(`inline void fromRawValue(const facebook::react::PropsParserContext& /*context*/,`);
+    lines.push(`                          const facebook::react::RawValue& value,`);
+    lines.push(`                          ${s.name}& result) {`);
+    lines.push(`  result = ${s.name}::fromDynamic(static_cast<folly::dynamic>(value));`);
+    lines.push('}');
+    lines.push('');
+  }
+  return lines;
+}
+
 function propCppType(
   t: TypeAnnotation & {default?: unknown},
   componentName: string,
   propName: string,
+  structCollector?: PropStructCollector,
 ): PropCpp {
   // Nullable<T> → T (MVP simplification, mirrors the TM mapper).
   let inner: TypeAnnotation = t;
@@ -173,6 +324,41 @@ function propCppType(
           ? `{${enumName}::${intEnumCaseName(def)}}`
           : '{}';
       return {cpp: enumName, defaultExpr};
+    }
+    case 'ObjectTypeAnnotation': {
+      if (!structCollector) {
+        throw new Error('Object props require a struct collector');
+      }
+      const structName = `${componentName}${propName.charAt(0).toUpperCase() + propName.slice(1)}`;
+      structCollector.collect(structName, inner);
+      return {cpp: structName, defaultExpr: '{}'};
+    }
+    case 'ArrayTypeAnnotation': {
+      const elementType = (inner as {elementType?: TypeAnnotation}).elementType;
+      if (!elementType) {
+        return {cpp: 'folly::dynamic', defaultExpr: '{}'};
+      }
+      let elem: TypeAnnotation = elementType;
+      if (elem.type === 'NullableTypeAnnotation') {
+        elem = (elem as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+      }
+      if (elem.type === 'ObjectTypeAnnotation') {
+        if (!structCollector) {
+          return {cpp: 'folly::dynamic', defaultExpr: '{}'};
+        }
+        const elemName = `${componentName}${propName.charAt(0).toUpperCase() + propName.slice(1)}Item`;
+        structCollector.collect(elemName, elem);
+        return {cpp: `std::vector<${elemName}>`, defaultExpr: '{}'};
+      }
+      // Primitive element types map through the same primitive table
+      // we use for fields; RN's std::vector<T> convertRawProp will
+      // call the fromRawValue per element.
+      try {
+        const elemCpp = primitiveCppType(elem.type);
+        return {cpp: `std::vector<${elemCpp}>`, defaultExpr: '{}'};
+      } catch {
+        return {cpp: 'folly::dynamic', defaultExpr: '{}'};
+      }
     }
     default:
       throw new Error(
@@ -302,6 +488,18 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
     }
   }
 
+  // ─── Object-prop structs (post-order) ───────────────────────────
+  // Walk props once to register every ObjectTypeAnnotation reachable
+  // from a prop or array element. Each struct gets toDynamic +
+  // fromDynamic + fromRawValue emitted before the Props class.
+  const propStructs = new PropStructCollector();
+  for (const prop of def.props) {
+    propCppType(prop.typeAnnotation, componentName, prop.name, propStructs);
+  }
+  if (propStructs.structs.length > 0) {
+    lines.push(...renderPropStructDecls(propStructs.structs));
+  }
+
   // ─── Event payload structs + EventEmitter ───────────────────────
   for (const event of def.events) {
     const payload = collectEventPayload(event, componentName);
@@ -341,7 +539,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   lines.push(`      : facebook::react::ViewProps(context, sourceProps, rawProps)`);
   for (let i = 0; i < def.props.length; i++) {
     const prop = def.props[i];
-    const mapped = propCppType(prop.typeAnnotation, componentName, prop.name);
+    const mapped = propCppType(prop.typeAnnotation, componentName, prop.name, propStructs);
     const def0 = defaultExprForConvert(prop, mapped);
     lines.push(
       `      , ${prop.name}(facebook::react::convertRawProp(context, rawProps, ${quoteCppString(prop.name)}, sourceProps.${prop.name}, ${def0}))${i === def.props.length - 1 ? ' {}' : ''}`,
@@ -353,7 +551,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   }
   lines.push('');
   for (const prop of def.props) {
-    const mapped = propCppType(prop.typeAnnotation, componentName, prop.name);
+    const mapped = propCppType(prop.typeAnnotation, componentName, prop.name, propStructs);
     lines.push(`  ${mapped.cpp} ${prop.name}${mapped.defaultExpr};`);
   }
   lines.push('};');

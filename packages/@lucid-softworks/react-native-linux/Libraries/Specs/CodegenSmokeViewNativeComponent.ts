@@ -32,6 +32,11 @@ interface NativeProps extends ViewProps {
   mode?: WithDefault<'small' | 'large' | 'auto', 'auto'>;
   // Int32 enum → generated `enum class : int32_t` + int-keyed fromRawValue.
   level?: WithDefault<0 | 1 | 2, 0>;
+  // ObjectTypeAnnotation → generated `struct CodegenSmokeViewConfig`
+  // with toDynamic/fromDynamic + fromRawValue ADL overload.
+  config?: Readonly<{kind: string; max: Int32}>;
+  // ArrayTypeAnnotation<primitive> → std::vector<T>.
+  tags?: ReadonlyArray<string>;
   onValueChange?: DirectEventHandler<ValueChangeEvent>;
 }
 

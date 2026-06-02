@@ -442,6 +442,140 @@ describe('generateComponent — Commands', () => {
   });
 });
 
+describe('generateComponent — Object props', () => {
+  const header = generateComponent({
+    specName: 'CfgViewNativeComponent',
+    componentName: 'CfgView',
+    def: {
+      extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+      events: [],
+      props: [
+        {
+          name: 'config',
+          optional: false,
+          typeAnnotation: {
+            type: 'ObjectTypeAnnotation',
+            properties: [
+              {name: 'kind', optional: false, typeAnnotation: {type: 'StringTypeAnnotation'}},
+              {name: 'max', optional: false, typeAnnotation: {type: 'Int32TypeAnnotation'}},
+              {
+                name: 'meta',
+                optional: false,
+                typeAnnotation: {
+                  type: 'ObjectTypeAnnotation',
+                  properties: [
+                    {
+                      name: 'enabled',
+                      optional: false,
+                      typeAnnotation: {type: 'BooleanTypeAnnotation'},
+                    },
+                  ],
+                },
+              },
+            ],
+          } as any,
+        },
+      ],
+      commands: [],
+    },
+  });
+
+  test('emits struct + nested struct in post-order (nested first)', () => {
+    const nestedIdx = header.indexOf('struct CfgViewConfig_Meta {');
+    const parentIdx = header.indexOf('struct CfgViewConfig {');
+    expect(nestedIdx).toBeGreaterThan(0);
+    expect(parentIdx).toBeGreaterThan(nestedIdx);
+  });
+
+  test('struct fields take the right primitive / nested-struct types', () => {
+    expect(header).toMatch(/std::string kind;/);
+    expect(header).toMatch(/int32_t max;/);
+    expect(header).toMatch(/CfgViewConfig_Meta meta;/);
+    expect(header).toMatch(/bool enabled;/);
+  });
+
+  test('toDynamic + fromDynamic free functions per struct', () => {
+    expect(header).toMatch(/inline folly::dynamic toDynamic\(const CfgViewConfig& v\)/);
+    expect(header).toMatch(/static CfgViewConfig fromDynamic\(const folly::dynamic& d\)/);
+    expect(header).toMatch(/static CfgViewConfig_Meta fromDynamic\(const folly::dynamic& d\)/);
+  });
+
+  test('fromRawValue ADL overload for each struct', () => {
+    expect(header).toMatch(
+      /void fromRawValue\(const facebook::react::PropsParserContext& \/\*context\*\/,/,
+    );
+    expect(header).toMatch(/CfgViewConfig& result\) \{/);
+    expect(header).toMatch(
+      /result = CfgViewConfig::fromDynamic\(static_cast<folly::dynamic>\(value\)\);/,
+    );
+  });
+
+  test('Props uses the struct as the field type', () => {
+    expect(header).toMatch(/CfgViewConfig config\{\};/);
+    expect(header).toMatch(
+      /config\(facebook::react::convertRawProp\(context, rawProps, "config", sourceProps\.config, CfgViewConfig\{\}\)\)/,
+    );
+  });
+});
+
+describe('generateComponent — Array props', () => {
+  const header = generateComponent({
+    specName: 'ListViewNativeComponent',
+    componentName: 'ListView',
+    def: {
+      extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+      events: [],
+      props: [
+        {
+          name: 'tags',
+          optional: false,
+          typeAnnotation: {
+            type: 'ArrayTypeAnnotation',
+            elementType: {type: 'StringTypeAnnotation'},
+          } as any,
+        },
+        {
+          name: 'scores',
+          optional: false,
+          typeAnnotation: {
+            type: 'ArrayTypeAnnotation',
+            elementType: {type: 'Int32TypeAnnotation'},
+          } as any,
+        },
+        {
+          name: 'items',
+          optional: false,
+          typeAnnotation: {
+            type: 'ArrayTypeAnnotation',
+            elementType: {
+              type: 'ObjectTypeAnnotation',
+              properties: [
+                {name: 'name', optional: false, typeAnnotation: {type: 'StringTypeAnnotation'}},
+                {name: 'qty', optional: false, typeAnnotation: {type: 'Int32TypeAnnotation'}},
+              ],
+            },
+          } as any,
+        },
+      ],
+      commands: [],
+    },
+  });
+
+  test('Array<string> lowers to std::vector<std::string>', () => {
+    expect(header).toMatch(/std::vector<std::string> tags\{\};/);
+  });
+
+  test('Array<Int32> lowers to std::vector<int32_t>', () => {
+    expect(header).toMatch(/std::vector<int32_t> scores\{\};/);
+  });
+
+  test('Array<Object> generates an item struct + std::vector<ItemStruct>', () => {
+    expect(header).toMatch(/struct ListViewItemsItem \{/);
+    expect(header).toMatch(/std::vector<ListViewItemsItem> items\{\};/);
+    expect(header).toMatch(/static ListViewItemsItem fromDynamic/);
+  });
+});
+
 describe('generateComponent — unsupported types raise actionable errors', () => {
   test('non-View extendsProps throws', () => {
     expect(() =>
@@ -458,7 +592,7 @@ describe('generateComponent — unsupported types raise actionable errors', () =
     ).toThrow(/Linux component codegen MVP only supports `ViewProps`-extending components/);
   });
 
-  test('object-typed prop throws (MVP boundary)', () => {
+  test('completely-unknown prop type throws', () => {
     expect(() =>
       generateComponent({
         specName: 'XNativeComponent',
@@ -470,18 +604,16 @@ describe('generateComponent — unsupported types raise actionable errors', () =
           events: [],
           props: [
             {
-              name: 'config',
+              name: 'weird',
               optional: false,
               typeAnnotation: {
-                type: 'ObjectTypeAnnotation',
-                properties: [],
-                default: null,
+                type: 'SomeWeirdMadeUpType',
               } as any,
             },
           ],
           commands: [],
         },
       }),
-    ).toThrow(/unsupported component prop type: ObjectTypeAnnotation/);
+    ).toThrow(/unsupported component prop type: SomeWeirdMadeUpType/);
   });
 });

@@ -65,6 +65,20 @@ struct StubCommandView {
   }
 };
 
+// Object + array props compile-checks: confirm the struct types
+// exist with the expected field shapes.
+[[maybe_unused]] static void smokeObjectArrayProps() {
+  codegen::CodegenSmokeViewConfig cfg{.kind = "hello", .max = 7};
+  (void)cfg;
+  std::vector<std::string> tags{"a", "b"};
+  (void)tags;
+  // The struct ships toDynamic + fromDynamic helpers that round-trip
+  // through folly::dynamic; compile-only confirmation here.
+  auto dyn = codegen::toDynamic(cfg);
+  auto back = codegen::CodegenSmokeViewConfig::fromDynamic(dyn);
+  (void)back;
+}
+
 [[maybe_unused]] void smokeCommandDispatch() {
   StubCommandView stub;
   codegen::CodegenSmokeViewHandleCommand(stub, "focus", folly::dynamic::array());
