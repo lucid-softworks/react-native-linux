@@ -22,9 +22,8 @@
 //   CodegenSmoke.shouldAccept(pred)          — TM, non-void sync callback returning bool
 
 import {useEffect, useState} from 'react';
-import {SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {SafeAreaView, ScrollView, StyleSheet, Text, TurboModuleRegistry, View} from 'react-native';
 import {registerRootComponent} from 'expo';
-import {TurboModuleRegistry} from 'react-native';
 
 type Status = 'pending' | 'ok' | 'fail';
 
