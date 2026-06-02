@@ -155,6 +155,22 @@ if (typeof globalThis.performance === 'undefined') {
   globalThis.performance = {now: () => Date.now()};
 }
 
+// structuredClone — Hermes 0.12 doesn't ship it. TanStack Query's
+// structural-share, Redux-toolkit's deep-clone helpers, and every
+// "snapshot state for undo/redo" pattern call it on plain
+// JSON-shaped data. Without it the global access throws
+// ReferenceError at module load. JSON round-trip covers the
+// JSON-safe subset that nearly all of these calls hit — Date /
+// Map / Set / RegExp / Function don't survive the trip, but those
+// are uncommon in the use-cases that gate on the global's presence.
+if (typeof globalThis.structuredClone === 'undefined') {
+  globalThis.structuredClone = function structuredClone(obj) {
+    if (obj == null) return obj;
+    if (typeof obj !== 'object') return obj;
+    return JSON.parse(JSON.stringify(obj));
+  };
+}
+
 // Web Crypto API — `globalThis.crypto.getRandomValues` /
 // `randomUUID` is what every modern JWT / OAuth / UUID library
 // reaches for. expo-crypto, uuid, jose, @react-native-async-storage,
