@@ -530,9 +530,49 @@ const stubUnresolvedPlugin = {
           JSON.stringify(subKeys) +
           ';\n' +
           '  for (var i = 0; i < subs.length; i++) {\n' +
-          '    S[subs[i]] = leafStub;\n' +
+          // Hook-named exports (useQuery, useMutation, useSubscription,
+          // useSession, …) overwhelmingly return tuples — userland does
+          // `const [state, fn] = useX()` and the tuple is the
+          // destructure shape urql / SWR / TanStack Query / Redux all
+          // converged on. A leafStub for these returns makeStubFn() (a
+          // bare function) which Hermes' array destructure trips on
+          // with "iterator method is not callable". hookStub returns a
+          // tuple-shaped Array that ALSO carries the property surface
+          // so both patterns work.
+          '    S[subs[i]] = /^use[A-Z]/.test(subs[i]) ? hookStub : leafStub;\n' +
           '  }\n' +
           '  return S;\n' +
+          '}\n' +
+          'function hookStub() {\n' +
+          '  // State object every "fetcher" hook (useQuery, useMutation,\n' +
+          '  // useSubscription) returns. Covers the urql / TanStack Query\n' +
+          '  // / SWR / Apollo / Redux-Query union of property names so\n' +
+          '  // destructured access like `data` / `fetching` / `loading` /\n' +
+          '  // `error` / `isLoading` etc. all evaluate to something\n' +
+          "  // sensible without throwing 'undefined'.\n" +
+          '  var state = {\n' +
+          '    data: null,\n' +
+          '    fetching: false,\n' +
+          '    loading: false,\n' +
+          '    isLoading: false,\n' +
+          '    isPending: false,\n' +
+          '    isSuccess: false,\n' +
+          '    isError: false,\n' +
+          '    isFetching: false,\n' +
+          '    error: null,\n' +
+          '    status: "idle",\n' +
+          '    refetch: function () {},\n' +
+          '    mutate: function () {},\n' +
+          '    reset: function () {},\n' +
+          '  };\n' +
+          '  // Real Array so Symbol.iterator works for destructure.\n' +
+          '  var noop = function () {};\n' +
+          '  var result = [state, noop, noop];\n' +
+          '  // Mirror the state properties onto the array itself so\n' +
+          '  // `const r = useX(); r.data` works for hooks userland\n' +
+          '  // treats as single-value (useSession, useUser, useTheme).\n' +
+          '  for (var k in state) result[k] = state[k];\n' +
+          '  return result;\n' +
           '}\n' +
           'function leafStub(arg0, arg1) {\n' +
           '  // HOC-render: useFactory(Component, props, ...). Real\n' +
@@ -570,7 +610,15 @@ const stubUnresolvedPlugin = {
           'var defaultExport = makeStubFn();\n' +
           'for (var i = 0; i < keys.length; i++) {\n' +
           "  if (keys[i] === 'default') continue;\n" +
-          '  defaultExport[keys[i]] = makeStubFn();\n' +
+          // Same hook-name detection as inside makeStubFn. Without it,
+          // an esbuild-detected named import like `useQuery` overwrites
+          // the per-name slot makeStubFn() set up internally — with a
+          // generic stub function instead of hookStub — so the
+          // `const [state, fn] = useQuery(...)` destructure trips
+          // "iterator method is not callable" again. Mirror the rule
+          // here so default-export AND named-export entry points both
+          // resolve hooks to a tuple-shaped value.
+          '  defaultExport[keys[i]] = /^use[A-Z]/.test(keys[i]) ? hookStub : makeStubFn();\n' +
           '}\n' +
           'defaultExport.default = defaultExport;\n' +
           'module.exports = defaultExport;\n',
