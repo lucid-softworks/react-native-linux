@@ -28,7 +28,7 @@ jobs:
   lint-js:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -51,7 +51,7 @@ jobs:
   lint-cpp:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install clang-format
         run: |
           sudo apt-get update
@@ -70,7 +70,7 @@ jobs:
   autolink-drift:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -105,7 +105,7 @@ jobs:
     # before they hit a contributor's machine.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install native build deps
         run: |
@@ -204,7 +204,7 @@ jobs:
     # from the lint-js job's cache.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -267,7 +267,7 @@ jobs:
     # prefix because the subdir layout differs.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install native build + xvfb deps
         run: |
@@ -405,7 +405,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: smoke-playground
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -495,7 +495,7 @@ jobs:
     # lands the build-vnext job can also `ctest --label-regex vnext`.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
