@@ -23,7 +23,13 @@ const Reconciler = require('react-reconciler');
 const RefreshRuntime = require('react-refresh/runtime');
 const {hostConfig, setSurfaceContext} = require('./fabricHostConfig');
 const {ErrorBoundary} = require('./errorOverlay');
-const {LogBoxOverlay} = require('./logBox');
+// LogBox module sets `globalThis.__rnLinuxLogBox` at load time. The
+// playground app can opt into wrapping its tree in <LogBoxOverlay/>
+// (exported from `./logBox`) but the default fabric mount stays
+// minimal — wrapping by default crashes the CI x86_64 Hermes
+// bytecode build (same shape as the URL polyfill v1 regression,
+// some bytecode-opt pattern we haven't pinned down yet).
+require('./logBox');
 
 const reconciler = Reconciler(hostConfig);
 
@@ -72,11 +78,7 @@ function tryMount() {
     // JSX exceptions and renders a RedBox fallback) > user tree.
     // A crash inside the user's tree trips the boundary; the LogBox
     // stays mounted at the top level and keeps showing the toast.
-    const elementToCommit = React.createElement(
-      LogBoxOverlay,
-      null,
-      React.createElement(ErrorBoundary, {scope: 'app'}, pendingElement),
-    );
+    const elementToCommit = React.createElement(ErrorBoundary, {scope: 'app'}, pendingElement);
     pendingElement = null;
     reconciler.updateContainer(elementToCommit, root, null, () => {
       rnLinux.log('info', '[fabric-render] JSX commit done (cold)');
@@ -115,11 +117,7 @@ function tryMount() {
   //    types via family lookup during the scheduled refresh.
   if (globalThis.__rnLinuxRecoveredFromError) {
     globalThis.__rnLinuxRecoveredFromError = false;
-    const elementToCommit = React.createElement(
-      LogBoxOverlay,
-      null,
-      React.createElement(ErrorBoundary, {scope: 'app'}, pendingElement),
-    );
+    const elementToCommit = React.createElement(ErrorBoundary, {scope: 'app'}, pendingElement);
     pendingElement = null;
     reconciler.updateContainer(elementToCommit, root, null, () => {
       rnLinux.log('info', '[hot-reload] post-error full remount done');
