@@ -264,42 +264,42 @@ needed.
 
 ### TurboModule codegen follow-ups
 
-The TurboModule codegen covers the type system most arbitrary
-`expo-modules-core` specs use: primitives, void, typed C++ structs
-(with both `toDynamic` and `static fromDynamic` helpers),
-arrays/generic objects via `folly::dynamic`, nullables, enums,
-Promises (off-thread safe via `RuntimeExecutor`), void-returning
-callbacks (also off-thread safe), and object args inside
-callbacks. Remaining edges:
+The TurboModule codegen covers everything `@react-native/codegen`'s
+schema can express: primitives, void, typed C++ structs (with
+`toDynamic` and `static fromDynamic`), `folly::dynamic` for arrays
+and generic objects, nullables, enums, `Promise<T>` (off-thread
+safe via `RuntimeExecutor`), `(...) => void` callbacks
+(off-thread safe), object args inside callbacks, `(...) => R`
+callbacks with primitive R (synchronous, on JS thread), and
+type-alias dedup driven by `schema.aliasMap`. Verified end-to-end
+against `expo-desktop-modules-core`'s real specs.
 
-1. **Non-void callback returns.** Almost no real spec uses these
-   (callbacks are typically `(...) => void`), so they still throw
-   with an actionable error. Adding it requires capturing `rt_` by
-   pointer and documenting the call-from-JS-thread constraint.
-2. **Type aliases (`schema.aliasMap`).** Inline anonymous objects
-   get synthesized names today (`<Method>Result_<Field>`). Named
-   type aliases would get the alias name verbatim, deduping the
-   struct list when the same shape appears under multiple methods.
-3. **Fabric component coverage.** The component generator handles
-   every prop shape the upstream codegen schema emits: primitives,
-   `ColorPrimitive`/`PointPrimitive`/`EdgeInsetsPrimitive`/
-   `DimensionPrimitive`/`ImageSourcePrimitive` reserved types,
-   String + Int32 enums (typed `enum class` + ADL `fromRawValue`),
-   Object props (generated `<Comp><Prop>` struct + `toDynamic`/
-   `fromDynamic`/`fromRawValue`), and `Array<T>` props
-   (`std::vector<T>` with item-struct generation when T is an
-   object). Events lower to typed `<Name><Event>` structs + emitter
-   methods; `codegenNativeCommands` produces a `<Name>HandleCommand`
-   dispatcher wired through `LinuxComponentView::handleCommand` →
-   `LinuxSchedulerDelegate::schedulerDidDispatchCommand`.
-   Components auto-register via
-   `codegen::installComponent()` (parallel to TM's
-   `Spec::install<Impl>()`) — no manual registry bootstrap
-   required for third-party autolinked components.
+There are no longer load-bearing TM-side codegen gaps. Lone edge
+that still throws: typed-object / `Promise<T>` returns from a
+non-void sync callback — primitive returns work end-to-end, and
+no real spec in the wild combines a typed-object return with the
+sync-callback shape.
 
-   Nothing in the standard component spec surface blocks
-   `expo-desktop-modules-core` or downstream view-shipping Expo
-   packages today.
+**Fabric component coverage.** The component generator handles
+every prop shape the upstream codegen schema emits: primitives,
+`ColorPrimitive`/`PointPrimitive`/`EdgeInsetsPrimitive`/
+`DimensionPrimitive`/`ImageSourcePrimitive` reserved types,
+String + Int32 enums (typed `enum class` + ADL `fromRawValue`),
+Object props (generated `<Comp><Prop>` struct + `toDynamic`/
+`fromDynamic`/`fromRawValue`), and `Array<T>` props
+(`std::vector<T>` with item-struct generation when T is an
+object). Events lower to typed `<Name><Event>` structs + emitter
+methods; `codegenNativeCommands` produces a `<Name>HandleCommand`
+dispatcher wired through `LinuxComponentView::handleCommand` →
+`LinuxSchedulerDelegate::schedulerDidDispatchCommand`.
+Components auto-register via
+`codegen::installComponent()` (parallel to TM's
+`Spec::install<Impl>()`) — no manual registry bootstrap
+required for third-party autolinked components.
+
+Nothing in the standard component spec surface blocks
+`expo-desktop-modules-core` or downstream view-shipping Expo
+packages today.
 
 **JS-side fallback** for anything the codegen can't yet express:
 `@lucid-softworks/react-native-linux-expo/expo-modules-core.js`
