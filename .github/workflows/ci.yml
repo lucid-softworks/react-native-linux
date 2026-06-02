@@ -37,6 +37,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Build the codegen package's lib/ — cli tests + autolinkLinux
+      # require('@lucid-softworks/react-native-linux-codegen') against
+      # its compiled main entry. Without this the cli test suite fails
+      # with "Cannot find module".
+      - name: Build packages (compiles codegen → lib/)
+        run: pnpm -r run build
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:format
@@ -147,6 +153,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      # CMake's codegen step shells out to scripts/codegen/run.js, which
+      # requires('@lucid-softworks/react-native-linux-codegen'). The
+      # workspace symlink resolves to that package's `main`, which is
+      # the tsc-compiled lib/index.js — empty until we build it here.
+      - name: Build packages (compiles codegen → lib/)
+        run: pnpm -r run build
 
       - name: Install template deps (provides node_modules/react-native)
         working-directory: template
@@ -287,6 +300,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      # Same reason as build-vnext: codegen runs from CMake via
+      # scripts/codegen/run.js which require()s the codegen package's
+      # tsc-compiled main entry.
+      - name: Build packages (compiles codegen → lib/)
+        run: pnpm -r run build
 
       - name: Install template deps (provides node_modules/react-native)
         working-directory: template
@@ -485,6 +504,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # cli test suite require()s the codegen package, which needs
+      # its tsc-compiled lib/ to exist before tests run.
+      - name: Build packages (compiles codegen → lib/)
+        run: pnpm -r run build
       - name: JS coverage
         run: |
           # --coverage works because each workspace's jest.config.js
