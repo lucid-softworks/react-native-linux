@@ -544,6 +544,140 @@ if (typeof globalThis.URLSearchParams === 'undefined') {
   globalThis.URLSearchParams = URLSearchParams;
 }
 
+// URL — Hermes 0.12 doesn't ship it. Modern RN apps reach for it
+// through countless paths (satori, expo-router's deep-link resolver,
+// every "construct a download URL from a base + path" pattern).
+// Without it the property access throws `ReferenceError: Property
+// 'URL' doesn't exist` at module-load time and the app subtree
+// blanks out before render.
+//
+// Implementation is minimal-and-defensive on purpose. The earlier
+// fuller-spec version compiled cleanly via local hermesc but
+// crashed the host on the x86_64 CI build during vendor.bundle
+// evaluation — Object.defineProperty getters on the prototype
+// were the smoking gun. This version uses only plain prototype
+// methods + assignment-time accessors, no defineProperty getters,
+// to stay on the well-trodden bytecode path.
+if (typeof globalThis.URL === 'undefined') {
+  // Match an absolute URL into capture groups:
+  //   1: protocol (e.g. "https:")
+  //   2: host (with optional port)
+  //   3: pathname (starting with '/')
+  //   4: search (starting with '?', or '')
+  //   5: hash (starting with '#', or '')
+  var _URL_ABS_RE = /^([a-zA-Z][a-zA-Z0-9+\-.]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/;
+  function _urlParseAbsolute(href) {
+    var m = _URL_ABS_RE.exec(String(href));
+    if (!m) return null;
+    return {
+      protocol: m[1] || '',
+      host: m[2] || '',
+      pathname: m[3] || '',
+      search: m[4] || '',
+      hash: m[5] || '',
+    };
+  }
+  function _urlSetParts(self, parts) {
+    var host = parts.host || '';
+    var colon = host.indexOf(':');
+    self.protocol = parts.protocol || '';
+    self.host = host;
+    self.hostname = colon < 0 ? host : host.slice(0, colon);
+    self.port = colon < 0 ? '' : host.slice(colon + 1);
+    self.pathname = parts.pathname || '';
+    self.search = parts.search || '';
+    self.hash = parts.hash || '';
+    var initialSearch = self.search.charAt(0) === '?' ? self.search.slice(1) : self.search;
+    self.searchParams = new URLSearchParams(initialSearch);
+    self.origin = self.protocol && host ? self.protocol + '//' + host : 'null';
+    self.href = self.protocol + (host ? '//' + host : '') + self.pathname + self.search + self.hash;
+  }
+  function _urlResolve(href, base) {
+    var abs = _urlParseAbsolute(href);
+    if (abs) return abs;
+    if (base == null) throw new TypeError('URL: invalid URL without base');
+    var baseObj = typeof base === 'object' && base && base.protocol ? base : new URL(base);
+    var rel = String(href);
+    if (rel.length === 0) {
+      return {
+        protocol: baseObj.protocol,
+        host: baseObj.host,
+        pathname: baseObj.pathname,
+        search: baseObj.search,
+        hash: '',
+      };
+    }
+    var first = rel.charAt(0);
+    if (first === '#') {
+      return {
+        protocol: baseObj.protocol,
+        host: baseObj.host,
+        pathname: baseObj.pathname,
+        search: baseObj.search,
+        hash: rel,
+      };
+    }
+    var qIdx = rel.indexOf('?');
+    var hIdx = rel.indexOf('#');
+    var pathEnd =
+      qIdx < 0 ? (hIdx < 0 ? rel.length : hIdx) : hIdx < 0 ? qIdx : qIdx < hIdx ? qIdx : hIdx;
+    var sEnd = hIdx < 0 ? rel.length : hIdx;
+    if (first === '?') {
+      return {
+        protocol: baseObj.protocol,
+        host: baseObj.host,
+        pathname: baseObj.pathname,
+        search: hIdx < 0 ? rel : rel.slice(0, hIdx),
+        hash: hIdx < 0 ? '' : rel.slice(hIdx),
+      };
+    }
+    if (first === '/') {
+      return {
+        protocol: baseObj.protocol,
+        host: baseObj.host,
+        pathname: rel.slice(0, pathEnd),
+        search: qIdx < 0 ? '' : rel.slice(qIdx, sEnd),
+        hash: hIdx < 0 ? '' : rel.slice(hIdx),
+      };
+    }
+    var lastSlash = baseObj.pathname.lastIndexOf('/');
+    var basePath = lastSlash < 0 ? '/' : baseObj.pathname.slice(0, lastSlash + 1);
+    return {
+      protocol: baseObj.protocol,
+      host: baseObj.host,
+      pathname: basePath + rel.slice(0, pathEnd),
+      search: qIdx < 0 ? '' : rel.slice(qIdx, sEnd),
+      hash: hIdx < 0 ? '' : rel.slice(hIdx),
+    };
+  }
+  function URL(href, base) {
+    if (!(this instanceof URL)) throw new TypeError("Constructor URL requires 'new'");
+    var parts = _urlResolve(href, base);
+    if (!parts) throw new TypeError('URL: invalid URL "' + href + '"');
+    _urlSetParts(this, parts);
+  }
+  URL.prototype.toString = function () {
+    return this.href;
+  };
+  URL.prototype.toJSON = function () {
+    return this.href;
+  };
+  // Static methods userland gates on.
+  URL.canParse = function (href, base) {
+    try {
+      new URL(href, base);
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  };
+  URL.createObjectURL = function () {
+    return 'blob:rn-linux/0';
+  };
+  URL.revokeObjectURL = function () {};
+  globalThis.URL = URL;
+}
+
 // ───────────────────────────────────────────────────────────────────
 // fetch() — minimal whatwg-fetch surface, backed by rnLinux.fetch()
 // which delegates to libsoup-3 in our C++ host. Hermes doesn't ship
