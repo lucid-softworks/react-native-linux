@@ -237,6 +237,119 @@ ViewComponentView::ViewComponentView(Tag tag)
       +[](gpointer data, GObject* /*where*/) { delete static_cast<DragState*>(data); },
       dragState);
   gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(drag));
+
+  // Touch events — RN's onTouchStart / onTouchMove / onTouchEnd /
+  // onTouchCancel. Synthesized from raw GdkEvent button + motion +
+  // grab-broken events via GtkEventControllerLegacy. We use the
+  // legacy controller (not gestures) to avoid fighting the click /
+  // long-press / drag gestures already attached above — the legacy
+  // controller observes every event without claiming sequences.
+  //
+  // Touch lifecycle is single-pointer on desktop: one logical touch
+  // sequence at a time, identifier=0. The payload mirrors RN's
+  // shape: `touches` is the currently-pressed pointers,
+  // `changedTouches` is the ones whose state flipped this event.
+  auto* touch = gtk_event_controller_legacy_new();
+  // touchPressed tracks whether the primary button is currently
+  // held — drives whether motion-notify fires onTouchMove and
+  // whether grab-broken fires onTouchCancel.
+  struct TouchState {
+    ViewComponentView* self;
+    int tag;
+    bool pressed;
+  };
+  auto* touchState = new TouchState{this, static_cast<int>(tag), false};
+  g_signal_connect_data(
+      touch,
+      "event",
+      G_CALLBACK(+[](GtkEventControllerLegacy* /*ctl*/, GdkEvent* event, gpointer ud) -> gboolean {
+        auto* ts = static_cast<TouchState*>(ud);
+        const auto kind = gdk_event_get_event_type(event);
+        const auto emitTouch = [&](const char* name, double x, double y) {
+          auto emitter = ts->self->eventEmitter();
+          if (!emitter)
+            return;
+          // Single-touch payload — identifier 0, target = this View's
+          // tag. `touches` reflects current state (one entry while
+          // pressed, empty after release); `changedTouches` has the
+          // entry that flipped this event.
+          folly::dynamic point = folly::dynamic::object //
+              ("identifier", 0)                         //
+              ("target", ts->tag)                       //
+              ("locationX", x)("locationY", y)          //
+              ("pageX", x)("pageY", y)                  //
+              ("timestamp", static_cast<double>(g_get_monotonic_time() / 1000.0));
+          folly::dynamic touches = folly::dynamic::array();
+          if (ts->pressed) {
+            touches.push_back(point);
+          }
+          folly::dynamic changedTouches = folly::dynamic::array();
+          changedTouches.push_back(point);
+          emitter->dispatchEvent(name,
+                                 folly::dynamic::object           //
+                                 ("identifier", 0)                //
+                                 ("target", ts->tag)              //
+                                 ("locationX", x)("locationY", y) //
+                                 ("pageX", x)("pageY", y)         //
+                                 ("touches", touches)             //
+                                 ("changedTouches", changedTouches));
+        };
+        double x = 0;
+        double y = 0;
+        gdk_event_get_position(event, &x, &y);
+        switch (kind) {
+        case GDK_BUTTON_PRESS: {
+          if (gdk_button_event_get_button(event) != GDK_BUTTON_PRIMARY)
+            return FALSE;
+          ts->pressed = true;
+          emitTouch("touchStart", x, y);
+          break;
+        }
+        case GDK_BUTTON_RELEASE: {
+          if (gdk_button_event_get_button(event) != GDK_BUTTON_PRIMARY)
+            return FALSE;
+          // Fire touchEnd FIRST while pressed is still true so
+          // `touches` reflects the lifted finger, then clear.
+          emitTouch("touchEnd", x, y);
+          ts->pressed = false;
+          break;
+        }
+        case GDK_MOTION_NOTIFY: {
+          if (!ts->pressed)
+            return FALSE;
+          const auto mods = gdk_event_get_modifier_state(event);
+          if (!(mods & GDK_BUTTON1_MASK)) {
+            // System took the button event without us seeing the
+            // release (focus shift, etc.) — treat as a cancel.
+            ts->pressed = false;
+            emitTouch("touchCancel", x, y);
+            return FALSE;
+          }
+          emitTouch("touchMove", x, y);
+          break;
+        }
+        case GDK_GRAB_BROKEN: {
+          if (ts->pressed) {
+            ts->pressed = false;
+            emitTouch("touchCancel", x, y);
+          }
+          break;
+        }
+        default:
+          break;
+        }
+        // Never consume — gestures and other controllers still
+        // need to see the event.
+        return FALSE;
+      }),
+      touchState,
+      /*destroy=*/nullptr,
+      /*flags=*/static_cast<GConnectFlags>(0));
+  g_object_weak_ref(
+      G_OBJECT(touch),
+      +[](gpointer data, GObject* /*where*/) { delete static_cast<TouchState*>(data); },
+      touchState);
+  gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(touch));
 }
 
 ViewComponentView::~ViewComponentView() {

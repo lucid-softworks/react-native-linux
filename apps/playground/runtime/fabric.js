@@ -346,6 +346,19 @@ const GESTURE_BURST_TYPES = new Set([
   'topPanResponderMove',
   'panResponderRelease',
   'topPanResponderRelease',
+  // Touch events ride GtkEventControllerLegacy on every <View>; one
+  // physical press lands on the deepest View's controller and on
+  // each ancestor's. Dedupe the ancestor follow-ups; the bubble
+  // walk from the deepest target already visits every ancestor's
+  // `onTouchX` prop.
+  'touchStart',
+  'topTouchStart',
+  'touchMove',
+  'topTouchMove',
+  'touchEnd',
+  'topTouchEnd',
+  'touchCancel',
+  'topTouchCancel',
 ]);
 // Last fiber we accepted a gesture-burst event for. Detection of "is
 // this a duplicate from the same physical click?" walks the new
