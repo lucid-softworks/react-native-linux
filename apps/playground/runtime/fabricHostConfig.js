@@ -287,6 +287,140 @@ function makeInstance(tag, fabricNode, componentName, type) {
   };
 }
 
+// HTML + SVG element fallback tables for createInstance below.
+// Hoisted to module scope to keep the bytecode shape stable —
+// inlining these Set literals inside createInstance with their long
+// string-array initialisers triggered a Hermes x86_64 bytecode bug
+// that silently blank-screens the host (same family as the URL
+// polyfill v1 and the Icon+Label-in-literal regressions, tracked in
+// task #69).
+const HTML_VIEW_TAGS = new Set([
+  'div',
+  'section',
+  'nav',
+  'main',
+  'aside',
+  'article',
+  'header',
+  'footer',
+  'ul',
+  'ol',
+  'li',
+  'figure',
+  'figcaption',
+  'form',
+  'fieldset',
+  'label',
+  'table',
+  'thead',
+  'tbody',
+  'tfoot',
+  'tr',
+  'td',
+  'th',
+  'colgroup',
+  'col',
+  'video',
+  'audio',
+  'canvas',
+  'iframe',
+  'details',
+  'summary',
+  'dialog',
+  'button',
+  'a',
+]);
+const HTML_TEXT_TAGS = new Set([
+  'p',
+  'span',
+  'strong',
+  'em',
+  'b',
+  'i',
+  'u',
+  's',
+  'small',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'pre',
+  'code',
+  'kbd',
+  'samp',
+  'var',
+  'mark',
+  'sub',
+  'sup',
+  'abbr',
+  'cite',
+  'q',
+  'time',
+  'br',
+  'hr',
+]);
+const SVG_TAGS = new Set([
+  'svg',
+  'g',
+  'defs',
+  'symbol',
+  'use',
+  'foreignObject',
+  'path',
+  'rect',
+  'circle',
+  'ellipse',
+  'line',
+  'polyline',
+  'polygon',
+  'text',
+  'tspan',
+  'textPath',
+  'linearGradient',
+  'radialGradient',
+  'stop',
+  'marker',
+  'mask',
+  'clipPath',
+  'pattern',
+  'filter',
+  'feBlend',
+  'feColorMatrix',
+  'feComponentTransfer',
+  'feComposite',
+  'feConvolveMatrix',
+  'feDiffuseLighting',
+  'feDisplacementMap',
+  'feDistantLight',
+  'feDropShadow',
+  'feFlood',
+  'feFuncA',
+  'feFuncB',
+  'feFuncG',
+  'feFuncR',
+  'feGaussianBlur',
+  'feImage',
+  'feMerge',
+  'feMergeNode',
+  'feMorphology',
+  'feOffset',
+  'fePointLight',
+  'feSpecularLighting',
+  'feSpotLight',
+  'feTile',
+  'feTurbulence',
+  'animate',
+  'animateMotion',
+  'animateTransform',
+  'set',
+  'mpath',
+  'title',
+  'desc',
+  'metadata',
+]);
+
 const hostConfig = {
   // Persistence is the natural fit for Fabric — every commit clones
   // the affected nodes via nativeFabricUIManager.cloneNodeWith*, then
@@ -492,83 +626,14 @@ const hostConfig = {
       return makeInstance(tag, fabricNode, 'Text', type);
     }
 
-    // HTML element fallback. Expo Router DOM Components, with-html,
-    // and any example that mixes JSX with a `"use dom"` directive
-    // emit lowercase HTML element names (`<div>`, `<p>`, `<span>`,
-    // `<h1>` …) directly into the React tree. We don't have a real
-    // WebView host, but mapping the structural elements onto View
-    // and the text-bearing elements onto Paragraph is enough to let
-    // these trees mount + render the visible text without throwing.
-    // Layout / styling fidelity is not the goal here — just "boots
-    // and renders something" so the rest of the app surface gets a
-    // chance to run.
-    const HTML_VIEW_TAGS = new Set([
-      'div',
-      'section',
-      'nav',
-      'main',
-      'aside',
-      'article',
-      'header',
-      'footer',
-      'ul',
-      'ol',
-      'li',
-      'figure',
-      'figcaption',
-      'form',
-      'fieldset',
-      'label',
-      'table',
-      'thead',
-      'tbody',
-      'tfoot',
-      'tr',
-      'td',
-      'th',
-      'colgroup',
-      'col',
-      'video',
-      'audio',
-      'canvas',
-      'iframe',
-      'details',
-      'summary',
-      'dialog',
-      'button',
-      'a',
-    ]);
-    const HTML_TEXT_TAGS = new Set([
-      'p',
-      'span',
-      'strong',
-      'em',
-      'b',
-      'i',
-      'u',
-      's',
-      'small',
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'h5',
-      'h6',
-      'pre',
-      'code',
-      'kbd',
-      'samp',
-      'var',
-      'mark',
-      'sub',
-      'sup',
-      'abbr',
-      'cite',
-      'q',
-      'time',
-      'br',
-      'hr',
-    ]);
+    // HTML / SVG element fallback. Expo Router DOM Components,
+    // with-html, react-flow's edge markers, every icon set emit
+    // lowercase HTML/SVG element names directly into the React
+    // tree. Structural HTML + every SVG primitive map onto View,
+    // text-bearing HTML onto Paragraph. Goal is "tree mounts" not
+    // "looks right"; layout / styling fidelity is out of scope.
+    // The tag sets themselves live at module scope above — see
+    // the comment there.
     if (HTML_VIEW_TAGS.has(type)) {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
@@ -592,81 +657,6 @@ const hostConfig = {
       return makeInstance(tag, fabricNode, 'Paragraph', type);
     }
 
-    // SVG element fallback. react-native-svg, expo-router DOM
-    // Components, and any example that renders inline SVG (lots of
-    // dashboards, with-react-flow's edge markers, every icon set)
-    // emit lowercase SVG element names directly into the React tree.
-    // We don't render actual SVG (would need cairo + librsvg), but
-    // mapping everything to View lets the tree mount instead of
-    // throwing — so examples surface their REAL post-SVG failures
-    // rather than blanking out on `Unknown host element: <stop>`.
-    const SVG_TAGS = new Set([
-      // Containers
-      'svg',
-      'g',
-      'defs',
-      'symbol',
-      'use',
-      'foreignObject',
-      // Shapes
-      'path',
-      'rect',
-      'circle',
-      'ellipse',
-      'line',
-      'polyline',
-      'polygon',
-      // Text
-      'text',
-      'tspan',
-      'textPath',
-      // Gradients + fills
-      'linearGradient',
-      'radialGradient',
-      'stop',
-      // Markers + clipping + masking
-      'marker',
-      'mask',
-      'clipPath',
-      'pattern',
-      'filter',
-      // Filter primitives
-      'feBlend',
-      'feColorMatrix',
-      'feComponentTransfer',
-      'feComposite',
-      'feConvolveMatrix',
-      'feDiffuseLighting',
-      'feDisplacementMap',
-      'feDistantLight',
-      'feDropShadow',
-      'feFlood',
-      'feFuncA',
-      'feFuncB',
-      'feFuncG',
-      'feFuncR',
-      'feGaussianBlur',
-      'feImage',
-      'feMerge',
-      'feMergeNode',
-      'feMorphology',
-      'feOffset',
-      'fePointLight',
-      'feSpecularLighting',
-      'feSpotLight',
-      'feTile',
-      'feTurbulence',
-      // Animation (no-op — we don't drive SMIL)
-      'animate',
-      'animateMotion',
-      'animateTransform',
-      'set',
-      'mpath',
-      // Misc descriptive
-      'title',
-      'desc',
-      'metadata',
-    ]);
     if (SVG_TAGS.has(type)) {
       const tag = newTag();
       const fabricNode = currentFabric.createNode(
