@@ -592,6 +592,93 @@ const hostConfig = {
       return makeInstance(tag, fabricNode, 'Paragraph', type);
     }
 
+    // SVG element fallback. react-native-svg, expo-router DOM
+    // Components, and any example that renders inline SVG (lots of
+    // dashboards, with-react-flow's edge markers, every icon set)
+    // emit lowercase SVG element names directly into the React tree.
+    // We don't render actual SVG (would need cairo + librsvg), but
+    // mapping everything to View lets the tree mount instead of
+    // throwing — so examples surface their REAL post-SVG failures
+    // rather than blanking out on `Unknown host element: <stop>`.
+    const SVG_TAGS = new Set([
+      // Containers
+      'svg',
+      'g',
+      'defs',
+      'symbol',
+      'use',
+      'foreignObject',
+      // Shapes
+      'path',
+      'rect',
+      'circle',
+      'ellipse',
+      'line',
+      'polyline',
+      'polygon',
+      // Text
+      'text',
+      'tspan',
+      'textPath',
+      // Gradients + fills
+      'linearGradient',
+      'radialGradient',
+      'stop',
+      // Markers + clipping + masking
+      'marker',
+      'mask',
+      'clipPath',
+      'pattern',
+      'filter',
+      // Filter primitives
+      'feBlend',
+      'feColorMatrix',
+      'feComponentTransfer',
+      'feComposite',
+      'feConvolveMatrix',
+      'feDiffuseLighting',
+      'feDisplacementMap',
+      'feDistantLight',
+      'feDropShadow',
+      'feFlood',
+      'feFuncA',
+      'feFuncB',
+      'feFuncG',
+      'feFuncR',
+      'feGaussianBlur',
+      'feImage',
+      'feMerge',
+      'feMergeNode',
+      'feMorphology',
+      'feOffset',
+      'fePointLight',
+      'feSpecularLighting',
+      'feSpotLight',
+      'feTile',
+      'feTurbulence',
+      // Animation (no-op — we don't drive SMIL)
+      'animate',
+      'animateMotion',
+      'animateTransform',
+      'set',
+      'mpath',
+      // Misc descriptive
+      'title',
+      'desc',
+      'metadata',
+    ]);
+    if (SVG_TAGS.has(type)) {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'View',
+        currentSurfaceId,
+        buildFabricProps('view', props),
+        internalInstanceHandle,
+      );
+      return makeInstance(tag, fabricNode, 'View', type);
+    }
+
     throw new Error('Unknown host element: <' + type + '>');
   },
 
