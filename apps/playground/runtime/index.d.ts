@@ -121,6 +121,20 @@ export interface TextProps extends TextStyle {
 
 export interface PressableProps extends Omit<ViewProps, 'onClick'> {
   onPress?: () => void;
+  onLongPress?: () => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
+  disabled?: boolean;
+  hitSlop?: number | {top?: number; left?: number; right?: number; bottom?: number};
+}
+
+export interface TouchableOpacityProps extends PressableProps {
+  activeOpacity?: number;
+}
+
+export interface TouchableHighlightProps extends PressableProps {
+  underlayColor?: Color;
+  activeOpacity?: number;
 }
 
 export interface ButtonProps extends Omit<PressableProps, 'children'> {
@@ -179,6 +193,9 @@ export const Image: (props: ImageProps) => JSX.Element;
 export const TextInput: (props: TextInputProps) => JSX.Element;
 export const Text: (props: TextProps) => JSX.Element;
 export const Pressable: (props: PressableProps) => JSX.Element;
+export const TouchableOpacity: (props: TouchableOpacityProps) => JSX.Element;
+export const TouchableHighlight: (props: TouchableHighlightProps) => JSX.Element;
+export const TouchableWithoutFeedback: (props: PressableProps) => JSX.Element;
 export const Button: (props: ButtonProps) => JSX.Element;
 export const RefreshControl: (props: RefreshControlProps) => JSX.Element | null;
 

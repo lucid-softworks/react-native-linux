@@ -403,6 +403,92 @@ function RefreshControl(_props) {
   return null;
 }
 
+// Touchable* family — the legacy press primitives that pre-date
+// Pressable. RN still exports all three; ecosystem code (react-
+// navigation v6 headers, react-native-elements, every form library,
+// every "tap-to-edit" custom Button) reaches for them by import.
+// We map all three onto Pressable + a `pressed` overlay style so
+// userland's existing visual contract holds.
+//
+// activeOpacity / underlayColor / disabled are honoured; the rest
+// of the deprecated props (delayPressIn, hitSlop, pressRetentionOffset,
+// touchSoundDisabled, accessibilityRole / Label) pass through to
+// Pressable, which mostly drops them — the visual contract is the
+// part that matters for screen parity.
+const TouchableWithoutFeedback = React.forwardRef(function TouchableWithoutFeedback(props, ref) {
+  const {children, onPress, onLongPress, onPressIn, onPressOut, disabled, hitSlop, ...rest} = props;
+  return React.createElement(
+    Pressable,
+    {ref, onPress, onLongPress, onPressIn, onPressOut, disabled, hitSlop, ...rest},
+    children,
+  );
+});
+
+const TouchableOpacity = React.forwardRef(function TouchableOpacity(props, ref) {
+  const {
+    children,
+    style,
+    activeOpacity = 0.2,
+    onPress,
+    onLongPress,
+    onPressIn,
+    onPressOut,
+    disabled,
+    hitSlop,
+    ...rest
+  } = props;
+  // Pressable's children-as-function form gives us the {pressed}
+  // state our components.js shim populates ({pressed: false} today —
+  // GTK gesture-driven pressed state is a follow-up). When pressed
+  // is true we apply the activeOpacity overlay; until then the
+  // overlay is invisible and the resolved style passes through
+  // unchanged.
+  return React.createElement(
+    Pressable,
+    {ref, onPress, onLongPress, onPressIn, onPressOut, disabled, hitSlop, ...rest},
+    state => {
+      const pressed = !!(state && state.pressed);
+      const merged = pressed ? [style, {opacity: activeOpacity}] : style;
+      return React.createElement(
+        View,
+        {style: merged},
+        typeof children === 'function' ? children(state) : children,
+      );
+    },
+  );
+});
+
+const TouchableHighlight = React.forwardRef(function TouchableHighlight(props, ref) {
+  const {
+    children,
+    style,
+    underlayColor = '#0001',
+    activeOpacity = 0.85,
+    onPress,
+    onLongPress,
+    onPressIn,
+    onPressOut,
+    disabled,
+    hitSlop,
+    ...rest
+  } = props;
+  return React.createElement(
+    Pressable,
+    {ref, onPress, onLongPress, onPressIn, onPressOut, disabled, hitSlop, ...rest},
+    state => {
+      const pressed = !!(state && state.pressed);
+      const merged = pressed
+        ? [style, {backgroundColor: underlayColor, opacity: activeOpacity}]
+        : style;
+      return React.createElement(
+        View,
+        {style: merged},
+        typeof children === 'function' ? children(state) : children,
+      );
+    },
+  );
+});
+
 // PanResponder — RN's iOS/Android implementation lives on top of the
 // responder graph (which we don't have on desktop). Instead, we drive
 // the same callback contract from GtkGestureDrag: a single-touch drag
@@ -714,6 +800,9 @@ module.exports = {
   Text,
   TextInput,
   Pressable,
+  TouchableOpacity,
+  TouchableHighlight,
+  TouchableWithoutFeedback,
   Button,
   Switch,
   ActivityIndicator,
