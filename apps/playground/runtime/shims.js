@@ -32,6 +32,15 @@ if (typeof globalThis.console === 'undefined') {
               })();
       }
       rnLinux.log(level, s);
+      // Surface warn / error into the in-window LogBox if wired up.
+      if (
+        (level === 'warn' || level === 'error') &&
+        typeof globalThis.__rnLinuxLogBox !== 'undefined'
+      ) {
+        try {
+          globalThis.__rnLinuxLogBox.add(level, s);
+        } catch (_inner) {}
+      }
     };
   globalThis.console = {
     log: make('info'),
@@ -921,6 +930,17 @@ let _globalErrorHandler = (err, _isFatal) => {
   rnLinux.log('error', 'unhandled: ' + (err && err.stack ? err.stack : String(err)));
 };
 function _reportError(err, isFatal) {
+  // Always push to the in-window LogBox first, BEFORE the global
+  // handler. Userland boundaries (ErrorBoundary's catchAsync mode)
+  // replace the global handler with their own setState dispatcher
+  // and don't forward; if LogBox waited for the handler chain it'd
+  // never see errors under a boundary. Calling LogBox first keeps
+  // the toast independent of whoever owns _globalErrorHandler.
+  if (typeof globalThis.__rnLinuxLogBox !== 'undefined') {
+    try {
+      globalThis.__rnLinuxLogBox.add('error', err);
+    } catch (_inner) {}
+  }
   try {
     _globalErrorHandler(err, !!isFatal);
   } catch (innerErr) {

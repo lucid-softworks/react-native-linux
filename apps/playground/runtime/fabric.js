@@ -23,6 +23,7 @@ const Reconciler = require('react-reconciler');
 const RefreshRuntime = require('react-refresh/runtime');
 const {hostConfig, setSurfaceContext} = require('./fabricHostConfig');
 const {ErrorBoundary} = require('./errorOverlay');
+const {LogBoxOverlay} = require('./logBox');
 
 const reconciler = Reconciler(hostConfig);
 
@@ -66,13 +67,15 @@ function tryMount() {
       /* onRecoverableError */ err => rnLinux.log('warn', String(err)),
       /* transitionCallbacks */ null,
     );
-    // Wrap the user's tree in an ErrorBoundary so JS exceptions during
-    // render / commit / lifecycle land on an in-window RedBox instead
-    // of leaving the user staring at a blank surface.
+    // Wrap the user's tree in LogBoxOverlay (outermost — survives
+    // render crashes the boundary catches) > ErrorBoundary (catches
+    // JSX exceptions and renders a RedBox fallback) > user tree.
+    // A crash inside the user's tree trips the boundary; the LogBox
+    // stays mounted at the top level and keeps showing the toast.
     const elementToCommit = React.createElement(
-      ErrorBoundary,
-      {scope: 'app', catchAsync: true},
-      pendingElement,
+      LogBoxOverlay,
+      null,
+      React.createElement(ErrorBoundary, {scope: 'app'}, pendingElement),
     );
     pendingElement = null;
     reconciler.updateContainer(elementToCommit, root, null, () => {
@@ -113,9 +116,9 @@ function tryMount() {
   if (globalThis.__rnLinuxRecoveredFromError) {
     globalThis.__rnLinuxRecoveredFromError = false;
     const elementToCommit = React.createElement(
-      ErrorBoundary,
-      {scope: 'app', catchAsync: true},
-      pendingElement,
+      LogBoxOverlay,
+      null,
+      React.createElement(ErrorBoundary, {scope: 'app'}, pendingElement),
     );
     pendingElement = null;
     reconciler.updateContainer(elementToCommit, root, null, () => {
