@@ -218,32 +218,6 @@ function buildFabricProps(type, props) {
   return out;
 }
 
-// PanResponder native handler binder. Reads the three
-// onPanResponder*Native props produced by the PanResponder shim
-// and registers them against the per-tag pan registries the C++
-// GtkGestureDrag dispatches into. PanResponder is the one event
-// surface that still rides the tag-keyed JSI registry — the
-// React responder negotiation it implements isn't representable
-// as plain bubbling props, and dispatchFabricPan* already emits
-// the full `{nativeEvent, gestureState}` shape userland reads.
-function syncPanHandlers(tag, props) {
-  const grant =
-    props && typeof props.onPanResponderGrantNative === 'function'
-      ? props.onPanResponderGrantNative
-      : null;
-  const move =
-    props && typeof props.onPanResponderMoveNative === 'function'
-      ? props.onPanResponderMoveNative
-      : null;
-  const release =
-    props && typeof props.onPanResponderReleaseNative === 'function'
-      ? props.onPanResponderReleaseNative
-      : null;
-  rnLinux.fabricOnPanStart(tag, grant);
-  rnLinux.fabricOnPanMove(tag, move);
-  rnLinux.fabricOnPanRelease(tag, release);
-}
-
 // RefreshControl bridge. The ScrollView shim flattens its
 // `refreshControl={<RefreshControl onRefresh refreshing />}` prop
 // into top-level `onRefresh` + `refreshing` (see components.js).
@@ -409,7 +383,6 @@ const hostConfig = {
         buildFabricProps(type, props),
         internalInstanceHandle,
       );
-      syncPanHandlers(tag, props);
       return makeInstance(tag, fabricNode, 'View', type);
     }
 
@@ -572,13 +545,6 @@ const hostConfig = {
     const fabricNode = keepChildren
       ? currentFabric.cloneNodeWithNewProps(currentInstance.fabricNode, fabricProps)
       : currentFabric.cloneNodeWithNewChildrenAndProps(currentInstance.fabricNode, fabricProps);
-    // Pan responder is the only event surface that still rides the
-    // tag-keyed JSI registry (PanResponder relies on the legacy
-    // responder negotiation it implements); rebind on every commit
-    // so the registry points at the freshest closure.
-    if (type === 'view') {
-      syncPanHandlers(currentInstance.tag, newProps);
-    }
     // ScrollView mirrors `refreshing` into the C++ view so a sustained
     // gesture only fires onRefresh once per cycle.
     if (type === 'scrollview') {

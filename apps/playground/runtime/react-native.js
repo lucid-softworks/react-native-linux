@@ -433,13 +433,16 @@ const PanResponder = {
     };
     return {
       panHandlers: {
-        // Host-level prop names the fabricHostConfig recognises and
-        // routes to the new rnLinux.fabricOnPan* registries. These
-        // intentionally don't collide with onLongPress / onClick /
-        // onHover* — both can coexist on the same View.
-        onPanResponderGrantNative: evt => fire('onPanResponderGrant', evt),
-        onPanResponderMoveNative: evt => fire('onPanResponderMove', evt),
-        onPanResponderReleaseNative: evt => {
+        // Host-level prop names match the Fabric event types the
+        // C++ ViewComponentView dispatches via emitter
+        // (`panResponderGrant`/`Move`/`Release`), so the JS
+        // dispatcher's `topX → on<X>` mapping picks them straight
+        // off the fiber's memoizedProps. They live in the
+        // `panHandlers` namespace, so they don't collide with the
+        // user's PanResponder.create() callbacks of the same name.
+        onPanResponderGrant: evt => fire('onPanResponderGrant', evt),
+        onPanResponderMove: evt => fire('onPanResponderMove', evt),
+        onPanResponderRelease: evt => {
           fire('onPanResponderRelease', evt);
           // RN's Terminate fires when the responder is forcibly torn
           // away (parent scroll claims it, etc.). On desktop a drag-

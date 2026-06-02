@@ -213,9 +213,12 @@ function makeSyntheticFabricEvent(type, payload) {
 
 // Most RN events pass a synthetic event to the handler. A few don't:
 // onChangeText receives the plain text string, onValueChange (Switch)
-// receives the new bool. handlerArgForEvent picks the right shape for
-// each event type. The C++ side dispatches a folly::dynamic payload
-// regardless; this is purely the JS-side userland-API translation.
+// receives the new bool. PanResponder events keep the synthetic
+// event but expose `gestureState` as a sibling of `nativeEvent` —
+// the shape RN's PanResponder.create wrappers read. handlerArgForEvent
+// picks the right shape for each event type. The C++ side dispatches
+// a folly::dynamic payload regardless; this is purely the JS-side
+// userland-API translation.
 function handlerArgForEvent(type, payload, syntheticEvent) {
   switch (type) {
     case 'changeText':
@@ -224,10 +227,70 @@ function handlerArgForEvent(type, payload, syntheticEvent) {
     case 'valueChange':
     case 'topValueChange':
       return payload ? !!payload.value : false;
+    case 'panResponderGrant':
+    case 'topPanResponderGrant':
+    case 'panResponderMove':
+    case 'topPanResponderMove':
+    case 'panResponderRelease':
+    case 'topPanResponderRelease': {
+      // The C++ payload is flat: locationX/Y, pageX/Y, moveX/Y,
+      // dx, dy, vx, vy, target. Split it into the nativeEvent +
+      // gestureState pair the PanResponder shim expects.
+      const p = payload || {};
+      syntheticEvent.nativeEvent = {
+        locationX: p.locationX,
+        locationY: p.locationY,
+        pageX: p.pageX,
+        pageY: p.pageY,
+        target: p.target,
+      };
+      syntheticEvent.gestureState = {
+        dx: p.dx ?? 0,
+        dy: p.dy ?? 0,
+        vx: p.vx ?? 0,
+        vy: p.vy ?? 0,
+        moveX: p.moveX,
+        moveY: p.moveY,
+        numberActiveTouches: 1,
+      };
+      return syntheticEvent;
+    }
     default:
       return syntheticEvent;
   }
 }
+
+// Events that don't bubble in RN's model. We still build a synthetic
+// event for them (so userland can call e.stopPropagation if it wants
+// to, even though there's nothing left to bubble to), but the
+// dispatcher walks the chain looking for the first handler and stops
+// — no capture phase, no further propagation.
+//
+// Click / longPress / hoverIn / hoverOut do bubble (that's the
+// React DOM contract userland inherits from web), and they take the
+// full capture + bubble pipeline below.
+const NON_BUBBLING_TYPES = new Set([
+  'scroll',
+  'topScroll',
+  'refresh',
+  'topRefresh',
+  'layout',
+  'topLayout',
+  'focus',
+  'topFocus',
+  'blur',
+  'topBlur',
+  'submitEditing',
+  'topSubmitEditing',
+  'keyPress',
+  'topKeyPress',
+  'panResponderGrant',
+  'topPanResponderGrant',
+  'panResponderMove',
+  'topPanResponderMove',
+  'panResponderRelease',
+  'topPanResponderRelease',
+]);
 
 // Walk fiber.return collecting every ancestor up to root. Capped at
 // 64 to keep pathological trees from spinning the JS thread.
@@ -275,6 +338,14 @@ const GESTURE_BURST_TYPES = new Set([
   'topHoverIn',
   'hoverOut',
   'topHoverOut',
+  // PanResponder events fire from a GtkGestureDrag on every nested
+  // <View> too — same dedupe story as click/longPress.
+  'panResponderGrant',
+  'topPanResponderGrant',
+  'panResponderMove',
+  'topPanResponderMove',
+  'panResponderRelease',
+  'topPanResponderRelease',
 ]);
 // Last fiber we accepted a gesture-burst event for. Detection of "is
 // this a duplicate from the same physical click?" walks the new
@@ -325,18 +396,22 @@ function dispatchFabricEvent(instanceHandle, type, payload) {
   const event = makeSyntheticFabricEvent(type, payload);
   const handlerArg = handlerArgForEvent(type, payload, event);
 
-  // Bare-payload events (changeText, valueChange) — RN delivers a
-  // plain string / bool, the handler has no synthetic event to call
-  // stopPropagation on, and the upstream RN behavior is "fire on the
-  // immediate component, nothing else." Walk to the first matching
-  // ancestor and stop.
-  if (handlerArg !== event) {
+  // Non-bubbling events: bare-payload (changeText, valueChange),
+  // single-target synthetic (layout, scroll, focus, blur, refresh,
+  // submitEditing, keyPress), and PanResponder events. Walk the
+  // fiber chain looking for the first matching ancestor and stop.
+  // Handler-identity dedupe isn't needed here since we return on the
+  // first fire; forwardRef-wrapper duplicates are skipped by virtue
+  // of stopping after one invocation.
+  if (handlerArg !== event || NON_BUBBLING_TYPES.has(type)) {
+    if (handlerArg === event) event.target = instanceHandle;
     let fiber = instanceHandle;
     let depth = 0;
     while (fiber && depth < 64) {
       const props = fiber.memoizedProps || fiber.pendingProps;
       const handler = props && props[propName];
       if (typeof handler === 'function') {
+        if (handlerArg === event) event.currentTarget = fiber;
         try {
           handler(handlerArg);
         } catch (e) {

@@ -125,13 +125,17 @@ ViewComponentView::ViewComponentView(Tag tag)
                         /*flags=*/static_cast<GConnectFlags>(0));
   gtk_widget_add_controller(widget_, GTK_EVENT_CONTROLLER(motion));
 
-  // GtkGestureDrag → PanResponder dispatch. We track the previous
-  // (dx, dy, monotonic-us) in this small heap struct so drag-update
-  // can compute an instantaneous velocity (units/ms) that release
-  // can hand to a decay/spring follow-up. The struct is owned by the
-  // gesture's userdata closure and freed when the closure is
-  // destroyed (gesture controller refcounting clears it).
+  // GtkGestureDrag → PanResponder dispatch. The previous (dx, dy,
+  // monotonic-us) live in this small heap struct so drag-update can
+  // compute an instantaneous velocity (units/ms) that release can
+  // hand to a decay/spring follow-up. `self` is captured here so the
+  // lambdas can reach `eventEmitter()` without piggy-backing on the
+  // Fabric tag registry (which is gone for every other event surface
+  // — pan is the last hold-out being migrated). The struct is owned
+  // by the gesture's userdata and freed via the weak-ref cleanup
+  // below.
   struct DragState {
+    ViewComponentView* self;
     int tag;
     double lastDx = 0;
     double lastDy = 0;
@@ -139,7 +143,7 @@ ViewComponentView::ViewComponentView(Tag tag)
     double vx = 0;
     double vy = 0;
   };
-  auto* dragState = new DragState{static_cast<int>(tag), 0, 0, 0, 0, 0};
+  auto* dragState = new DragState{this, static_cast<int>(tag), 0, 0, 0, 0, 0};
 
   auto* drag = gtk_gesture_drag_new();
   g_signal_connect_data(drag,
@@ -151,7 +155,16 @@ ViewComponentView::ViewComponentView(Tag tag)
                           d->vx = 0;
                           d->vy = 0;
                           d->lastTUs = g_get_monotonic_time();
-                          dispatchFabricPanStart(d->tag, x, y);
+                          if (auto emitter = d->self->eventEmitter()) {
+                            emitter->dispatchEvent("panResponderGrant",
+                                                   folly::dynamic::object           //
+                                                   ("locationX", x)("locationY", y) //
+                                                   ("pageX", x)("pageY", y)         //
+                                                   ("moveX", x)("moveY", y)         //
+                                                   ("dx", 0.0)("dy", 0.0)           //
+                                                   ("vx", 0.0)("vy", 0.0)           //
+                                                   ("target", d->tag));
+                          }
                         }),
                         dragState,
                         /*destroy=*/nullptr,
@@ -172,15 +185,21 @@ ViewComponentView::ViewComponentView(Tag tag)
         d->lastDx = offsetX;
         d->lastDy = offsetY;
         d->lastTUs = nowUs;
-        // Pass current pointer position (start + offset) so the JS
-        // handler can read nativeEvent.locationX/Y directly without
-        // recomputing. Declared on separate lines so the G_CALLBACK
-        // macro doesn't see the comma as an argument boundary.
         double startX = 0;
         double startY = 0;
         gtk_gesture_drag_get_start_point(gd, &startX, &startY);
-        dispatchFabricPanMove(
-            d->tag, startX + offsetX, startY + offsetY, offsetX, offsetY, d->vx, d->vy);
+        const double curX = startX + offsetX;
+        const double curY = startY + offsetY;
+        if (auto emitter = d->self->eventEmitter()) {
+          emitter->dispatchEvent("panResponderMove",
+                                 folly::dynamic::object                 //
+                                 ("locationX", curX)("locationY", curY) //
+                                 ("pageX", curX)("pageY", curY)         //
+                                 ("moveX", curX)("moveY", curY)         //
+                                 ("dx", offsetX)("dy", offsetY)         //
+                                 ("vx", d->vx)("vy", d->vy)             //
+                                 ("target", d->tag));
+        }
       }),
       dragState,
       /*destroy=*/nullptr,
@@ -193,8 +212,18 @@ ViewComponentView::ViewComponentView(Tag tag)
         double startX = 0;
         double startY = 0;
         gtk_gesture_drag_get_start_point(gd, &startX, &startY);
-        dispatchFabricPanRelease(
-            d->tag, startX + offsetX, startY + offsetY, offsetX, offsetY, d->vx, d->vy);
+        const double curX = startX + offsetX;
+        const double curY = startY + offsetY;
+        if (auto emitter = d->self->eventEmitter()) {
+          emitter->dispatchEvent("panResponderRelease",
+                                 folly::dynamic::object                 //
+                                 ("locationX", curX)("locationY", curY) //
+                                 ("pageX", curX)("pageY", curY)         //
+                                 ("moveX", curX)("moveY", curY)         //
+                                 ("dx", offsetX)("dy", offsetY)         //
+                                 ("vx", d->vx)("vy", d->vy)             //
+                                 ("target", d->tag));
+        }
       }),
       dragState,
       /*destroy=*/nullptr,
