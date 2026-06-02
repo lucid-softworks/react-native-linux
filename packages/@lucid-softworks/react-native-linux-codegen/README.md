@@ -149,24 +149,24 @@ for a worked hand-written example of the same pattern.
 
 ## Type coverage — components
 
-| Spec type                                      | C++                                                         |
-| ---------------------------------------------- | ----------------------------------------------------------- |
-| `boolean` prop                                 | `bool`                                                      |
-| `string` prop                                  | `std::string`                                               |
-| `Int32` prop                                   | `int32_t`                                                   |
-| `Double` / `Float` / `Number` prop             | `double` / `float`                                          |
-| `ColorValue` (ColorPrimitive)                  | `facebook::react::SharedColor`                              |
-| `PointValue` (PointPrimitive)                  | `facebook::react::Point`                                    |
-| `EdgeInsetsValue` (EdgeInsetsPrimitive)        | `facebook::react::EdgeInsets`                               |
-| Dimension (DimensionPrimitive)                 | `facebook::react::Float`                                    |
-| `WithDefault<"a"\|"b"\|..., ...>` (StringEnum) | `enum class <Comp><Prop>` + ADL `fromRawValue` + `toString` |
-| Direct event with primitive payload            | typed `<Name><Event>` struct + `onFoo(...)` emitter method  |
-| Bubble events                                  | (treated as direct today)                                   |
-| `ViewProps` extension                          | ✓                                                           |
-| `ImageSource` prop                             | ✗ throws (needs ImageManager hookup)                        |
-| Object / Array props                           | ✗ throws                                                    |
-| Int32 enum props                               | ✗ throws (only StringEnum today)                            |
-| Commands                                       | ✗ throws                                                    |
+| Spec type                                      | C++                                                            |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| `boolean` prop                                 | `bool`                                                         |
+| `string` prop                                  | `std::string`                                                  |
+| `Int32` prop                                   | `int32_t`                                                      |
+| `Double` / `Float` / `Number` prop             | `double` / `float`                                             |
+| `ColorValue` (ColorPrimitive)                  | `facebook::react::SharedColor`                                 |
+| `PointValue` (PointPrimitive)                  | `facebook::react::Point`                                       |
+| `EdgeInsetsValue` (EdgeInsetsPrimitive)        | `facebook::react::EdgeInsets`                                  |
+| Dimension (DimensionPrimitive)                 | `facebook::react::Float`                                       |
+| `WithDefault<"a"\|"b"\|..., ...>` (StringEnum) | `enum class <Comp><Prop>` + ADL `fromRawValue` + `toString`    |
+| Direct event with primitive payload            | typed `<Name><Event>` struct + `onFoo(...)` emitter method     |
+| Bubble events                                  | (treated as direct today)                                      |
+| `ViewProps` extension                          | ✓                                                              |
+| `ImageSource` (ImageSourcePrimitive)           | `facebook::react::ImageSource`                                 |
+| Object / Array props                           | ✗ throws                                                       |
+| `WithDefault<0\|1\|..., 0>` (Int32Enum)        | `enum class <Comp><Prop> : int32_t` + int-keyed `fromRawValue` |
+| Commands                                       | ✗ throws                                                       |
 
 ## Known follow-ups
 
@@ -179,13 +179,6 @@ for a worked hand-written example of the same pattern.
   path-derived names today (`<Method>Result_<Field>`). When the
   spec defines a named type alias, the generator could use the
   alias name directly and dedupe across methods.
-- `ImageSourcePrimitive` props. Lowering to `react::ImageSource`
-  is straightforward but the runtime side needs the ImageManager
-  / cache pipe wired, which the Linux runtime doesn't expose yet
-  for codegen-driven components.
-- `Int32EnumTypeAnnotation` props (numeric enums). String enums
-  already work end-to-end; the numeric variant follows the same
-  shape with an integer-keyed `fromRawValue`.
 - Component commands. Imperative methods (e.g. `.focus()`,
   `.scrollTo(...)`) dispatched from JS — the schema carries
   `commands: [{name, typeAnnotation: FunctionTypeAnnotation}]`

@@ -83,14 +83,20 @@ function quoteCppString(s: string): string {
 }
 
 // Reserved RN graphics types — each has a dedicated `convertRawProp`
-// specialization in <react/renderer/core/propsConversions.h>. The
-// default for an unset prop in JS lands as a default-constructed
+// specialization either in
+// <react/renderer/core/propsConversions.h> (graphics types) or
+// <react/renderer/components/image/conversions.h> (ImageSource).
+// The default for an unset prop in JS lands as a default-constructed
 // instance of the C++ type, which is what RN's other components do.
-const RESERVED_RN_TYPES: Record<string, string> = {
-  ColorPrimitive: 'facebook::react::SharedColor',
-  PointPrimitive: 'facebook::react::Point',
-  EdgeInsetsPrimitive: 'facebook::react::EdgeInsets',
-  DimensionPrimitive: 'facebook::react::Float',
+const RESERVED_RN_TYPES: Record<string, {cpp: string; extraInclude?: string}> = {
+  ColorPrimitive: {cpp: 'facebook::react::SharedColor'},
+  PointPrimitive: {cpp: 'facebook::react::Point'},
+  EdgeInsetsPrimitive: {cpp: 'facebook::react::EdgeInsets'},
+  DimensionPrimitive: {cpp: 'facebook::react::Float'},
+  ImageSourcePrimitive: {
+    cpp: 'facebook::react::ImageSource',
+    extraInclude: '<react/renderer/components/image/conversions.h>',
+  },
 };
 
 function propCppType(
@@ -130,27 +136,31 @@ function propCppType(
       };
     case 'ReservedPropTypeAnnotation': {
       const reservedName = (inner as {name?: string}).name ?? '';
-      const cppType = RESERVED_RN_TYPES[reservedName];
-      if (!cppType) {
+      const entry = RESERVED_RN_TYPES[reservedName];
+      if (!entry) {
         throw new Error(
           `unsupported ReservedPropTypeAnnotation: "${reservedName}". ` +
-            `Supported: ${Object.keys(RESERVED_RN_TYPES).join(', ')}. ` +
-            'ImageSourcePrimitive needs the ImageManager hookup and is a tracked follow-up.',
+            `Supported: ${Object.keys(RESERVED_RN_TYPES).join(', ')}.`,
         );
       }
       // Default to value-initialised — RN's convertRawProp will fill
       // it in from the raw value if present.
-      return {cpp: cppType, defaultExpr: '{}'};
+      return {cpp: entry.cpp, defaultExpr: '{}'};
     }
     case 'StringEnumTypeAnnotation': {
-      // The enum class itself is emitted as a sibling type
-      // `<Component><Prop>Enum`; the propCppType caller picks up the
-      // name through deterministic naming.
       const enumName = stringEnumTypeName(componentName, propName);
       const fallbackVar = `${enumName}::${enumCaseName(typeof def === 'string' ? def : '')}`;
       const defaultExpr =
         typeof def === 'string' && (inner as {options?: string[]}).options?.includes(def)
           ? `{${fallbackVar}}`
+          : '{}';
+      return {cpp: enumName, defaultExpr};
+    }
+    case 'Int32EnumTypeAnnotation': {
+      const enumName = stringEnumTypeName(componentName, propName);
+      const defaultExpr =
+        typeof def === 'number' && (inner as {options?: number[]}).options?.includes(def)
+          ? `{${enumName}::${intEnumCaseName(def)}}`
           : '{}';
       return {cpp: enumName, defaultExpr};
     }
@@ -178,6 +188,13 @@ function enumCaseName(option: string): string {
   const joined = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
   if (/^[0-9]/.test(joined)) return `K${joined}`;
   return joined || 'Unknown';
+}
+
+// Convert an Int32-enum numeric option to a C++ case name.
+// `0` → `K0`, `-1` → `KNeg1`, etc.
+function intEnumCaseName(option: number): string {
+  if (option < 0) return `KNeg${Math.abs(option)}`;
+  return `K${option}`;
 }
 
 function eventPayloadField(t: TypeAnnotation): {
@@ -236,6 +253,12 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   lines.push('#include <react/renderer/graphics/Color.h>');
   lines.push('#include <react/renderer/graphics/Point.h>');
   lines.push('#include <react/renderer/graphics/RectangleEdges.h>');
+  // Conditional graphics-adjacent headers needed by any reserved
+  // type the spec uses (e.g. ImageSource pulls in the image
+  // component's conversions.h for its fromRawValue).
+  for (const include of collectExtraIncludes(def)) {
+    lines.push(`#include ${include}`);
+  }
   lines.push('');
   lines.push('#include <cstdint>');
   lines.push('#include <string>');
@@ -253,7 +276,7 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
   );
   lines.push('');
 
-  // ─── String enums (declarations + fromRawValue overload) ────────
+  // ─── Enums (string + int) — declarations + fromRawValue overload
   for (const prop of def.props) {
     let inner = prop.typeAnnotation as TypeAnnotation;
     if (inner.type === 'NullableTypeAnnotation') {
@@ -261,6 +284,9 @@ export function generateComponent(spec: SpecComponent, opts: GenerateOptions = {
     }
     if (inner.type === 'StringEnumTypeAnnotation') {
       lines.push(...renderStringEnum(componentName, prop.name, inner));
+      lines.push('');
+    } else if (inner.type === 'Int32EnumTypeAnnotation') {
+      lines.push(...renderInt32Enum(componentName, prop.name, inner));
       lines.push('');
     }
   }
@@ -453,6 +479,26 @@ function defaultExprForConvert(_prop: PropShape, mapped: PropCpp): string {
   }
 }
 
+// Walk every prop and pull the extra-include set out of the
+// RESERVED_RN_TYPES table for types the spec actually references.
+// Returned items are include lines already wrapped in `<...>` /
+// `"..."` so the emitter can splat them straight into the file.
+function collectExtraIncludes(def: ComponentDef): string[] {
+  const out = new Set<string>();
+  for (const prop of def.props) {
+    let inner = prop.typeAnnotation as TypeAnnotation;
+    if (inner.type === 'NullableTypeAnnotation') {
+      inner = (inner as unknown as {typeAnnotation: TypeAnnotation}).typeAnnotation;
+    }
+    if (inner.type === 'ReservedPropTypeAnnotation') {
+      const reservedName = (inner as {name?: string}).name ?? '';
+      const entry = RESERVED_RN_TYPES[reservedName];
+      if (entry?.extraInclude) out.add(entry.extraInclude);
+    }
+  }
+  return Array.from(out).sort();
+}
+
 // ─── StringEnum ────────────────────────────────────────────────────
 
 function renderStringEnum(
@@ -493,6 +539,39 @@ function renderStringEnum(
   }
   lines.push('  }');
   lines.push('  return "";');
+  lines.push('}');
+
+  return lines;
+}
+
+// Int32 enum — same shape as StringEnum, just keyed on integer
+// options. The underlying type is pinned to int32_t so JS-to-C++
+// width matches and switch-cases compile without sign warnings.
+function renderInt32Enum(
+  componentName: string,
+  propName: string,
+  t: TypeAnnotation & {options?: number[]; default?: number},
+): string[] {
+  const enumName = stringEnumTypeName(componentName, propName);
+  const options = t.options ?? [];
+  const cases = options.map(opt => ({jsValue: opt, cppName: intEnumCaseName(opt)}));
+  const lines: string[] = [];
+
+  lines.push(`enum class ${enumName} : int32_t {`);
+  for (const c of cases) {
+    lines.push(`  ${c.cppName} = ${c.jsValue},`);
+  }
+  lines.push('};');
+  lines.push('');
+
+  lines.push(`inline void fromRawValue(const facebook::react::PropsParserContext& /*context*/,`);
+  lines.push(`                          const facebook::react::RawValue& value,`);
+  lines.push(`                          ${enumName}& result) {`);
+  lines.push('  auto i = static_cast<int32_t>(value);');
+  for (const c of cases) {
+    lines.push(`  if (i == ${c.jsValue}) { result = ${enumName}::${c.cppName}; return; }`);
+  }
+  lines.push('  // Unknown enum value — leave at default-initialised case.');
   lines.push('}');
 
   return lines;

@@ -24,6 +24,7 @@ using SmokeDescriptor = codegen::CodegenSmokeViewComponentDescriptor;
 using SmokeEventEmitter = codegen::CodegenSmokeViewEventEmitter;
 using SmokeValueChangeEvent = codegen::CodegenSmokeViewValueChangeEvent;
 using SmokeMode = codegen::CodegenSmokeViewMode;
+using SmokeLevel = codegen::CodegenSmokeViewLevel;
 
 static_assert(sizeof(SmokeProps) > 0);
 static_assert(sizeof(SmokeShadowNode) > 0);
@@ -31,11 +32,18 @@ static_assert(sizeof(SmokeDescriptor) > 0);
 static_assert(sizeof(SmokeEventEmitter) > 0);
 static_assert(sizeof(SmokeValueChangeEvent) > 0);
 static_assert(sizeof(SmokeMode) > 0);
+static_assert(sizeof(SmokeLevel) > 0);
 
 // Enum round-trip: the toString helper exists, the cases match the
 // JS spec, and the default-init value is reachable.
 static_assert(SmokeMode::Auto != SmokeMode::Small);
 static_assert(SmokeMode::Small != SmokeMode::Large);
+
+// Int32 enum is pinned to int32_t and case values match the JS
+// numeric options.
+static_assert(static_cast<int32_t>(SmokeLevel::K0) == 0);
+static_assert(static_cast<int32_t>(SmokeLevel::K1) == 1);
+static_assert(static_cast<int32_t>(SmokeLevel::K2) == 2);
 
 } // namespace
 } // namespace rnlinux

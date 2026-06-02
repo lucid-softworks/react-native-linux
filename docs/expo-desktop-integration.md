@@ -269,14 +269,12 @@ callbacks. Remaining edges:
    type aliases would get the alias name verbatim, deduping the
    struct list when the same shape appears under multiple methods.
 3. **Fabric component coverage.** The component generator lowers
-   primitive props + Color/Point/EdgeInsets/Dimension reserved
-   types + String enums + primitive-payload events to typed C++.
-   Still throws: `ImageSourcePrimitive` (needs ImageManager
-   hookup), `Int32EnumTypeAnnotation` (numeric enums), Object /
-   Array props, and commands (imperative method calls). None
-   block `expo-desktop-modules-core` itself; the remaining items
-   block specific view-shipping Expo packages (e.g. `expo-image`
-   needs `ImageSourcePrimitive`).
+   primitive props + Color/Point/EdgeInsets/Dimension/ImageSource
+   reserved types + String + Int32 enums + primitive-payload
+   events to typed C++. Still throws: Object / Array props and
+   commands (imperative method calls). None block
+   `expo-desktop-modules-core` itself; commands block components
+   with imperative APIs (TextInput-style `.focus()` etc.).
 
 **JS-side fallback** for anything the codegen can't yet express:
 `@lucid-softworks/react-native-linux-expo/expo-modules-core.js`

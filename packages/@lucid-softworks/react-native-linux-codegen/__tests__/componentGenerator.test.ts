@@ -188,7 +188,7 @@ describe('generateComponent — Reserved prop types', () => {
     expect(header).toMatch(/#include <react\/renderer\/graphics\/RectangleEdges\.h>/);
   });
 
-  test('unsupported reserved type throws', () => {
+  test('unsupported reserved type throws (made-up name)', () => {
     expect(() =>
       generateComponent({
         specName: 'X',
@@ -204,14 +204,111 @@ describe('generateComponent — Reserved prop types', () => {
               optional: false,
               typeAnnotation: {
                 type: 'ReservedPropTypeAnnotation',
-                name: 'ImageSourcePrimitive',
+                name: 'NoSuchPrimitive',
               } as any,
             },
           ],
           commands: [],
         },
       }),
-    ).toThrow(/unsupported ReservedPropTypeAnnotation: "ImageSourcePrimitive"/);
+    ).toThrow(/unsupported ReservedPropTypeAnnotation: "NoSuchPrimitive"/);
+  });
+});
+
+describe('generateComponent — ImageSource prop', () => {
+  const header = generateComponent({
+    specName: 'ImageyNativeComponent',
+    componentName: 'Imagey',
+    def: {
+      extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+      events: [],
+      props: [
+        {
+          name: 'source',
+          optional: false,
+          typeAnnotation: {
+            type: 'ReservedPropTypeAnnotation',
+            name: 'ImageSourcePrimitive',
+          } as any,
+        },
+      ],
+      commands: [],
+    },
+  });
+
+  test('ImageSource lowers to facebook::react::ImageSource', () => {
+    expect(header).toMatch(/facebook::react::ImageSource source\{\};/);
+    expect(header).toMatch(
+      /source\(facebook::react::convertRawProp\(context, rawProps, "source", sourceProps\.source, facebook::react::ImageSource\{\}\)\)/,
+    );
+  });
+
+  test('pulls in the image component conversions header', () => {
+    expect(header).toMatch(/#include <react\/renderer\/components\/image\/conversions\.h>/);
+  });
+
+  test("non-ImageSource specs don't pull the image conversions header", () => {
+    const plain = generateComponent({
+      specName: 'PlainNativeComponent',
+      componentName: 'Plain',
+      def: {
+        extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+        events: [],
+        props: [
+          {
+            name: 'flag',
+            optional: false,
+            typeAnnotation: {type: 'BooleanTypeAnnotation', default: false},
+          },
+        ],
+        commands: [],
+      },
+    });
+    expect(plain).not.toMatch(/#include <react\/renderer\/components\/image\/conversions\.h>/);
+  });
+});
+
+describe('generateComponent — Int32 enum props', () => {
+  const header = generateComponent({
+    specName: 'LeveledNativeComponent',
+    componentName: 'Leveled',
+    def: {
+      extendsProps: [{type: 'ReactNativeBuiltInType', knownTypeName: 'ReactNativeCoreViewProps'}],
+      events: [],
+      props: [
+        {
+          name: 'level',
+          optional: true,
+          typeAnnotation: {
+            type: 'Int32EnumTypeAnnotation',
+            default: 0,
+            options: [0, 1, 2],
+          } as any,
+        },
+      ],
+      commands: [],
+    },
+  });
+
+  test('emits a typed enum class pinned to int32_t', () => {
+    expect(header).toMatch(/enum class LeveledLevel : int32_t \{/);
+    expect(header).toMatch(/K0 = 0,/);
+    expect(header).toMatch(/K1 = 1,/);
+    expect(header).toMatch(/K2 = 2,/);
+  });
+
+  test('fromRawValue dispatches by int32_t value', () => {
+    expect(header).toMatch(/LeveledLevel& result\) \{/);
+    expect(header).toMatch(/auto i = static_cast<int32_t>\(value\);/);
+    expect(header).toMatch(/if \(i == 0\) \{ result = LeveledLevel::K0; return; \}/);
+    expect(header).toMatch(/if \(i == 2\) \{ result = LeveledLevel::K2; return; \}/);
+  });
+
+  test('field default + convertRawProp default both point at the enum case', () => {
+    expect(header).toMatch(/LeveledLevel level\{LeveledLevel::K0\};/);
+    expect(header).toMatch(
+      /level\(facebook::react::convertRawProp\(context, rawProps, "level", sourceProps\.level, LeveledLevel::K0\)\)/,
+    );
   });
 });
 

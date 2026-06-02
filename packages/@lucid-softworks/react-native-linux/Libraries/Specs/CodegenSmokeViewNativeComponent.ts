@@ -1,5 +1,6 @@
 import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
 import type {ColorValue, ViewProps} from 'react-native';
+import type {ImageSource} from 'react-native/Libraries/Image/ImageSource';
 import type {
   Int32,
   Double,
@@ -24,8 +25,12 @@ interface NativeProps extends ViewProps {
   ratio: Double;
   // Reserved RN graphics type → facebook::react::SharedColor.
   tint?: ColorValue;
+  // ImageSourcePrimitive → facebook::react::ImageSource.
+  source?: ImageSource;
   // StringEnum → generated `enum class` + fromRawValue overload.
   mode?: WithDefault<'small' | 'large' | 'auto', 'auto'>;
+  // Int32 enum → generated `enum class : int32_t` + int-keyed fromRawValue.
+  level?: WithDefault<0 | 1 | 2, 0>;
   onValueChange?: DirectEventHandler<ValueChangeEvent>;
 }
 
