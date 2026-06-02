@@ -338,6 +338,19 @@ export function render(element: ReactNode, onCommit?: () => void): unknown;
 // don't fail under TS strict-mode.
 export function findNodeHandle(component: unknown): number | null;
 export function requireNativeComponent(name: string): typeof View;
+export function processColor(color: Color | number | null | undefined): Color | number | null;
+export const ImageBackground: (
+  props: ImageProps & {imageStyle?: StyleProp<ViewStyle>},
+) => JSX.Element;
+export const Keyboard: {
+  addListener: (event: string, handler: () => void) => {remove: () => void};
+  removeListener: (event: string, handler: () => void) => void;
+  removeAllListeners: (event: string) => void;
+  dismiss: () => void;
+  isVisible: () => boolean;
+  metrics: () => null;
+  scheduleLayoutAnimation: () => void;
+};
 export const DevSettings: {
   reload(): void;
   addMenuItem(label?: string, fn?: () => void): void;

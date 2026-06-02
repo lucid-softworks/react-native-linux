@@ -68,6 +68,77 @@ const ScrollView = React.forwardRef(function ScrollView(props, ref) {
 const Image = React.forwardRef(function Image(props, ref) {
   return React.createElement('image', {...props, ref});
 });
+// Static helpers RN ships on Image. Real apps (image-cropping libs,
+// gallery readers, expo-image's prefetch path) call these by name.
+// We back getSize with rnLinux.imageGetSize when present; otherwise
+// the Promise variant rejects with a clean error so userland gates
+// on the catch. prefetch / queryCache / clearMemoryCache are no-ops
+// — the in-memory cache is small enough that callers don't notice.
+Image.getSize = function getSize(uri, successCb, failureCb) {
+  if (typeof uri !== 'string' || uri.length === 0) {
+    const err = new Error('Image.getSize: uri required');
+    if (typeof failureCb === 'function') failureCb(err);
+    return Promise.reject(err);
+  }
+  const native =
+    typeof rnLinux !== 'undefined' && typeof rnLinux.imageGetSize === 'function'
+      ? rnLinux.imageGetSize
+      : null;
+  if (!native) {
+    const err = new Error('Image.getSize: no native binding');
+    if (typeof failureCb === 'function') failureCb(err);
+    return Promise.reject(err);
+  }
+  return new Promise((resolve, reject) => {
+    native(uri, (w, h) => {
+      if (w > 0 && h > 0) {
+        if (typeof successCb === 'function') successCb(w, h);
+        resolve({width: w, height: h});
+      } else {
+        const err = new Error('Image.getSize: failed for ' + uri);
+        if (typeof failureCb === 'function') failureCb(err);
+        reject(err);
+      }
+    });
+  });
+};
+Image.getSizeWithHeaders = function getSizeWithHeaders(uri, _headers, ok, fail) {
+  return Image.getSize(uri, ok, fail);
+};
+Image.prefetch = function prefetch(_uri) {
+  return Promise.resolve(true);
+};
+Image.queryCache = function queryCache(_uris) {
+  return Promise.resolve({});
+};
+Image.clearMemoryCache = function clearMemoryCache() {
+  return Promise.resolve();
+};
+Image.clearDiskCache = function clearDiskCache() {
+  return Promise.resolve();
+};
+Image.resolveAssetSource = function resolveAssetSource(source) {
+  if (source && typeof source === 'object') return source;
+  if (typeof source === 'number') return {uri: '', width: 0, height: 0, scale: 1};
+  return null;
+};
+
+// ImageBackground — Image used as a layout/positioning container with
+// children rendered on top. Implementation is the documented "Image
+// in absolute position with children overlaid" pattern.
+const ImageBackground = React.forwardRef(function ImageBackground(props, ref) {
+  const {style, imageStyle, source, children, resizeMode, ...rest} = props;
+  return React.createElement(
+    'view',
+    {style, ref, ...rest},
+    React.createElement(Image, {
+      source,
+      resizeMode,
+      style: [{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}, imageStyle],
+    }),
+    children,
+  );
+});
 
 // <TextInput value="..." onChangeText={fn} placeholder="..."> — RN's
 // value prop maps to BaseTextInputProps.text (we rename here). The
@@ -264,6 +335,7 @@ module.exports = {
   View,
   ScrollView,
   Image,
+  ImageBackground,
   Text,
   TextInput,
   Pressable,

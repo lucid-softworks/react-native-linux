@@ -17,6 +17,7 @@ const {
   View,
   ScrollView,
   Image,
+  ImageBackground,
   Text,
   TextInput,
   Pressable,
@@ -765,6 +766,21 @@ const InteractionManager = {
   setDeadline: () => {},
 };
 
+// Keyboard — the imperative API for keyboard state. Desktop has a
+// physical keyboard that's always available, so there's nothing to
+// dismiss or wait for. Real apps subscribe to `keyboardDidShow` /
+// `keyboardDidHide` to adjust their layouts; we never fire either,
+// which matches the "no on-screen keyboard" desktop reality.
+const Keyboard = {
+  addListener: (_event, _handler) => _emptySub,
+  removeListener: () => {},
+  removeAllListeners: () => {},
+  dismiss: () => {},
+  isVisible: () => false,
+  metrics: () => null,
+  scheduleLayoutAnimation: () => {},
+};
+
 // requireNativeComponent — third-party libraries (react-native-svg,
 // react-native-maps, react-native-video, react-native-webview,
 // every native-rendered chart lib) call this at import time to bind
@@ -826,6 +842,7 @@ module.exports = {
   View,
   ScrollView,
   Image,
+  ImageBackground,
   Text,
   TextInput,
   Pressable,
@@ -872,6 +889,7 @@ module.exports = {
   Share,
   findNodeHandle,
   requireNativeComponent,
+  Keyboard,
   UIManager,
   LayoutAnimation,
   InteractionManager,
