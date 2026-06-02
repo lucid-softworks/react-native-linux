@@ -492,6 +492,106 @@ const hostConfig = {
       return makeInstance(tag, fabricNode, 'Text', type);
     }
 
+    // HTML element fallback. Expo Router DOM Components, with-html,
+    // and any example that mixes JSX with a `"use dom"` directive
+    // emit lowercase HTML element names (`<div>`, `<p>`, `<span>`,
+    // `<h1>` …) directly into the React tree. We don't have a real
+    // WebView host, but mapping the structural elements onto View
+    // and the text-bearing elements onto Paragraph is enough to let
+    // these trees mount + render the visible text without throwing.
+    // Layout / styling fidelity is not the goal here — just "boots
+    // and renders something" so the rest of the app surface gets a
+    // chance to run.
+    const HTML_VIEW_TAGS = new Set([
+      'div',
+      'section',
+      'nav',
+      'main',
+      'aside',
+      'article',
+      'header',
+      'footer',
+      'ul',
+      'ol',
+      'li',
+      'figure',
+      'figcaption',
+      'form',
+      'fieldset',
+      'label',
+      'table',
+      'thead',
+      'tbody',
+      'tfoot',
+      'tr',
+      'td',
+      'th',
+      'colgroup',
+      'col',
+      'video',
+      'audio',
+      'canvas',
+      'iframe',
+      'details',
+      'summary',
+      'dialog',
+      'button',
+      'a',
+    ]);
+    const HTML_TEXT_TAGS = new Set([
+      'p',
+      'span',
+      'strong',
+      'em',
+      'b',
+      'i',
+      'u',
+      's',
+      'small',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'pre',
+      'code',
+      'kbd',
+      'samp',
+      'var',
+      'mark',
+      'sub',
+      'sup',
+      'abbr',
+      'cite',
+      'q',
+      'time',
+      'br',
+      'hr',
+    ]);
+    if (HTML_VIEW_TAGS.has(type)) {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'View',
+        currentSurfaceId,
+        buildFabricProps('view', props),
+        internalInstanceHandle,
+      );
+      return makeInstance(tag, fabricNode, 'View', type);
+    }
+    if (HTML_TEXT_TAGS.has(type)) {
+      const tag = newTag();
+      const fabricNode = currentFabric.createNode(
+        tag,
+        'Paragraph',
+        currentSurfaceId,
+        buildFabricProps('text', props),
+        internalInstanceHandle,
+      );
+      return makeInstance(tag, fabricNode, 'Paragraph', type);
+    }
+
     throw new Error('Unknown host element: <' + type + '>');
   },
 
