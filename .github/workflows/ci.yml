@@ -441,6 +441,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      # Same reason as build-vnext / smoke-playground: codegen runs
+      # from CMake via scripts/codegen/run.js which require()s the
+      # codegen package's tsc-compiled main entry.
+      - name: Build packages (compiles codegen → lib/)
+        run: pnpm -r run build
+
       - name: Install template deps (provides node_modules/react-native)
         working-directory: template
         run: |
