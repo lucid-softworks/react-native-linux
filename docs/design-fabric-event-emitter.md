@@ -2,9 +2,17 @@
 
 ## Status
 
-Designed; partial implementation attempted and reverted (see "Wiring gap"
-below). Picking this back up is the canonical task #6 in the
-prod-readiness punch list.
+Phase 1 + Phase 2 landed. Phase 3 (migrate the remaining 11 events
+off the tag registry) is the open piece.
+
+The "Wiring gap" debugging notes below described a previous attempt
+that got `induce()` firing but no JS handler running. That bug does
+NOT reproduce on the current runtime — the chain
+`emitter->dispatchEvent → EventQueue → IdleEventBeat::request →
+g_idle_add → induce → RuntimeScheduler::scheduleWork → JS thread →
+UIManagerBinding::dispatchEvent → registered handler → fiber walk
+→ on<Name>` works end-to-end. Verified live with click in the
+playground (commit `adb853d5`).
 
 ## What we have today
 
