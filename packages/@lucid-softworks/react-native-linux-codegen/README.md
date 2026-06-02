@@ -114,19 +114,20 @@ owns every line of JSI plumbing.
 
 ## Type coverage
 
-| Spec type                     | C++                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `string`                      | `std::string`                                                                                                       |
-| `number` / `double` / `float` | `double`                                                                                                            |
-| `Int32`                       | `int32_t`                                                                                                           |
-| `boolean`                     | `bool`                                                                                                              |
-| `void` (return)               | `void`                                                                                                              |
-| Object                        | generated `struct` with `toDynamic` + `static fromDynamic` (recursive)                                              |
-| Array / generic object        | `folly::dynamic`                                                                                                    |
-| `Nullable<T>`                 | inner C++ (MVP)                                                                                                     |
-| `Enum<string \| number>`      | underlying primitive                                                                                                |
-| `Promise<T>`                  | trailing `std::function<void(T)> resolve, std::function<void(folly::dynamic)> reject`, posted via `RuntimeExecutor` |
-| `(...args) => void` callback  | `std::function<void(args...)>`, posted via `RuntimeExecutor`                                                        |
+| Spec type                         | C++                                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `string`                          | `std::string`                                                                                                       |
+| `number` / `double` / `float`     | `double`                                                                                                            |
+| `Int32`                           | `int32_t`                                                                                                           |
+| `boolean`                         | `bool`                                                                                                              |
+| `void` (return)                   | `void`                                                                                                              |
+| Object                            | generated `struct` with `toDynamic` + `static fromDynamic` (recursive)                                              |
+| Array / generic object            | `folly::dynamic`                                                                                                    |
+| `Nullable<T>`                     | inner C++ (MVP)                                                                                                     |
+| `Enum<string \| number>`          | underlying primitive                                                                                                |
+| `Promise<T>`                      | trailing `std::function<void(T)> resolve, std::function<void(folly::dynamic)> reject`, posted via `RuntimeExecutor` |
+| `(...args) => void` callback      | `std::function<void(args...)>`, posted via `RuntimeExecutor`                                                        |
+| `(...args) => primitive` callback | `std::function<R(args...)>`, sync on JS thread (captures `rt_` by pointer)                                          |
 
 ## Fabric components
 
@@ -180,11 +181,12 @@ for a worked hand-written example of the same pattern.
 
 ## Known follow-ups
 
-- Non-void callback returns. `(...) => T` callbacks throw at
-  generation time today. Real specs nearly always use
-  `(...) => void` (success/error / on-event patterns); when one
-  needs a sync return value, the generator would have to capture
-  `rt_` by-pointer and document the call-from-JS-thread constraint.
+- Typed-object / `Promise<T>` / array returns from a non-void
+  sync callback. Primitive returns work; complex returns from a
+  sync callback need more user-side plumbing (the user would have
+  to convert the JS return through the right per-struct
+  `fromDynamic`). Tracked but unlikely to ship without a real
+  consumer asking.
 
 ## Compile-time guard
 

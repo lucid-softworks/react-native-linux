@@ -132,8 +132,14 @@ export function mapType(t: TypeAnnotation, ctx: 'param' | 'return'): CppType {
   if (t.type === 'FunctionTypeAnnotation') {
     // Callback params. The C++ type is std::function<R(args...)>; the
     // generator emits the fromJsi unpack (multi-line jsi::Function →
-    // std::function adapter using the RuntimeExecutor) directly, so
-    // mapType only owns the cpp signature here.
+    // std::function adapter) directly, so mapType only owns the cpp
+    // signature here.
+    //
+    // Void-returning callbacks hop via RuntimeExecutor and are safe
+    // off-thread. Non-void callbacks call synchronously on the JS
+    // thread (the std::function captures a runtime pointer) — the
+    // user must invoke them while still inside the spec method's
+    // body, or thereafter only when JS is otherwise quiescent.
     if (ctx !== 'param') {
       throw new Error('FunctionTypeAnnotation is only supported as a param type');
     }
@@ -143,16 +149,29 @@ export function mapType(t: TypeAnnotation, ctx: 'param' | 'return'): CppType {
     };
     const argTypes = (fn.params ?? []).map(p => mapType(p.typeAnnotation, 'param').cpp);
     const ret = fn.returnTypeAnnotation ?? {type: 'VoidTypeAnnotation'};
-    if (ret.type !== 'VoidTypeAnnotation') {
+    if (ret.type === 'VoidTypeAnnotation') {
+      return {
+        cpp: `std::function<void(${argTypes.join(', ')})>`,
+      };
+    }
+    if (
+      ret.type === 'PromiseTypeAnnotation' ||
+      ret.type === 'ObjectTypeAnnotation' ||
+      ret.type === 'TypeAliasTypeAnnotation' ||
+      ret.type === 'ArrayTypeAnnotation' ||
+      ret.type === 'GenericObjectTypeAnnotation' ||
+      ret.type === 'FunctionTypeAnnotation'
+    ) {
       throw new Error(
-        'Non-void callback returns are not yet supported by the Linux generator. ' +
-          'Tracked as a follow-up to the codegen MVP.',
+        `Callback return type "${ret.type}" is not yet supported by the Linux ` +
+          'generator. Only void and primitive callback returns lower today; ' +
+          'typed-object / Promise returns from a sync callback would need extra ' +
+          'plumbing on the user side and are tracked as a follow-up.',
       );
     }
+    const retType = mapType(ret, 'return');
     return {
-      cpp: `std::function<void(${argTypes.join(', ')})>`,
-      // No fromJsi/toJsi — the generator handles the multi-line
-      // jsi::Function → std::function wrap inline.
+      cpp: `std::function<${retType.cpp}(${argTypes.join(', ')})>`,
     };
   }
   const primitive = PRIMITIVE[t.type];

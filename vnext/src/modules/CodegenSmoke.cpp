@@ -60,6 +60,14 @@ class CodegenSmokeModule final : public codegen::NativeCodegenSmokeSpec {
       cb({.kind = "tick", .count = 0});
     }
   }
+
+  void shouldAccept(std::function<bool(std::string)> pred) override {
+    if (pred) {
+      // Synchronous call — pred returns a real bool we can act on.
+      const bool ok = pred("hello");
+      (void)ok;
+    }
+  }
 };
 
 [[maybe_unused]] static const int kRegisterCodegenSmoke =

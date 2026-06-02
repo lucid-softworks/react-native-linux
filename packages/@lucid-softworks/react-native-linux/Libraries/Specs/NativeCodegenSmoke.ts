@@ -41,6 +41,11 @@ export interface Spec extends TurboModule {
   // into callback arg types, the resulting `<Method>_<Cb>_<Arg>` struct
   // name, and the toDynamic call inside the callback wrapper.
   observe(cb: (event: {kind: string; count: number}) => void): void;
+
+  // Non-void callback return — exercises the sync, on-JS-thread
+  // callback path (capture rt_ by pointer, call jsi::Function
+  // synchronously, convert the returned jsi::Value back to bool).
+  shouldAccept(pred: (msg: string) => boolean): void;
 }
 
 export default TurboModuleRegistry.get<Spec>('CodegenSmoke');

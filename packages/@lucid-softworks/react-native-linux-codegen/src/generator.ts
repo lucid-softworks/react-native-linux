@@ -472,10 +472,27 @@ function paramCppType(
       return mapType(argType, 'param').cpp;
     });
     const ret = fn.returnTypeAnnotation ?? {type: 'VoidTypeAnnotation'};
-    if (ret.type !== 'VoidTypeAnnotation') {
-      throw new Error('Non-void callback returns are not yet supported by the Linux generator.');
+    if (ret.type === 'VoidTypeAnnotation') {
+      return `std::function<void(${cbArgs.join(', ')})>`;
     }
-    return `std::function<void(${cbArgs.join(', ')})>`;
+    if (
+      ret.type === 'PromiseTypeAnnotation' ||
+      ret.type === 'ObjectTypeAnnotation' ||
+      ret.type === 'TypeAliasTypeAnnotation' ||
+      ret.type === 'ArrayTypeAnnotation' ||
+      ret.type === 'GenericObjectTypeAnnotation' ||
+      ret.type === 'FunctionTypeAnnotation'
+    ) {
+      throw new Error(
+        `Callback return type "${ret.type}" is not yet supported by the Linux ` +
+          'generator. Only void and primitive callback returns lower today; ' +
+          'typed-object / Promise returns from a sync callback would need extra ' +
+          'plumbing on the user side and are tracked as a follow-up.',
+      );
+    }
+    // Primitives lower straight into the std::function signature.
+    const retCpp = mapType(ret, 'return').cpp;
+    return `std::function<${retCpp}(${cbArgs.join(', ')})>`;
   }
   return mapType(inner, 'param').cpp;
 }
@@ -643,6 +660,7 @@ function renderCallbackUnpack(
 ): string[] {
   const fn = t as {
     params?: Array<{name?: string; typeAnnotation: TypeAnnotation}>;
+    returnTypeAnnotation?: TypeAnnotation;
   };
   const cbParams = fn.params ?? [];
   const argInfos = cbParams.map((p, i) => {
@@ -687,24 +705,59 @@ function renderCallbackUnpack(
     argInfos.length === 0
       ? ''
       : ', ' + argInfos.map(a => `__cb_${a.name} = std::move(${a.name})`).join(', ');
-  const outerCaptures =
-    argInfos.length === 0 ? `[__fn_${varName}, __executor]` : `[__fn_${varName}, __executor]`;
 
-  const cppType = `std::function<void(${argInfos.map(a => a.cppType).join(', ')})>`;
+  const ret = fn.returnTypeAnnotation ?? {type: 'VoidTypeAnnotation'};
+  const isVoid = ret.type === 'VoidTypeAnnotation';
 
   // jsi::Function isn't copy-constructible; wrap in shared_ptr so the
   // std::function holding it can be passed by value into the virtual.
-  return [
-    `${BODY}auto __fn_${varName} = std::make_shared<facebook::jsi::Function>(`,
-    `${BODY}    args[${argIndex}].asObject(rt_).asFunction(rt_));`,
-    `${BODY}${cppType} ${varName} =`,
-    `${BODY}    ${outerCaptures}(${fnSig}) mutable {`,
-    `${BODY}      if (!__executor) return;`,
-    `${BODY}      __executor([__fn_${varName}${moveCaptures}](facebook::jsi::Runtime& __rt) mutable {`,
-    `${BODY}        __fn_${varName}->call(__rt${callArgs ? ', ' + callArgs : ''});`,
-    `${BODY}      });`,
-    `${BODY}    };`,
-  ];
+  if (isVoid) {
+    const cppType = `std::function<void(${argInfos.map(a => a.cppType).join(', ')})>`;
+    return [
+      `${BODY}auto __fn_${varName} = std::make_shared<facebook::jsi::Function>(`,
+      `${BODY}    args[${argIndex}].asObject(rt_).asFunction(rt_));`,
+      `${BODY}${cppType} ${varName} =`,
+      `${BODY}    [__fn_${varName}, __executor](${fnSig}) mutable {`,
+      `${BODY}      if (!__executor) return;`,
+      `${BODY}      __executor([__fn_${varName}${moveCaptures}](facebook::jsi::Runtime& __rt) mutable {`,
+      `${BODY}        __fn_${varName}->call(__rt${callArgs ? ', ' + callArgs : ''});`,
+      `${BODY}      });`,
+      `${BODY}    };`,
+    ];
+  }
+
+  // Non-void: synchronous, on-JS-thread only. Capture the runtime by
+  // pointer (rt_ outlives the host function on the JS thread) and
+  // convert the jsi::Value return through the per-primitive fromJsi
+  // mapping. mapType has already gate-checked that `ret` is a
+  // supported primitive — typed-object / Promise returns from a
+  // sync callback would need more plumbing and are tracked as a
+  // follow-up.
+  const retMapped = mapType(ret, 'return');
+  const cppType = `std::function<${retMapped.cpp}(${argInfos.map(a => a.cppType).join(', ')})>`;
+  const syncCallArgs = argInfos.map(a => a.toJsi(`__cb_${a.name}`, '(*__rt_ptr)')).join(', ');
+  const fromJsi = retMapped.fromJsi!('__jsResult', '(*__rt_ptr)');
+  const lines: string[] = [];
+  lines.push(`${BODY}auto __fn_${varName} = std::make_shared<facebook::jsi::Function>(`);
+  lines.push(`${BODY}    args[${argIndex}].asObject(rt_).asFunction(rt_));`);
+  lines.push(`${BODY}// Non-void return: synchronous JS call. Must be invoked on the JS`);
+  lines.push(`${BODY}// thread — captures rt_ by pointer (the runtime outlives the host`);
+  lines.push(`${BODY}// function on the JS thread, but std::function won't itself enforce`);
+  lines.push(`${BODY}// the thread).`);
+  lines.push(`${BODY}facebook::jsi::Runtime* __rt_ptr_${varName} = &rt_;`);
+  lines.push(`${BODY}${cppType} ${varName} =`);
+  lines.push(
+    `${BODY}    [__fn_${varName}, __rt_ptr = __rt_ptr_${varName}](${fnSig}) mutable -> ${retMapped.cpp} {`,
+  );
+  for (const a of argInfos) {
+    lines.push(`${BODY}      auto __cb_${a.name} = std::move(${a.name});`);
+  }
+  lines.push(
+    `${BODY}      auto __jsResult = __fn_${varName}->call(*__rt_ptr${syncCallArgs ? ', ' + syncCallArgs : ''});`,
+  );
+  lines.push(`${BODY}      return ${fromJsi};`);
+  lines.push(`${BODY}    };`);
+  return lines;
 }
 
 // Promise-returning methods: the host function constructs a JS

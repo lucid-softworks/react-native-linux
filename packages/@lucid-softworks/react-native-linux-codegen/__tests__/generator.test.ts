@@ -739,19 +739,69 @@ describe('generateModule — TypeAlias dedup via schema.aliasMap', () => {
   });
 });
 
-describe('generateModule — unsupported types throw with actionable messages', () => {
-  test('non-void callback return throws a follow-up-tracked error', () => {
+describe('generateModule — non-void callback returns', () => {
+  function predicateMod(): SpecModule {
+    return {
+      specName: 'NativePredicate',
+      moduleName: 'Predicate',
+      schema: {
+        type: 'NativeModule',
+        moduleName: 'Predicate',
+        spec: {
+          methods: [
+            {
+              name: 'filter',
+              optional: false,
+              typeAnnotation: {
+                type: 'FunctionTypeAnnotation',
+                params: [
+                  {
+                    name: 'pred',
+                    typeAnnotation: {
+                      type: 'FunctionTypeAnnotation',
+                      params: [{name: 'msg', typeAnnotation: {type: 'StringTypeAnnotation'}}],
+                      returnTypeAnnotation: {type: 'BooleanTypeAnnotation'},
+                    },
+                  },
+                ],
+                returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+              },
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  const header = generateModule(predicateMod());
+
+  test('virtual signature uses std::function<R(args...)> with the lowered C++ return', () => {
+    expect(header).toMatch(/virtual void filter\(std::function<bool\(std::string\)> pred\) = 0;/);
+  });
+
+  test('dispatcher captures rt_ by pointer and calls synchronously', () => {
+    expect(header).toMatch(/facebook::jsi::Runtime\* __rt_ptr_pred = &rt_;/);
+    expect(header).toMatch(/auto __jsResult = __fn_pred->call\(\*__rt_ptr,/);
+  });
+
+  test('wrapper returns the JS result via the per-primitive fromJsi', () => {
+    expect(header).toMatch(
+      /return \(\*__rt_ptr\), __jsResult\.asBool\(\);|return __jsResult\.asBool\(\);/,
+    );
+  });
+
+  test('promise-returning callbacks throw with an actionable error', () => {
     expect(() =>
       generateModule({
-        specName: 'NativeCB',
-        moduleName: 'CB',
+        specName: 'NativeAsyncCb',
+        moduleName: 'AsyncCb',
         schema: {
           type: 'NativeModule',
-          moduleName: 'CB',
+          moduleName: 'AsyncCb',
           spec: {
             methods: [
               {
-                name: 'onValue',
+                name: 'go',
                 optional: false,
                 typeAnnotation: {
                   type: 'FunctionTypeAnnotation',
@@ -761,8 +811,11 @@ describe('generateModule — unsupported types throw with actionable messages', 
                       typeAnnotation: {
                         type: 'FunctionTypeAnnotation',
                         params: [],
-                        returnTypeAnnotation: {type: 'StringTypeAnnotation'},
-                      },
+                        returnTypeAnnotation: {
+                          type: 'PromiseTypeAnnotation',
+                          elementType: {type: 'VoidTypeAnnotation'},
+                        },
+                      } as any,
                     },
                   ],
                   returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
@@ -772,6 +825,41 @@ describe('generateModule — unsupported types throw with actionable messages', 
           },
         },
       }),
-    ).toThrow(/Non-void callback returns are not yet supported/);
+    ).toThrow(/Callback return type "PromiseTypeAnnotation" is not yet supported/);
+  });
+
+  test('object-typed callback returns throw with an actionable error', () => {
+    expect(() =>
+      generateModule({
+        specName: 'NativeObjCb',
+        moduleName: 'ObjCb',
+        schema: {
+          type: 'NativeModule',
+          moduleName: 'ObjCb',
+          spec: {
+            methods: [
+              {
+                name: 'go',
+                optional: false,
+                typeAnnotation: {
+                  type: 'FunctionTypeAnnotation',
+                  params: [
+                    {
+                      name: 'cb',
+                      typeAnnotation: {
+                        type: 'FunctionTypeAnnotation',
+                        params: [],
+                        returnTypeAnnotation: {type: 'ObjectTypeAnnotation', properties: []},
+                      } as any,
+                    },
+                  ],
+                  returnTypeAnnotation: {type: 'VoidTypeAnnotation'},
+                },
+              },
+            ],
+          },
+        },
+      }),
+    ).toThrow(/Callback return type "ObjectTypeAnnotation" is not yet supported/);
   });
 });
