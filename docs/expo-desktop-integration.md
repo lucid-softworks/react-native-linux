@@ -291,8 +291,13 @@ callbacks. Remaining edges:
    object). Events lower to typed `<Name><Event>` structs + emitter
    methods; `codegenNativeCommands` produces a `<Name>HandleCommand`
    dispatcher wired through `LinuxComponentView::handleCommand` →
-   `LinuxSchedulerDelegate::schedulerDidDispatchCommand`. Nothing
-   in the standard component spec surface blocks
+   `LinuxSchedulerDelegate::schedulerDidDispatchCommand`.
+   Components auto-register via
+   `codegen::installComponent()` (parallel to TM's
+   `Spec::install<Impl>()`) — no manual registry bootstrap
+   required for third-party autolinked components.
+
+   Nothing in the standard component spec surface blocks
    `expo-desktop-modules-core` or downstream view-shipping Expo
    packages today.
 

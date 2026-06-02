@@ -144,7 +144,12 @@ that contains:
 - `<Name>ShadowNode` (ConcreteViewShadowNode instantiation) +
   `<Name>ComponentDescriptor` alias.
 - `inline void register<Name>(ComponentDescriptorProviderRegistry&)`
-  — one-liner registration helper.
+  — direct registration helper.
+- `inline int installComponent()` — static-init registration that
+  hooks into `LinuxComponentBootstrap`. Drop
+  `static const int kReg = codegen::installComponent();` in your
+  impl TU and the descriptor lands in every host registry the
+  process builds (same pattern as TM's `install<Impl>()`).
 
 The implementer still writes a `LinuxComponentView` subclass that
 mounts/updates/unmounts the GTK widget (codegen can't know how
