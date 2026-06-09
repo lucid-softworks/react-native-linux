@@ -19,7 +19,7 @@
     "@lucid-softworks/react-native-linux-expo": "workspace:*",
     "@react-native-async-storage/async-storage": "^3.1.0",
     "expo-camera": "^56.0.7",
-    "expo-location": "^56.0.14",
+    "expo-location": "^56.0.15",
     "react": "19.2.3",
     "react-native": "^0.81.6",
     "react-native-device-info": "^15.0.2",
