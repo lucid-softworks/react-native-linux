@@ -46,6 +46,7 @@ const linuxExpoShims = {
   'expo-screen-capture': `${SHIM}/expo-screen-capture`,
   'expo-secure-store': `${SHIM}/expo-secure-store`,
   'expo-sharing': `${SHIM}/expo-sharing`,
+  'expo-sms': `${SHIM}/expo-sms`,
   'expo-splash-screen': `${SHIM}/expo-splash-screen`,
   'expo-status-bar': `${SHIM}/expo-status-bar`,
   'expo-symbols': `${SHIM}/expo-symbols`,
