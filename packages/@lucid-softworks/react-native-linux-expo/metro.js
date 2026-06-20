@@ -24,6 +24,7 @@ const linuxExpoShims = {
   'expo-application': `${SHIM}/expo-application`,
   'expo-battery': `${SHIM}/expo-battery`,
   'expo-camera': `${SHIM}/expo-camera`,
+  'expo-cellular': `${SHIM}/expo-cellular`,
   'expo-clipboard': `${SHIM}/expo-clipboard`,
   'expo-constants': `${SHIM}/expo-constants`,
   'expo-crypto': `${SHIM}/expo-crypto`,
