@@ -879,6 +879,7 @@ const appOpts = {
     'expo-symbols',
     'expo-battery',
     'expo-camera',
+    'expo-cellular',
     'expo-clipboard',
     'expo-constants',
     'expo-document-picker',
@@ -896,6 +897,7 @@ const appOpts = {
     'expo-screen-capture',
     'expo-secure-store',
     'expo-sharing',
+    'expo-sms',
     'react-native-safe-area-context',
     'react-native-screens',
     'react-native-reanimated',
@@ -1011,6 +1013,7 @@ const appOpts = {
       '  if (id === "expo-constants") return rnv.expoConstants;\n' +
       '  if (id === "expo-battery") return rnv.expoBattery;\n' +
       '  if (id === "expo-camera") return rnv.expoCamera;\n' +
+      '  if (id === "expo-cellular") return rnv.expoCellular;\n' +
       '  if (id === "expo-clipboard") return rnv.expoClipboard;\n' +
       '  if (id === "expo-document-picker") return rnv.expoDocumentPicker;\n' +
       '  if (id === "expo-file-system") return rnv.expoFileSystem;\n' +
@@ -1027,6 +1030,7 @@ const appOpts = {
       '  if (id === "expo-screen-capture") return rnv.expoScreenCapture;\n' +
       '  if (id === "expo-secure-store") return rnv.expoSecureStore;\n' +
       '  if (id === "expo-sharing") return rnv.expoSharing;\n' +
+      '  if (id === "expo-sms") return rnv.expoSms;\n' +
       '  if (id === "react-native-safe-area-context") return rnv.safeAreaContext;\n' +
       '  if (id === "react-native-screens") return rnv.screens;\n' +
       '  if (id === "react-native-reanimated") return rnv.reanimated;\n' +
