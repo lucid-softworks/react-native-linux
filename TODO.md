@@ -213,7 +213,7 @@ Next-up real implementations, ordered by effort × ecosystem demand. Each is its
 - [x] **`expo-battery`** — DONE 2026-05-26. See `docs/realworld-expo-battery-sharing.md`. Reuses the DeviceInfo /sys/class/power_supply path; live UPower subscription is a follow-up.
 - [x] **`expo-print`** — DONE 2026-05-26. See `docs/realworld-expo-print.md`. GtkPrintOperation + cairo PDF; HTML→plaintext stripping (WebKitGTK HTML render path is the planned follow-up).
 - [x] **`expo-screen-capture`** — DONE 2026-05-26 as an honest no-op. See `docs/realworld-expo-screen-capture.md`. Upstream API is about PREVENTING capture, not doing it; no portable Linux mechanism exists. Future improvements: xdg-desktop-portal opt-out for sandboxed apps, wp-security-context-v1 on supporting Wayland compositors.
-- [ ] **`expo-cellular`** / **`expo-sms`** — no telephony on desktop. Return realistic "no SIM" / "not available" responses (not stubs that lie about success).
+- [x] **`expo-cellular`** / **`expo-sms`** — DONE 2026-06-20. See `docs/realworld-expo-cellular-sms.md`. Honest "no telephony" shims: cellular returns null/UNKNOWN for data queries, SMS returns unavailable. ModemManager DBus integration is the planned follow-up for devices with cellular hardware.
 
 ## Phase 10 — Stretch / nice-to-haves
 

@@ -1245,6 +1245,19 @@ function SmokeDemo() {
         await m.allowScreenCaptureAsync();
         return 'API wired (prevention is a Linux no-op — see docs)';
       }),
+      tryProbe('expo-cellular', async function p() {
+        const m = require('expo-cellular');
+        const gen = await m.getCellularGenerationAsync();
+        const carrier = await m.getCarrierNameAsync();
+        const mcc = await m.getMobileCountryCodeAsync();
+        const perms = await m.getPermissionsAsync();
+        return `gen=${gen} carrier=${carrier} mcc=${mcc} perms=${perms.status}`;
+      }),
+      tryProbe('expo-sms', async function p() {
+        const m = require('expo-sms');
+        const avail = await m.isAvailableAsync();
+        return `available=${avail}`;
+      }),
     ];
     Promise.all(runs).then(setProbes);
   }, []);
@@ -1364,6 +1377,29 @@ function SmokeDemo() {
               successfully but don't actually stop screen capture — there's no portable "secure
               window" hint across X11 / Wayland compositors, and no DBus signal to hook for
               screenshot detection. See docs/realworld-expo-screen-capture.md.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-cellular')} />
+          <View style={styles.demo}>
+            <Text style={styles.demoCaption}>
+              Cellular is a telephony concept — Linux desktops don't have a SIM card or cellular
+              modem. Data getters return null, generation returns UNKNOWN, permissions return granted
+              (no phone-state permission needed on desktop). Cross-platform code that checks
+              generation/carrier handles the "no data" case naturally.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <ProbeRow probe={pending('expo-sms')} />
+          <View style={styles.demo}>
+            <Text style={styles.demoCaption}>
+              SMS requires telephony hardware. isAvailableAsync returns false; sendSMSAsync throws
+              UnavailabilityError. Cross-platform code that gates on isAvailableAsync before sending
+              follows the "no SMS hardware" path naturally.
             </Text>
           </View>
         </View>

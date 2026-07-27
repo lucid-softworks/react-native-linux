@@ -81,6 +81,8 @@ const expoPrintMod = require('@lucid-softworks/react-native-linux-expo/expo-prin
 const expoScreenCaptureMod = require('@lucid-softworks/react-native-linux-expo/expo-screen-capture');
 const expoSecureStoreMod = require('@lucid-softworks/react-native-linux-expo/expo-secure-store');
 const expoSharingMod = require('@lucid-softworks/react-native-linux-expo/expo-sharing');
+const expoCellularMod = require('@lucid-softworks/react-native-linux-expo/expo-cellular');
+const expoSmsMod = require('@lucid-softworks/react-native-linux-expo/expo-sms');
 const safeAreaCtxMod = require('@lucid-softworks/react-native-linux-expo/react-native-safe-area-context');
 const screensMod = require('@lucid-softworks/react-native-linux-expo/react-native-screens');
 const reanimatedMod = require('@lucid-softworks/react-native-linux-expo/react-native-reanimated');
@@ -174,6 +176,8 @@ globalThis.__rnv = {
   expoScreenCapture: expoScreenCaptureMod,
   expoSecureStore: expoSecureStoreMod,
   expoSharing: expoSharingMod,
+  expoCellular: expoCellularMod,
+  expoSms: expoSmsMod,
   safeAreaContext: safeAreaCtxMod,
   screens: screensMod,
   reanimated: reanimatedMod,
