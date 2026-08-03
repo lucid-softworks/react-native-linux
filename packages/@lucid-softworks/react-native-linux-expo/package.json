@@ -40,11 +40,11 @@
   "peerDependencies": {
     "@lucid-softworks/react-native-linux": "workspace:*",
     "react": "*",
-    "react-native": "^0.81.6"
+    "react-native": "^0.86.2"
   },
   "devDependencies": {
     "react": "19.2.3",
-    "react-native": "^0.81.6"
+    "react-native": "^0.86.2"
   },
   "keywords": [
     "react-native",
